@@ -22,8 +22,15 @@ impl Default for Keybindings {
     }
 }
 
+const LINUX_KEYBINDINGS: &str = include_str!("../../assets/default_keybindings.jsonc");
+const MACOS_KEYBINDINGS: &str = include_str!("../../assets/default_keybindings_macos.jsonc");
+
 /// commented keybindings file written on first launch
-pub const DEFAULT_KEYBINDINGS: &str = include_str!("../../assets/default_keybindings.jsonc");
+pub const DEFAULT_KEYBINDINGS: &str = if cfg!(target_os = "macos") {
+    MACOS_KEYBINDINGS
+} else {
+    LINUX_KEYBINDINGS
+};
 
 // keys are checked before this runs, so `KeyBinding::new` won't panic
 fn binding(action: &str, keys: &str) -> Option<KeyBinding> {
@@ -202,6 +209,20 @@ mod tests {
         assert_eq!(strokes(9), vec![Keystroke::parse("alt-0").unwrap()]);
         // defaults untouched
         assert_eq!(strokes(0), vec![Keystroke::parse("alt-1").unwrap()]);
+    }
+
+    #[test]
+    fn macos_defaults_bind_the_same_actions() {
+        let actions = |file: &str| -> Vec<String> {
+            let bindings: BTreeMap<String, Option<String>> = parse_over(file, "{}").unwrap();
+            for keys in bindings.values().flatten() {
+                for key in keys.split_whitespace() {
+                    Keystroke::parse(key).unwrap();
+                }
+            }
+            bindings.into_keys().collect()
+        };
+        assert_eq!(actions(MACOS_KEYBINDINGS), actions(LINUX_KEYBINDINGS));
     }
 
     #[test]

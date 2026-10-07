@@ -103,11 +103,37 @@ jobs:
         if [ "$RUNNER_OS" = "Windows" ]; then
           cp target/${{ matrix.target }}/release/kuterm.exe "$name/"
           7z a "$name.zip" "$name"
-        else
+        elif [ "$RUNNER_OS" = "Linux" ]; then
           strip target/${{ matrix.target }}/release/kuterm
           cp target/${{ matrix.target }}/release/kuterm "$name/"
           tar -czf "$name.tar.gz" "$name"
         fi
+
+    - name: Package app, dmg
+      if: runner.os == 'macOS'
+      run: |
+        name=kuterm-${RELEASE_REF#release/}-${{ matrix.name }}
+        version=${RELEASE_REF#release/v}
+        app=dmg/kuterm.app
+        mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+        strip target/${{ matrix.target }}/release/kuterm
+        cp target/${{ matrix.target }}/release/kuterm "$app/Contents/MacOS/"
+        sed "s/VERSION/$version/g" assets/macos/Info.plist > "$app/Contents/Info.plist"
+
+        mkdir kuterm.iconset
+        for size in 16 32 128 256; do
+          sips -z $size $size assets/logo/logo.png --out kuterm.iconset/icon_${size}x${size}.png > /dev/null
+          sips -z $((size * 2)) $((size * 2)) assets/logo/logo.png --out kuterm.iconset/icon_${size}x${size}@2x.png > /dev/null
+        done
+        iconutil -c icns kuterm.iconset -o "$app/Contents/Resources/kuterm.icns"
+
+        # strip breaks the linker's signature and apple silicon kills unsigned apps, so sign ad-hoc.
+        # it needs no apple account, macos still asks to allow the app in system settings once
+        codesign --force --sign - "$app"
+
+        # the applications link lets the user drag the app into it
+        ln -s /Applications dmg/Applications
+        hdiutil create -volname kuterm -srcfolder dmg -ov -format UDZO "$name.dmg"
 
     - name: Package deb, rpm, appimage
       if: runner.os == 'Linux'
@@ -134,6 +160,7 @@ jobs:
         path: |
           kuterm-*.tar.gz
           kuterm-*.zip
+          kuterm-*.dmg
           kuterm-*.deb
           kuterm-*.rpm
           kuterm-*.AppImage

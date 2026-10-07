@@ -55,7 +55,7 @@ CI also runs `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings`
   - defaults live only in `assets/*.jsonc` (embedded as bin with `include_str!`); `Default` impls parse them, so NEVER hardcode defaults in rust as a code.
   - user files in `$XDG_CONFIG_HOME/kuterm/` are parsed and deep merged over the bundled json (`settings::merge`); enums and arrays are replaced whole. missing files are created from defaults, broken ones fall back to defaults with an error on stderr.
   - new setting: add the struct field, add it with a comment to `assets/default_settings.jsonc`. numeric limits are enforced in `Settings::parse`.
-  - new action: add it to `binding()` in `keybindings.rs` and to `assets/default_keybindings.jsonc` with a comment.
+  - new action: add it to `binding()` in `keybindings.rs` and to `assets/default_keybindings.jsonc` and `assets/default_keybindings_macos.jsonc` with a comment.
 
 - `src/ui/`: `Workspace` (root view, tabs) -> `TerminalView` (focus, keys, scroll, paste) -> `TerminalElement`, a custom gpui `Element` that sizes terminal in `prepaint`, builds background rects and batched text runs (`grid.rs`), and paints cursor (`cursor.rs`).
 

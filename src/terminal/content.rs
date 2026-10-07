@@ -25,6 +25,8 @@ pub struct Content {
     pub history_size: usize,
     pub cursor: RenderableCursor,
     pub cursor_char: char,
+    /// program asked for a blinking cursor
+    pub cursor_blinking: bool,
     pub terminal_bounds: TerminalBounds,
 }
 
@@ -41,6 +43,7 @@ impl Default for Content {
                 point: AlacPoint::default(),
             },
             cursor_char: ' ',
+            cursor_blinking: false,
             terminal_bounds: TerminalBounds::default(),
         }
     }
@@ -62,5 +65,6 @@ impl Content {
         self.history_size = term.grid().history_size();
         self.cursor = content.cursor;
         self.cursor_char = term.grid()[content.cursor.point].c;
+        self.cursor_blinking = term.cursor_style().blinking;
     }
 }

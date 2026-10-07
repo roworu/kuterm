@@ -1,0 +1,42 @@
+// kuterm keybindings
+//
+// this file is created with default values on first launch.
+// comments and trailing commas are allowed, missing actions keep their default keys.
+// if this file is invalid, all defaults are used and an error is printed.
+// changes are applied on next launch.
+//
+// a bound key is never sent to the terminal, so defaults use cmd combinations like other macos
+// apps do. the shell never gets cmd keys, so ctrl-w, ctrl-t, ctrl-c... keep reaching it.
+//
+// each action maps to one key, written as modifiers and a key joined by "-":
+//   modifiers: "ctrl", "alt", "shift", "cmd", "fn"
+//   keys: letters, digits, "tab", "enter", "space", "escape", "f1".."f12", ...
+//   "cmd-t"          - cmd and t together
+//   "ctrl-a t"       - ctrl-a, then t (keys separated by spaces are pressed one after another)
+//   null             - no key, the action is disabled
+{
+  // open a new tab
+  "new_tab": "cmd-t",
+  // close the active tab
+  "close_tab": "cmd-w",
+  // switch to the tab on the right, wrapping around to the first one
+  "next_tab": "ctrl-tab",
+  // copy text selected with the mouse to clipboard
+  "copy": "cmd-c",
+  // paste from clipboard into the terminal
+  "paste": "cmd-v",
+  // open command palette
+  "command_palette": "cmd-shift-p",
+  // toggle fullscreen
+  "toggle_fullscreen": "ctrl-cmd-f",
+  // switch to tab by its position, any "activate_tab_<n>" with n from 1 up can be added
+  "activate_tab_1": "cmd-1",
+  "activate_tab_2": "cmd-2",
+  "activate_tab_3": "cmd-3",
+  "activate_tab_4": "cmd-4",
+  "activate_tab_5": "cmd-5",
+  "activate_tab_6": "cmd-6",
+  "activate_tab_7": "cmd-7",
+  "activate_tab_8": "cmd-8",
+  "activate_tab_9": "cmd-9",
+}

@@ -65,6 +65,27 @@ impl From<CursorShape> for AlacCursorShape {
     }
 }
 
+/// when the cursor blinks
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum CursorBlink {
+    On,
+    Off,
+    /// only while the running program asks for it
+    App,
+}
+
+impl CursorBlink {
+    /// true when the cursor should blink, `app_asks` is what the program set
+    pub fn active(&self, app_asks: bool) -> bool {
+        match self {
+            CursorBlink::On => true,
+            CursorBlink::Off => false,
+            CursorBlink::App => app_asks,
+        }
+    }
+}
+
 /// one piece of the tab title
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -181,6 +202,15 @@ mod tests {
         assert!(ScrollEasing::EaseOut.apply(0.25) > 0.25);
         assert!(ScrollEasing::EaseInOut.apply(0.25) < 0.25);
         assert_eq!(ScrollEasing::EaseInOut.apply(0.5), 0.5);
+    }
+
+    #[test]
+    fn cursor_blink_follows_mode() {
+        for app_asks in [false, true] {
+            assert!(CursorBlink::On.active(app_asks));
+            assert!(!CursorBlink::Off.active(app_asks));
+            assert_eq!(CursorBlink::App.active(app_asks), app_asks);
+        }
     }
 
     #[test]

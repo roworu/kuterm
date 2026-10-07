@@ -39,6 +39,8 @@ pub struct TerminalElement {
     terminal_view: Entity<TerminalView>,
     focus: FocusHandle,
     focused: bool,
+    /// false while a blinking cursor is in its hidden phase
+    cursor_on: bool,
     /// false once auto hide kicked in
     scrollbar_visible: bool,
 }
@@ -50,6 +52,7 @@ impl TerminalElement {
         terminal_view: Entity<TerminalView>,
         focus: FocusHandle,
         focused: bool,
+        cursor_on: bool,
         scrollbar_visible: bool,
     ) -> Self {
         Self {
@@ -57,6 +60,7 @@ impl TerminalElement {
             terminal_view,
             focus,
             focused,
+            cursor_on,
             scrollbar_visible,
         }
     }
@@ -332,7 +336,10 @@ impl Element for TerminalElement {
             for run in &mut layout.batched_text_runs {
                 run.paint(origin, &layout.dimensions, layout.font_size, window, cx);
             }
-            if let Some(cursor) = &layout.cursor {
+            // layout is kept while hidden, the input handler still needs its bounds for ime
+            if let Some(cursor) = &layout.cursor
+                && self.cursor_on
+            {
                 cursor.paint(origin, window, cx);
             }
             if let Some((scrollbar, _)) = &layout.scrollbar {

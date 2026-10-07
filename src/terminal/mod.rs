@@ -353,6 +353,27 @@ mod tests {
     }
 
     #[test]
+    fn program_can_ask_for_blinking_cursor() {
+        let profile = profile(Shell::WithArguments {
+            program: "/bin/sh".into(),
+            args: vec![
+                "-c".into(),
+                "read _; printf '\\033[1 qblink_on'; read _; printf '\\033[2 qblink_off'; sleep 5"
+                    .into(),
+            ],
+        });
+        let mut builder = spawn_with(&TerminalSettings::default(), &profile);
+        let terminal = &mut builder.terminal;
+        assert!(!terminal.last_content.cursor_blinking);
+        terminal.input(b"\r".to_vec());
+        wait_for_text(terminal, "blink_on");
+        assert!(terminal.last_content.cursor_blinking);
+        terminal.input(b"\r".to_vec());
+        wait_for_text(terminal, "blink_off");
+        assert!(!terminal.last_content.cursor_blinking);
+    }
+
+    #[test]
     fn resize_reaches_shell() {
         let mut builder = spawn(&TerminalSettings::default());
         builder.terminal.set_size(TerminalBounds::new(
@@ -583,11 +604,12 @@ mod history_cap_terminal {
             args: vec![
                 "-c".into(),
                 format!(
-                    "i=0; while [ $i -lt {lines} ]; do echo row_$i; i=$((i+1)); done; echo agent_done; sleep 5"
+                    "read go; i=0; while [ $i -lt {lines} ]; do echo row_$i; i=$((i+1)); done; echo agent_done; sleep 5"
                 ),
             ],
         });
         let mut b = spawn_with(settings, &p);
+        b.terminal.input(b"\r".to_vec());
         wait_for_text(&mut b.terminal, "agent_done");
         b
     }
@@ -780,11 +802,12 @@ mod scrollbar_terminal {
             args: vec![
                 "-c".into(),
                 format!(
-                    "i=0; while [ $i -lt {lines} ]; do echo row_$i; i=$((i+1)); done; echo agent_done; sleep 5"
+                    "read go; i=0; while [ $i -lt {lines} ]; do echo row_$i; i=$((i+1)); done; echo agent_done; sleep 5"
                 ),
             ],
         });
         let mut b = spawn_with(settings, &p);
+        b.terminal.input(b"\r".to_vec());
         wait_for_text(&mut b.terminal, "agent_done");
         b
     }
