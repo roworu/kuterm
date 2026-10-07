@@ -353,6 +353,27 @@ mod tests {
     }
 
     #[test]
+    fn program_can_ask_for_blinking_cursor() {
+        let profile = profile(Shell::WithArguments {
+            program: "/bin/sh".into(),
+            args: vec![
+                "-c".into(),
+                "read _; printf '\\033[1 qblink_on'; read _; printf '\\033[2 qblink_off'; sleep 5"
+                    .into(),
+            ],
+        });
+        let mut builder = spawn_with(&TerminalSettings::default(), &profile);
+        let terminal = &mut builder.terminal;
+        assert!(!terminal.last_content.cursor_blinking);
+        terminal.input(b"\r".to_vec());
+        wait_for_text(terminal, "blink_on");
+        assert!(terminal.last_content.cursor_blinking);
+        terminal.input(b"\r".to_vec());
+        wait_for_text(terminal, "blink_off");
+        assert!(!terminal.last_content.cursor_blinking);
+    }
+
+    #[test]
     fn resize_reaches_shell() {
         let mut builder = spawn(&TerminalSettings::default());
         builder.terminal.set_size(TerminalBounds::new(

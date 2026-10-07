@@ -17,8 +17,8 @@ use serde_json_lenient::Value;
 pub use commands::{Command, CommandAction, Commands};
 pub use keybindings::Keybindings;
 pub use options::{
-    CursorShape, LineHeight, NewTabButton, ScrollEasing, ScrollbarEnable, ScrollbarPlacement,
-    Shell, TabIconPosition, TabTitleAlign, TabTitleBlock, ThemeMode,
+    CursorBlink, CursorShape, LineHeight, NewTabButton, ScrollEasing, ScrollbarEnable,
+    ScrollbarPlacement, Shell, TabIconPosition, TabTitleAlign, TabTitleBlock, ThemeMode,
 };
 pub use pins::Pins;
 pub use tab_icons::TabIcons;
@@ -94,6 +94,9 @@ pub struct TerminalSettings {
     pub font_size: f32,
     pub line_height: LineHeight,
     pub cursor_shape: CursorShape,
+    pub cursor_blink: CursorBlink,
+    /// milliseconds the blinking cursor stays shown, then hidden
+    pub cursor_blink_interval: f32,
     pub max_history_length: usize,
     pub scrollbar: ScrollbarSettings,
     pub smooth_scroll: SmoothScrollSettings,
@@ -157,6 +160,8 @@ const LINE_HEIGHT_RANGE: (f32, f32) = (1., 3.);
 const SCROLLBAR_WIDTH_RANGE: (f32, f32) = (2., 64.);
 // Duration panics on negative or huge seconds, an hour is already "never"
 const AUTO_HIDE_RANGE: (f32, f32) = (0., 3600.);
+// faster blinking flickers, slower looks like a hang
+const CURSOR_BLINK_INTERVAL_RANGE: (f32, f32) = (100., 2000.);
 // longer glides feel like lag, not smoothness
 const SMOOTH_SCROLL_DURATION_RANGE: (f32, f32) = (0., 1000.);
 
@@ -245,6 +250,12 @@ impl Settings {
             terminal.line_height = limit("terminal.line_height", value, LINE_HEIGHT_RANGE)
                 .map_or(defaults.terminal.line_height, LineHeight::Custom);
         }
+        terminal.cursor_blink_interval = limit(
+            "terminal.cursor_blink_interval",
+            terminal.cursor_blink_interval,
+            CURSOR_BLINK_INTERVAL_RANGE,
+        )
+        .unwrap_or(defaults.terminal.cursor_blink_interval);
         if terminal.max_history_length > MAX_HISTORY_LENGTH {
             eprintln!(
                 "terminal.max_history_length {} is above {MAX_HISTORY_LENGTH}, using {MAX_HISTORY_LENGTH}",
@@ -468,6 +479,10 @@ pub(crate) mod tests {
         let settings = Settings::parse(r#"{"terminal": {"cursor_shape": "hollow"}}"#).unwrap();
         let defaults = Settings::default();
         assert_eq!(settings.terminal.cursor_shape, CursorShape::Hollow);
+        assert_eq!(
+            settings.terminal.cursor_blink,
+            defaults.terminal.cursor_blink
+        );
         assert_eq!(settings.terminal.font_size, defaults.terminal.font_size);
         assert_eq!(settings.ui_font_size, defaults.ui_font_size);
     }
@@ -555,6 +570,7 @@ pub(crate) mod tests {
             r#"{"tab_width": 60.5}"#,
             r#"{"ui_font_size": "big"}"#,
             r#"{"terminal": {"cursor_shape": "triangle"}}"#,
+            r#"{"terminal": {"cursor_blink": true}}"#,
             r#"{"terminal": {"line_height": "tall"}}"#,
             r#"{"profiles": [{"name": "a", "command": {"unknown": "zsh"}}]}"#,
             r#"{"profiles": [{"name": "a", "command": {"with_arguments": {"program": "bash"}}}]}"#,
@@ -899,6 +915,30 @@ pub(crate) mod tests {
         assert_eq!(auto_hide("3600"), 3600.);
         assert_eq!(auto_hide("3601"), 3600.);
         assert_eq!(auto_hide("1e30"), 3600.);
+    }
+
+    #[test]
+    fn cursor_blink_parses_and_interval_limits() {
+        let terminal = |json: &str| Settings::parse(json).unwrap().terminal;
+        assert_eq!(
+            terminal(r#"{"terminal": {"cursor_blink": "on"}}"#).cursor_blink,
+            CursorBlink::On
+        );
+        assert_eq!(
+            terminal(r#"{"terminal": {"cursor_blink": "off"}}"#).cursor_blink,
+            CursorBlink::Off
+        );
+        let interval = |value: &str| {
+            let json = format!(r#"{{"terminal": {{"cursor_blink_interval": {value}}}}}"#);
+            terminal(&json).cursor_blink_interval
+        };
+        let default = Settings::default().terminal.cursor_blink_interval;
+        assert_eq!(interval("0"), default);
+        assert_eq!(interval("99"), default);
+        assert_eq!(interval("100"), 100.);
+        assert_eq!(interval("750"), 750.);
+        assert_eq!(interval("2000"), 2000.);
+        assert_eq!(interval("5000"), 2000.);
     }
 
     #[test]

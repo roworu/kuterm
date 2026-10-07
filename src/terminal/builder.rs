@@ -52,6 +52,12 @@ pub struct TerminalBuilder {
 }
 
 impl TerminalBuilder {
+    /// terminal without its event pump, the pty thread would wake gpui's test scheduler
+    #[cfg(test)]
+    pub(crate) fn into_terminal(self) -> Terminal {
+        self.terminal
+    }
+
     /// spawn the profile command in a new pty
     pub fn new(
         settings: &TerminalSettings,

@@ -62,6 +62,10 @@ pub struct TerminalView {
     scroll_animation: Option<ScrollAnimation>,
     /// repaints once the scrollbar should hide, replacing it cancels the old timer
     _hide_scrollbar: Task<()>,
+    /// false while a blinking cursor is in its hidden phase
+    cursor_on: bool,
+    /// flips `cursor_on` on every tick, none while the cursor does not blink
+    blink: Option<Task<()>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -95,6 +99,8 @@ impl TerminalView {
             history_size: 0,
             scroll_animation: None,
             _hide_scrollbar: Task::ready(()),
+            cursor_on: true,
+            blink: None,
             _subscriptions: subscriptions,
         }
     }
@@ -104,10 +110,37 @@ impl TerminalView {
         &self.terminal
     }
 
+    // shows the cursor and restarts its phase, so it stays visible while typing
+    fn restart_blink(&mut self, cx: &mut Context<Self>) {
+        self.cursor_on = true;
+        let interval =
+            Duration::from_secs_f32(Settings::get(cx).terminal.cursor_blink_interval / 1000.);
+        self.blink = Some(cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(interval).await;
+                let flipped = this.update(cx, |this, cx| {
+                    this.cursor_on = !this.cursor_on;
+                    cx.notify();
+                });
+                if flipped.is_err() {
+                    break;
+                }
+            }
+        }));
+    }
+
+    // typing should never land while the cursor is hidden
+    fn input_happened(&mut self, cx: &mut Context<Self>) {
+        self.scroll_animation = None;
+        if self.blink.is_some() {
+            self.restart_blink(cx);
+        }
+    }
+
     /// send committed text from  input handler to pty
     pub fn commit_text(&mut self, text: &str, cx: &mut Context<Self>) {
         if !text.is_empty() {
-            self.scroll_animation = None;
+            self.input_happened(cx);
             self.terminal
                 .update(cx, |term, _| term.input(text.to_string().into_bytes()));
         }
@@ -123,7 +156,7 @@ impl TerminalView {
             .update(cx, |term, _| term.try_keystroke(&event.keystroke))
         {
             // input jumps to the bottom, a running glide would pull the view back up
-            self.scroll_animation = None;
+            self.input_happened(cx);
             cx.stop_propagation();
         }
     }
@@ -351,7 +384,7 @@ impl TerminalView {
 
     fn paste(&mut self, _: &Paste, _: &mut Window, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-            self.scroll_animation = None;
+            self.input_happened(cx);
             self.terminal.update(cx, |term, _| term.paste(&text));
             cx.emit(ClipboardEvent::Pasted);
         }
@@ -391,6 +424,17 @@ impl Render for TerminalView {
             self.show_scrollbar(cx);
         }
         self.history_size = history_size;
+        let blinking = focused
+            && Settings::get(cx)
+                .terminal
+                .cursor_blink
+                .active(self.terminal.read(cx).last_content.cursor_blinking);
+        if !blinking {
+            self.blink = None;
+            self.cursor_on = true;
+        } else if self.blink.is_none() {
+            self.restart_blink(cx);
+        }
         div()
             .id("terminal-view")
             .size_full()
@@ -405,7 +449,67 @@ impl Render for TerminalView {
                 cx.entity(),
                 self.focus_handle.clone(),
                 focused,
+                self.cursor_on,
                 self.scrollbar_visible(cx),
             ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui::{AppContext, TestAppContext, VisualTestContext};
+
+    use super::*;
+    use crate::terminal::TerminalBuilder;
+
+    /// focused view over a real shell, with terminal settings overridden by `json`
+    fn focused_view<'a>(
+        json: &str,
+        cx: &'a mut TestAppContext,
+    ) -> (Entity<TerminalView>, &'a mut VisualTestContext) {
+        let settings = Settings::parse(json).unwrap();
+        cx.update(|cx| {
+            cx.set_global(settings.clone());
+            cx.set_global(crate::theme::Theme::default());
+        });
+        let builder = TerminalBuilder::new(&settings.terminal, settings.default_profile(), 0)
+            .expect("failed to spawn shell");
+        let terminal = cx.new(|_| builder.into_terminal());
+        let (view, cx) = cx.add_window_view(|window, cx| TerminalView::new(terminal, window, cx));
+        cx.update(|window, cx| {
+            window.activate_window();
+            view.read(cx).focus_handle.clone().focus(window, cx);
+        });
+        cx.run_until_parked();
+        (view, cx)
+    }
+
+    #[gpui::test]
+    fn cursor_blinks_and_typing_shows_it(cx: &mut TestAppContext) {
+        let (view, cx) = focused_view(
+            r#"{"terminal": {"cursor_blink": "on", "cursor_blink_interval": 400}}"#,
+            cx,
+        );
+        assert!(view.read_with(cx, |view, _| view.blink.is_some() && view.cursor_on));
+        cx.executor().advance_clock(Duration::from_millis(450));
+        cx.run_until_parked();
+        assert!(!view.read_with(cx, |view, _| view.cursor_on));
+        cx.executor().advance_clock(Duration::from_millis(400));
+        cx.run_until_parked();
+        assert!(view.read_with(cx, |view, _| view.cursor_on));
+        cx.executor().advance_clock(Duration::from_millis(400));
+        cx.run_until_parked();
+        assert!(!view.read_with(cx, |view, _| view.cursor_on));
+
+        cx.simulate_keystrokes("a");
+        assert!(view.read_with(cx, |view, _| view.cursor_on));
+    }
+
+    #[gpui::test]
+    fn cursor_does_not_blink_when_off(cx: &mut TestAppContext) {
+        let (view, cx) = focused_view(r#"{"terminal": {"cursor_blink": "off"}}"#, cx);
+        cx.executor().advance_clock(Duration::from_secs(3));
+        cx.run_until_parked();
+        assert!(view.read_with(cx, |view, _| view.blink.is_none() && view.cursor_on));
     }
 }
