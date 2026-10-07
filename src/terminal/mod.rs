@@ -604,11 +604,12 @@ mod history_cap_terminal {
             args: vec![
                 "-c".into(),
                 format!(
-                    "i=0; while [ $i -lt {lines} ]; do echo row_$i; i=$((i+1)); done; echo agent_done; sleep 5"
+                    "read go; i=0; while [ $i -lt {lines} ]; do echo row_$i; i=$((i+1)); done; echo agent_done; sleep 5"
                 ),
             ],
         });
         let mut b = spawn_with(settings, &p);
+        b.terminal.input(b"\r".to_vec());
         wait_for_text(&mut b.terminal, "agent_done");
         b
     }
@@ -801,11 +802,12 @@ mod scrollbar_terminal {
             args: vec![
                 "-c".into(),
                 format!(
-                    "i=0; while [ $i -lt {lines} ]; do echo row_$i; i=$((i+1)); done; echo agent_done; sleep 5"
+                    "read go; i=0; while [ $i -lt {lines} ]; do echo row_$i; i=$((i+1)); done; echo agent_done; sleep 5"
                 ),
             ],
         });
         let mut b = spawn_with(settings, &p);
+        b.terminal.input(b"\r".to_vec());
         wait_for_text(&mut b.terminal, "agent_done");
         b
     }
