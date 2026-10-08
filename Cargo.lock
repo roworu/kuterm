@@ -2925,6 +2925,7 @@ dependencies = [
  "gpui",
  "gpui_platform",
  "image",
+ "libc",
  "serde",
  "serde_json_lenient",
  "skrifa 0.47.0",

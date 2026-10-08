@@ -34,6 +34,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json_lenient = "0.2"
 skrifa = "0.47"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 gpui = { git = "https://github.com/zed-industries/zed", rev = "cd8c4674188613e32c219ace84a5cd62f5d8f708", features = ["test-support"] }
 

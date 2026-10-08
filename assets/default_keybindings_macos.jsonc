@@ -29,6 +29,14 @@
   "command_palette": "cmd-shift-p",
   // toggle fullscreen
   "toggle_fullscreen": "ctrl-cmd-f",
+  // quit, asking first when programs still run in some tabs
+  "quit": "cmd-q",
+  // hide kuterm
+  "hide": "cmd-h",
+  // hide every other app
+  "hide_others": "alt-cmd-h",
+  // minimize the window
+  "minimize": "cmd-m",
   // switch to tab by its position, any "activate_tab_<n>" with n from 1 up can be added
   "activate_tab_1": "cmd-1",
   "activate_tab_2": "cmd-2",

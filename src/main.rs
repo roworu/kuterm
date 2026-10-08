@@ -13,7 +13,10 @@ use crate::{
     cli::{Cli, USAGE},
     settings::{Commands, Keybindings, Pins, Settings, TabIcons},
     theme::Theme,
-    ui::{text_input, workspace::Workspace},
+    ui::{
+        text_input,
+        workspace::{Hide, HideOthers, ShowAll, Workspace, app_menus},
+    },
 };
 
 /// bundled regular face, also used to measure tab icons
@@ -51,6 +54,11 @@ fn init(cx: &mut App) {
     Theme::apply(cx.window_appearance(), cx);
     cx.bind_keys(Keybindings::load().bindings());
     cx.bind_keys(text_input::bindings());
+    // app wide, they work with no window focused
+    cx.on_action(|_: &Hide, cx| cx.hide());
+    cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
+    cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
+    cx.set_menus(app_menus());
 }
 
 fn main() {

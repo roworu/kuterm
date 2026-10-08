@@ -29,6 +29,14 @@
   "command_palette": "ctrl-shift-p",
   // toggle fullscreen
   "toggle_fullscreen": "f11",
+  // quit, asking first when programs still run in some tabs
+  "quit": null,
+  // hide kuterm, macos only
+  "hide": null,
+  // hide every other app, macos only
+  "hide_others": null,
+  // minimize the window
+  "minimize": null,
   // switch to tab by its position, any "activate_tab_<n>" with n from 1 up can be added
   "activate_tab_1": "alt-1",
   "activate_tab_2": "alt-2",

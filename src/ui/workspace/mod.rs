@@ -1,5 +1,6 @@
 //! root view: owns tabs and handles new tab / close tab.
 
+mod app_menu;
 mod end_truncated;
 mod notifications;
 mod tab_bar;
@@ -20,6 +21,7 @@ use gpui::{
     ManagedView, Pixels, Point, ScrollHandle, Subscription, Task, Window, actions, prelude::*,
 };
 
+pub use app_menu::app_menus;
 use notifications::Notification;
 use tab_title::TitleInputs;
 
@@ -44,7 +46,14 @@ actions!(
         CloseTab,
         NextTab,
         ToggleCommandPalette,
-        ToggleFullscreen
+        ToggleFullscreen,
+        OpenAbout,
+        Quit,
+        Hide,
+        HideOthers,
+        ShowAll,
+        Minimize,
+        Zoom
     ]
 );
 
@@ -1073,6 +1082,8 @@ impl Workspace {
         cx.bind_keys(Keybindings::load().bindings());
         // text fields keep their editing keys, they are not part of the user keybindings
         cx.bind_keys(crate::ui::text_input::bindings());
+        // menus show the keys bound to their actions, so they are rebuilt with the new keys
+        cx.set_menus(app_menus());
     }
 
     fn reload_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1097,11 +1108,7 @@ impl Workspace {
                 .filter(|(pane, ix)| self.pane(*pane).is_some_and(|pane| *ix < pane.tabs.len()))
                 .unwrap_or_else(|| (self.focused, self.focused_pane().active));
             match action {
-                CommandAction::About => {
-                    let about = cx.new(About::new);
-                    self.open_overlay(&about, window, cx);
-                    self.about = Some(about);
-                }
+                CommandAction::About => self.open_about(&OpenAbout, window, cx),
                 CommandAction::ReloadSettings => {
                     self.reload_settings(window, cx);
                     self.show_notification("settings reloaded", None, cx);
@@ -1451,6 +1458,24 @@ impl Workspace {
         _: &mut Context<Self>,
     ) {
         window.toggle_fullscreen();
+    }
+
+    fn open_about(&mut self, _: &OpenAbout, window: &mut Window, cx: &mut Context<Self>) {
+        let about = cx.new(About::new);
+        self.open_overlay(&about, window, cx);
+        self.about = Some(about);
+    }
+
+    fn quit_action(&mut self, _: &Quit, window: &mut Window, cx: &mut Context<Self>) {
+        self.request_quit(window, cx);
+    }
+
+    fn minimize(&mut self, _: &Minimize, window: &mut Window, _: &mut Context<Self>) {
+        window.minimize_window();
+    }
+
+    fn zoom(&mut self, _: &Zoom, window: &mut Window, _: &mut Context<Self>) {
+        window.zoom_window();
     }
 }
 

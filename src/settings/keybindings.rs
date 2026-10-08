@@ -9,7 +9,10 @@ use super::{config_dir, load_file, parse_over};
 use crate::cli::Cli;
 use crate::ui::{
     terminal_view::{Copy, Paste},
-    workspace::{ActivateTab, CloseTab, NewTab, NextTab, ToggleCommandPalette, ToggleFullscreen},
+    workspace::{
+        ActivateTab, CloseTab, Hide, HideOthers, Minimize, NewTab, NextTab, Quit,
+        ToggleCommandPalette, ToggleFullscreen,
+    },
 };
 
 /// action name to its keys, `None` when the action is disabled
@@ -42,6 +45,10 @@ fn binding(action: &str, keys: &str) -> Option<KeyBinding> {
         "paste" => KeyBinding::new(keys, Paste, Some("Terminal")),
         "command_palette" => KeyBinding::new(keys, ToggleCommandPalette, None),
         "toggle_fullscreen" => KeyBinding::new(keys, ToggleFullscreen, None),
+        "quit" => KeyBinding::new(keys, Quit, None),
+        "hide" => KeyBinding::new(keys, Hide, None),
+        "hide_others" => KeyBinding::new(keys, HideOthers, None),
+        "minimize" => KeyBinding::new(keys, Minimize, None),
         _ => {
             let number: usize = action.strip_prefix("activate_tab_")?.parse().ok()?;
             KeyBinding::new(keys, ActivateTab(number.checked_sub(1)?), None)
@@ -235,6 +242,10 @@ mod tests {
             "paste",
             "command_palette",
             "toggle_fullscreen",
+            "quit",
+            "hide",
+            "hide_others",
+            "minimize",
             "activate_tab_1",
         ] {
             let line = DEFAULT_KEYBINDINGS

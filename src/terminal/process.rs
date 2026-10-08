@@ -1,6 +1,9 @@
-//! finding what runs in the foreground of a shell, read from /proc so linux only
+//! finding what runs in the foreground of a shell, read from /proc on linux and libproc on macos
 
 use std::path::{Path, PathBuf};
+
+#[cfg(target_os = "macos")]
+pub use macos::{children, foreground_process, process_info};
 
 /// program in the foreground of a terminal
 #[derive(Debug)]
@@ -12,6 +15,7 @@ pub struct ForegroundProcess {
 }
 
 /// foreground process of the terminal `shell_pid` runs in, none when /proc can't tell
+#[cfg(not(target_os = "macos"))]
 pub fn foreground_process(shell_pid: u32) -> Option<ForegroundProcess> {
     let stat = std::fs::read_to_string(format!("/proc/{shell_pid}/stat")).ok()?;
     // comm may contain spaces and parens, so count fields after the last ')'
@@ -28,6 +32,7 @@ pub fn foreground_process(shell_pid: u32) -> Option<ForegroundProcess> {
 }
 
 /// name, arguments and folder of any process, none when it is gone
+#[cfg(not(target_os = "macos"))]
 pub fn process_info(pid: u32) -> Option<ForegroundProcess> {
     let (name, args) = process_name(pid)?;
     let cwd = std::fs::read_link(format!("/proc/{pid}/cwd")).ok();
@@ -40,6 +45,7 @@ pub fn process_info(pid: u32) -> Option<ForegroundProcess> {
 }
 
 /// processes started by `pid`, oldest first per thread
+#[cfg(not(target_os = "macos"))]
 pub fn children(pid: u32) -> Vec<u32> {
     let Ok(tasks) = std::fs::read_dir(format!("/proc/{pid}/task")) else {
         return Vec::new();
@@ -55,6 +61,7 @@ pub fn children(pid: u32) -> Vec<u32> {
         .collect()
 }
 
+#[cfg(not(target_os = "macos"))]
 fn process_name(pid: u32) -> Option<(String, Vec<String>)> {
     // comm is cut to 15 bytes, so prefer argv[0] and use comm only as a fallback
     let cmdline = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
@@ -65,15 +72,122 @@ fn process_name(pid: u32) -> Option<(String, Vec<String>)> {
         .map(|arg| String::from_utf8_lossy(arg).into_owned());
     let arg0 = argv.next()?;
     let args = argv.collect();
-    // login shells start with a dash in argv[0], like "-bash"
-    let name = Path::new(arg0.trim_start_matches('-'))
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned());
-    let name = name.or_else(|| {
+    let name = arg0_name(&arg0).or_else(|| {
         let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
         Some(comm.trim().to_string())
     })?;
     Some((name, args))
+}
+
+fn arg0_name(arg0: &str) -> Option<String> {
+    // login shells start with a dash in argv[0], like "-bash"
+    Path::new(arg0.trim_start_matches('-'))
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+}
+
+#[cfg(target_os = "macos")]
+mod macos {
+    use std::{ffi::CStr, mem, os::unix::ffi::OsStrExt, ptr};
+
+    use super::*;
+
+    /// foreground process of the terminal `shell_pid` runs in, none when libproc can't tell
+    pub fn foreground_process(shell_pid: u32) -> Option<ForegroundProcess> {
+        let tpgid = bsd_info(shell_pid)?.e_tpgid;
+        // 0 when there is no controlling terminal, then the shell itself is shown
+        let pid = if tpgid > 0 { tpgid } else { shell_pid };
+        process_info(pid)
+    }
+
+    /// name, arguments and folder of any process, none when it is gone
+    pub fn process_info(pid: u32) -> Option<ForegroundProcess> {
+        let info = bsd_info(pid)?;
+        let mut argv = argv(pid).unwrap_or_default().into_iter();
+        // pbi_comm is cut to 16 bytes and pbi_name to 32, so prefer argv[0]
+        let name = argv
+            .next()
+            .as_deref()
+            .and_then(arg0_name)
+            .filter(|name| !name.is_empty())
+            .or_else(|| c_string(&info.pbi_name))
+            .or_else(|| c_string(&info.pbi_comm))?;
+        Some(ForegroundProcess {
+            pid,
+            name,
+            args: argv.collect(),
+            cwd: cwd(pid),
+        })
+    }
+
+    /// processes started by `pid`
+    pub fn children(pid: u32) -> Vec<u32> {
+        let mut pids: Vec<libc::pid_t> = vec![0; 1024];
+        let size = (pids.len() * mem::size_of::<libc::pid_t>()) as libc::c_int;
+        // returns the number of pids, not bytes
+        let count = unsafe { libc::proc_listchildpids(pid as _, pids.as_mut_ptr().cast(), size) };
+        pids.truncate(count.clamp(0, pids.len() as libc::c_int) as usize);
+        pids.into_iter().map(|pid| pid as u32).collect()
+    }
+
+    fn bsd_info(pid: u32) -> Option<libc::proc_bsdinfo> {
+        // SAFETY: proc_bsdinfo is a plain c struct, all zero is valid
+        unsafe { pid_info(pid, libc::PROC_PIDTBSDINFO) }
+    }
+
+    fn cwd(pid: u32) -> Option<PathBuf> {
+        // SAFETY: proc_vnodepathinfo is a plain c struct, all zero is valid
+        let info: libc::proc_vnodepathinfo = unsafe { pid_info(pid, libc::PROC_PIDVNODEPATHINFO)? };
+        // libc splits the nul terminated path into nested arrays, but the bytes are contiguous
+        let path = unsafe { CStr::from_ptr(info.pvi_cdir.vip_path.as_ptr().cast()) };
+        let path = path.to_bytes();
+        (!path.is_empty()).then(|| PathBuf::from(std::ffi::OsStr::from_bytes(path)))
+    }
+
+    fn argv(pid: u32) -> Option<Vec<String>> {
+        let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid as libc::c_int];
+        let mut sysctl = |buf: *mut libc::c_void, size: &mut libc::size_t| unsafe {
+            libc::sysctl(mib.as_mut_ptr(), 3, buf, size, ptr::null_mut(), 0) == 0
+        };
+        let mut size: libc::size_t = 0;
+        // a null buffer asks for the size first
+        if !sysctl(ptr::null_mut(), &mut size) {
+            return None;
+        }
+        let mut buf = vec![0u8; size];
+        if !sysctl(buf.as_mut_ptr().cast(), &mut size) {
+            return None;
+        }
+        buf.truncate(size);
+        // laid out as argc, exec path, nul padding, then argc nul terminated args
+        let argc = i32::from_ne_bytes(buf.get(..4)?.try_into().ok()?) as usize;
+        let rest = &buf[4..];
+        let rest = &rest[rest.iter().position(|b| *b == 0)?..];
+        let rest = &rest[rest.iter().position(|b| *b != 0)?..];
+        Some(
+            rest.split(|b| *b == 0)
+                .take(argc)
+                .map(|arg| String::from_utf8_lossy(arg).into_owned())
+                .collect(),
+        )
+    }
+
+    /// `T` must be the plain c struct proc_pidinfo fills for `flavor`
+    unsafe fn pid_info<T>(pid: u32, flavor: libc::c_int) -> Option<T> {
+        let mut info: T = unsafe { mem::zeroed() };
+        let size = mem::size_of::<T>() as libc::c_int;
+        let read = unsafe { libc::proc_pidinfo(pid as _, flavor, 0, (&raw mut info).cast(), size) };
+        (read == size).then_some(info)
+    }
+
+    fn c_string(chars: &[libc::c_char]) -> Option<String> {
+        let bytes: Vec<u8> = chars
+            .iter()
+            .take_while(|c| **c != 0)
+            .map(|c| *c as u8)
+            .collect();
+        (!bytes.is_empty()).then(|| String::from_utf8_lossy(&bytes).into_owned())
+    }
 }
 
 #[cfg(test)]
