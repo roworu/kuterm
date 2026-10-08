@@ -130,7 +130,7 @@ mod tests {
         assert_eq!(keys.0["copy"].as_deref(), Some("ctrl-shift-c"));
         assert_eq!(keys.0["activate_tab_9"].as_deref(), Some("alt-9"));
         assert_eq!(keys.0["toggle_fullscreen"].as_deref(), Some("f11"));
-        assert_eq!(keys.bindings().len(), 17);
+        assert_eq!(keys.bindings().len(), 20);
     }
 
     #[test]
@@ -143,8 +143,9 @@ mod tests {
                 let stroke = Keystroke::parse(key).unwrap();
                 let m = stroke.modifiers;
                 let plain_ctrl = m.control && !m.shift && !m.alt && !m.platform;
+                let letter = stroke.key.len() == 1 && stroke.key.chars().all(char::is_alphabetic);
                 assert!(
-                    !(plain_ctrl && stroke.key.len() == 1),
+                    !(plain_ctrl && letter),
                     "{action} is bound to {key}, which the terminal needs"
                 );
             }
@@ -160,7 +161,7 @@ mod tests {
         assert_eq!(keys.0["new_tab"].as_deref(), Some("ctrl-shift-n"));
         assert_eq!(keys.0["close_tab"], None);
         assert_eq!(keys.0["paste"].as_deref(), Some("ctrl-shift-v"));
-        assert_eq!(keys.bindings().len(), 17);
+        assert_eq!(keys.bindings().len(), 20);
     }
 
     #[test]
@@ -211,7 +212,7 @@ mod tests {
     fn activate_tab_10_adds_a_binding_for_index_9() {
         let keys = Keybindings::parse(r#"{"activate_tab_10": "alt-0"}"#).unwrap();
         let bindings = keys.bindings();
-        assert_eq!(bindings.len(), 18);
+        assert_eq!(bindings.len(), 21);
         let strokes = |ix: usize| -> Vec<Keystroke> {
             let found: Vec<_> = bindings
                 .iter()

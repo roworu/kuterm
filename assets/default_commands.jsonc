@@ -48,9 +48,9 @@
 //   "quit"                             - close every tab and exit, asks first while programs run
 //   "select_all"                       - select the active tab's whole history and screen
 //   "clear"                            - drop the active tab's history, its prompt moves to the top
-//   "increase_font_size"               - make the terminal font one pixel bigger
-//   "decrease_font_size"               - make the terminal font one pixel smaller
-//   "reset_font_size"                  - set the terminal font back to its size from settings
+//   "increase_font_size"               - make the active tab font one pixel bigger
+//   "decrease_font_size"               - make the active tab font one pixel smaller
+//   "reset_font_size"                  - set the active tab font back to its size from settings
 //   "open_settings"                    - open settings.jsonc in the system text editor
 //   { "type": "ls\n" }                 - type text into the active tab, "\n" presses enter
 //   { "notify": "hi" }                 - show a notification inside the window

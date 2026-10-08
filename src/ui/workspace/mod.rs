@@ -1247,15 +1247,9 @@ impl Workspace {
                 CommandAction::Clear => self
                     .terminal_at(pane, ix, cx)
                     .update(cx, |terminal, _| terminal.clear()),
-                CommandAction::IncreaseFontSize => {
-                    self.set_font_size(Settings::get(cx).terminal.font_size + 1., window, cx)
-                }
-                CommandAction::DecreaseFontSize => {
-                    self.set_font_size(Settings::get(cx).terminal.font_size - 1., window, cx)
-                }
-                CommandAction::ResetFontSize => {
-                    self.set_font_size(Settings::load().terminal.font_size, window, cx)
-                }
+                CommandAction::IncreaseFontSize => self.change_font_size(pane, ix, Some(1.), cx),
+                CommandAction::DecreaseFontSize => self.change_font_size(pane, ix, Some(-1.), cx),
+                CommandAction::ResetFontSize => self.change_font_size(pane, ix, None, cx),
                 CommandAction::OpenSettings => self.open_settings(cx),
                 CommandAction::Type(text) => self.input_to(pane, ix, text.clone().into_bytes(), cx),
                 CommandAction::Notify(text) => self.show_notification(text.clone(), None, cx),
@@ -1518,10 +1512,14 @@ impl Workspace {
         self.run_command(&command, window, cx);
     }
 
-    fn set_font_size(&mut self, size: f32, window: &mut Window, cx: &mut Context<Self>) {
-        cx.update_global::<Settings, _>(|settings, _| settings.set_font_size(size));
-        // terminal views are cached, so they only pick up the new size on a full redraw
-        window.refresh();
+    // none step goes back to the size from settings
+    fn change_font_size(&self, pane: usize, ix: usize, step: Option<f32>, cx: &mut Context<Self>) {
+        self.pane(pane).expect("pane from target").tabs[ix]
+            .view
+            .update(cx, |view, cx| {
+                let size = step.map(|step| view.font_size(cx) + step);
+                view.set_font_size(size, cx);
+            });
     }
 
     fn open_settings(&mut self, cx: &mut Context<Self>) {
@@ -2809,6 +2807,33 @@ mod tests {
         type_keys(cx, "ctrl-shift-p");
         assert!(!palette_open(&ws, cx));
         assert!(cx.debug_bounds("command-palette").is_none());
+    }
+
+    #[gpui::test]
+    fn font_size_actions_change_only_the_active_tab(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 2);
+        let settings_size = cx.update(|_, cx| Settings::get(cx).terminal.font_size);
+        let sizes = |cx: &mut VisualTestContext| -> Vec<f32> {
+            ws.update(cx, |ws, cx| {
+                ws.focused_pane()
+                    .tabs
+                    .iter()
+                    .map(|tab| tab.view.read(cx).font_size(cx))
+                    .collect()
+            })
+        };
+
+        run_actions(&ws, cx, r#""increase_font_size", "increase_font_size""#);
+        assert_eq!(sizes(cx), vec![settings_size, settings_size + 2.]);
+        run_actions(&ws, cx, r#""decrease_font_size""#);
+        assert_eq!(sizes(cx), vec![settings_size, settings_size + 1.]);
+        assert_eq!(
+            cx.update(|_, cx| Settings::get(cx).terminal.font_size),
+            settings_size
+        );
+
+        run_actions(&ws, cx, r#""reset_font_size""#);
+        assert_eq!(sizes(cx), vec![settings_size, settings_size]);
     }
 
     #[gpui::test]

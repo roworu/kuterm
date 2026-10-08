@@ -43,11 +43,11 @@
   "select_all": "cmd-a",
   // drop the active tab's history, its prompt moves to the top
   "clear": "cmd-k",
-  // make the terminal font one pixel bigger
+  // make the active tab font one pixel bigger, ctrl + mouse wheel too
   "increase_font_size": "cmd-=",
-  // make the terminal font one pixel smaller
+  // make the active tab font one pixel smaller
   "decrease_font_size": "cmd--",
-  // set the terminal font back to its size from settings
+  // set the active tab font back to its size from settings
   "reset_font_size": "cmd-0",
   // open settings.jsonc in the system text editor
   "open_settings": "cmd-,",

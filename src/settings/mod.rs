@@ -348,9 +348,9 @@ impl Settings {
         load_file(Self::path(), DEFAULT_SETTINGS, "settings", Self::parse)
     }
 
-    /// set terminal font size, kept inside the allowed range
-    pub fn set_font_size(&mut self, size: f32) {
-        self.terminal.font_size = size.clamp(FONT_SIZE_RANGE.0, FONT_SIZE_RANGE.1);
+    /// keep a font size inside the allowed range
+    pub fn clamp_font_size(size: f32) -> f32 {
+        size.clamp(FONT_SIZE_RANGE.0, FONT_SIZE_RANGE.1)
     }
 
     /// settings loaded at startup

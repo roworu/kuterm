@@ -69,6 +69,8 @@ pub struct TerminalView {
     cursor_on: bool,
     /// flips `cursor_on` on every tick, none while the cursor does not blink
     blink: Option<Task<()>>,
+    /// font size of this tab only, none follows settings
+    font_size: Option<f32>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -104,6 +106,7 @@ impl TerminalView {
             _hide_scrollbar: Task::ready(()),
             cursor_on: true,
             blink: None,
+            font_size: None,
             _subscriptions: subscriptions,
         }
     }
@@ -111,6 +114,18 @@ impl TerminalView {
     /// terminal model this view renders
     pub fn terminal(&self) -> &Entity<Terminal> {
         &self.terminal
+    }
+
+    /// terminal font size of this view
+    pub fn font_size(&self, cx: &App) -> f32 {
+        self.font_size
+            .unwrap_or(Settings::get(cx).terminal.font_size)
+    }
+
+    /// change font size of this view only, none goes back to settings
+    pub fn set_font_size(&mut self, size: Option<f32>, cx: &mut Context<Self>) {
+        self.font_size = size.map(Settings::clamp_font_size);
+        cx.notify();
     }
 
     // shows the cursor and restarts its phase, so it stays visible while typing
@@ -181,6 +196,12 @@ impl TerminalView {
                 lines
             }
         };
+        if lines != 0 && event.modifiers.control {
+            // one step per event, a wheel notch is several lines
+            let size = self.font_size(cx) + lines.signum() as f32;
+            self.set_font_size(Some(size), cx);
+            return;
+        }
         if lines != 0 {
             let terminal = self.terminal.read(cx);
             if terminal.owns_mouse(&event.modifiers) {
@@ -545,6 +566,41 @@ mod tests {
         cx.executor().advance_clock(Duration::from_secs(3));
         cx.run_until_parked();
         assert!(view.read_with(cx, |view, _| view.blink.is_none() && view.cursor_on));
+    }
+
+    #[gpui::test]
+    fn ctrl_wheel_changes_font_size_of_the_view(cx: &mut TestAppContext) {
+        let (view, cx) = focused_view("{}", cx);
+        let settings_size = cx.update(|_, cx| Settings::get(cx).terminal.font_size);
+        let wheel = |y: f32, control: bool| ScrollWheelEvent {
+            delta: ScrollDelta::Lines(gpui::point(0., y)),
+            modifiers: Modifiers {
+                control,
+                ..Modifiers::default()
+            },
+            ..ScrollWheelEvent::default()
+        };
+        let font_size =
+            |cx: &mut VisualTestContext| view.read_with(cx, |view, cx| view.font_size(cx));
+
+        view.update_in(cx, |view, window, cx| {
+            view.scroll_wheel(&wheel(1., true), window, cx)
+        });
+        assert_eq!(font_size(cx), settings_size + 1.);
+        view.update_in(cx, |view, window, cx| {
+            view.scroll_wheel(&wheel(-1., true), window, cx);
+            view.scroll_wheel(&wheel(-1., true), window, cx);
+        });
+        assert_eq!(font_size(cx), settings_size - 1.);
+        // plain wheel scrolls, size stays
+        view.update_in(cx, |view, window, cx| {
+            view.scroll_wheel(&wheel(1., false), window, cx)
+        });
+        assert_eq!(font_size(cx), settings_size - 1.);
+        assert_eq!(
+            cx.update(|_, cx| Settings::get(cx).terminal.font_size),
+            settings_size
+        );
     }
 
     #[test]

@@ -165,7 +165,7 @@ impl Element for TerminalElement {
             features: FontFeatures::disable_ligatures(),
             ..gpui::font(settings.font_family.clone())
         };
-        let font_size = px(settings.font_size);
+        let font_size = px(self.terminal_view.read(cx).font_size(cx));
         let line_height = (font_size * settings.line_height.value()).round();
         let text_system = cx.text_system();
         let font_id = text_system.resolve_font(&font);
