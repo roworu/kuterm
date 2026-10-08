@@ -91,7 +91,7 @@
     "font_family": "JetBrainsMonoNL Nerd Font Mono",
     // terminal font size in pixels
     // font sizes go from 6 to 72
-    "font_size": 18,
+    "font_size": 20,
     // line height as a multiple of font size:
     //   "standard"          - 1.3
     //   "comfortable"       - 1.618
@@ -103,7 +103,7 @@
     //   "on"  - always blink
     //   "off" - never blink
     //   "app" - blink only when the running program asks for it
-    "cursor_blink": "app",
+    "cursor_blink": "on",
     // milliseconds the blinking cursor stays shown, then hidden, from 100 to 2000
     "cursor_blink_interval": 500,
     // lines of scrollback history to keep, 0 keeps everything
