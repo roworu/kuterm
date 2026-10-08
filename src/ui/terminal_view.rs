@@ -1,13 +1,16 @@
 //! focusable view around terminal
 
-use std::time::{Duration, Instant};
+use std::{
+    path::Path,
+    time::{Duration, Instant},
+};
 
 use alacritty_terminal::selection::SelectionType;
 use gpui::{
-    App, ClipboardItem, Context, Entity, EventEmitter, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, KeyDownEvent, Modifiers, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    ParentElement, Pixels, Point, Render, ScrollDelta, ScrollWheelEvent, Styled, Subscription,
-    Task, Window, actions, div, px,
+    App, ClipboardItem, Context, Entity, EventEmitter, ExternalPaths, FocusHandle, Focusable,
+    InteractiveElement, IntoElement, KeyDownEvent, Modifiers, MouseDownEvent, MouseMoveEvent,
+    MouseUpEvent, ParentElement, Pixels, Point, Render, ScrollDelta, ScrollWheelEvent, Styled,
+    Subscription, Task, Window, actions, div, px,
 };
 
 use crate::{
@@ -151,10 +154,10 @@ impl TerminalView {
         if event.prefer_character_input && event.keystroke.key_char.is_some() {
             return;
         }
-        if self
-            .terminal
-            .update(cx, |term, _| term.try_keystroke(&event.keystroke))
-        {
+        let option_as_meta = Settings::get(cx).terminal.option_as_meta;
+        if self.terminal.update(cx, |term, _| {
+            term.try_keystroke(&event.keystroke, option_as_meta)
+        }) {
             // input jumps to the bottom, a running glide would pull the view back up
             self.input_happened(cx);
             cx.stop_propagation();
@@ -389,6 +392,37 @@ impl TerminalView {
             cx.emit(ClipboardEvent::Pasted);
         }
     }
+
+    /// type paths dropped from other apps, quoted for the shell
+    pub fn drop_paths(&mut self, paths: &ExternalPaths, cx: &mut Context<Self>) {
+        let mut text: String = paths
+            .paths()
+            .iter()
+            .map(|path| shell_quote(path))
+            .collect::<Vec<_>>()
+            .join(" ");
+        if text.is_empty() {
+            return;
+        }
+        // a trailing space lets the next dropped path or typed argument follow right away
+        text.push(' ');
+        self.input_happened(cx);
+        self.terminal.update(cx, |term, _| term.paste(&text));
+    }
+}
+
+/// path as one shell word, single quoted when it has characters the shell would expand
+fn shell_quote(path: &Path) -> String {
+    let path = path.to_string_lossy();
+    let plain = !path.is_empty()
+        && path
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "/._-+,:@%=".contains(c));
+    if plain {
+        path.into_owned()
+    } else {
+        format!("'{}'", path.replace('\'', "'\\''"))
+    }
 }
 
 impl EventEmitter<ClipboardEvent> for TerminalView {}
@@ -511,5 +545,16 @@ mod tests {
         cx.executor().advance_clock(Duration::from_secs(3));
         cx.run_until_parked();
         assert!(view.read_with(cx, |view, _| view.blink.is_none() && view.cursor_on));
+    }
+
+    #[test]
+    fn dropped_paths_are_quoted_only_when_needed() {
+        assert_eq!(
+            shell_quote(Path::new("/home/me/a-b_c.txt")),
+            "/home/me/a-b_c.txt"
+        );
+        assert_eq!(shell_quote(Path::new("/tmp/my dir")), "'/tmp/my dir'");
+        assert_eq!(shell_quote(Path::new("/tmp/it's $x")), "'/tmp/it'\\''s $x'");
+        assert_eq!(shell_quote(Path::new("/tmp/été")), "'/tmp/été'");
     }
 }

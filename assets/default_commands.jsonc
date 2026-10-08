@@ -46,6 +46,12 @@
 //   "scroll_top"                       - scroll the active tab to the top of its history
 //   "scroll_bottom"                    - scroll the active tab back to the prompt
 //   "quit"                             - close every tab and exit, asks first while programs run
+//   "select_all"                       - select the active tab's whole history and screen
+//   "clear"                            - drop the active tab's history, its prompt moves to the top
+//   "increase_font_size"               - make the terminal font one pixel bigger
+//   "decrease_font_size"               - make the terminal font one pixel smaller
+//   "reset_font_size"                  - set the terminal font back to its size from settings
+//   "open_settings"                    - open settings.jsonc in the system text editor
 //   { "type": "ls\n" }                 - type text into the active tab, "\n" presses enter
 //   { "notify": "hi" }                 - show a notification inside the window
 //   { "notify_when_done": "built" }    - show a notification once the program running in the
@@ -61,9 +67,12 @@
     { "name": "reload themes", "category": "config", "actions": ["reload_themes"] },
     { "name": "reload keybindings", "category": "config", "actions": ["reload_keybindings"] },
     { "name": "reload all configs", "category": "config", "pinned": false, "actions": ["reload_all"] },
+    { "name": "open settings", "category": "config", "actions": ["open_settings"] },
 
     { "name": "copy selection", "category": "edit", "actions": ["copy"] },
     { "name": "paste", "category": "edit", "actions": ["paste"] },
+    { "name": "select all", "category": "edit", "actions": ["select_all"] },
+    { "name": "clear history", "category": "edit", "actions": ["clear"] },
 
     { "name": "create new", "category": "tabs", "actions": ["new_tab"] },
     { "name": "close current", "category": "tabs", "actions": ["close_tab"] },
@@ -79,6 +88,9 @@
 
     { "name": "scroll to top", "category": "view", "actions": ["scroll_top"] },
     { "name": "scroll to bottom", "category": "view", "actions": ["scroll_bottom"] },
+    { "name": "bigger font", "category": "view", "actions": ["increase_font_size"] },
+    { "name": "smaller font", "category": "view", "actions": ["decrease_font_size"] },
+    { "name": "reset font size", "category": "view", "actions": ["reset_font_size"] },
 
     // custom command example: open a new tab and run a command in it
     {

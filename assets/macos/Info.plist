@@ -26,5 +26,58 @@
   <string>public.app-category.developer-tools</string>
   <key>NSHighResolutionCapable</key>
   <true/>
+  <key>NSHumanReadableCopyright</key>
+  <string>Copyright © 2026 roworu</string>
+  <key>NSRequiresAquaSystemAppearance</key>
+  <false/>
+  <key>NSSupportsAutomaticGraphicsSwitching</key>
+  <true/>
+  <!-- lets folders be dropped on the dock icon and opened with "open -a kuterm" -->
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>Folder</string>
+      <key>CFBundleTypeRole</key>
+      <string>Viewer</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>public.folder</string>
+      </array>
+    </dict>
+  </array>
+  <!-- macos asks for these on behalf of programs run in the terminal, without a reason it denies them -->
+  <key>NSAppleEventsUsageDescription</key>
+  <string>A program running in kuterm wants to control other apps.</string>
+  <key>NSBluetoothAlwaysUsageDescription</key>
+  <string>A program running in kuterm wants to use bluetooth.</string>
+  <key>NSCalendarsUsageDescription</key>
+  <string>A program running in kuterm wants to access your calendars.</string>
+  <key>NSCameraUsageDescription</key>
+  <string>A program running in kuterm wants to use the camera.</string>
+  <key>NSContactsUsageDescription</key>
+  <string>A program running in kuterm wants to access your contacts.</string>
+  <key>NSDesktopFolderUsageDescription</key>
+  <string>A program running in kuterm wants to access the Desktop folder.</string>
+  <key>NSDocumentsFolderUsageDescription</key>
+  <string>A program running in kuterm wants to access the Documents folder.</string>
+  <key>NSDownloadsFolderUsageDescription</key>
+  <string>A program running in kuterm wants to access the Downloads folder.</string>
+  <key>NSLocationUsageDescription</key>
+  <string>A program running in kuterm wants to use your location.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>A program running in kuterm wants to use the microphone.</string>
+  <key>NSNetworkVolumesUsageDescription</key>
+  <string>A program running in kuterm wants to access files on network volumes.</string>
+  <key>NSPhotoLibraryUsageDescription</key>
+  <string>A program running in kuterm wants to access your photos.</string>
+  <key>NSRemindersUsageDescription</key>
+  <string>A program running in kuterm wants to access your reminders.</string>
+  <key>NSRemovableVolumesUsageDescription</key>
+  <string>A program running in kuterm wants to access files on removable volumes.</string>
+  <key>NSSystemAdministrationUsageDescription</key>
+  <string>A program running in kuterm wants to change system settings.</string>
 </dict>
 </plist>

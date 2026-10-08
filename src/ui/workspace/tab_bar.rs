@@ -4,8 +4,9 @@
 use std::{cell::RefCell, collections::HashMap, sync::LazyLock};
 
 use gpui::{
-    AnyElement, App, Context, CursorStyle, Div, DragMoveEvent, MouseButton, ScrollHandle, Stateful,
-    StyleRefinement, Window, anchored, deferred, div, prelude::*, px, relative, rems,
+    AnyElement, App, Context, CursorStyle, DispatchPhase, Div, DragMoveEvent, ExternalPaths,
+    MouseButton, MouseMoveEvent, PlatformInput, ScrollHandle, Stateful, StyleRefinement, Window,
+    anchored, canvas, deferred, div, prelude::*, px, relative, rems,
 };
 use skrifa::{
     FontRef, MetadataProvider,
@@ -358,6 +359,15 @@ impl Workspace {
             .on_drop(cx.listener(move |this, dragged: &DraggedTab, window, cx| {
                 this.drop_tab_on_pane(pane_id, dragged.pane, dragged.ix, window, cx);
             }))
+            // files from other apps are typed into the pane they land on, which takes focus
+            .on_drop(cx.listener(move |this, paths: &ExternalPaths, window, cx| {
+                this.focus_pane(pane_id, window, cx);
+                if let Some(pane) = this.pane(pane_id)
+                    && let Some(tab) = pane.tabs.get(pane.active)
+                {
+                    tab.view.update(cx, |view, cx| view.drop_paths(paths, cx));
+                }
+            }))
             // cached, so output or a redraw in one pane does not lay out the grids of the others
             .children(pane.tabs.get(pane.active).map(|tab| {
                 // gpui only redraws a cached view on notify while the window tracks it, and a
@@ -566,6 +576,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::quit_action))
             .on_action(cx.listener(Self::minimize))
             .on_action(cx.listener(Self::zoom))
+            .on_action(cx.listener(Self::run_action))
             .relative()
             .size_full()
             .flex()
@@ -577,7 +588,29 @@ impl Render for Workspace {
             .children(self.render_profile_menu(cx))
             .children(self.render_notifications(cx))
             .children(self.render_overlay())
+            .child(canvas(
+                |_, _, _| {},
+                |_, _, window, _| track_file_drags(window),
+            ))
     }
+}
+
+// gpui leaves the window in keyboard mode when a file is dragged in after typing, so nothing
+// counts as hovered and the drop is ignored. a mouse move puts it back in mouse mode
+fn track_file_drags(window: &mut Window) {
+    window.on_mouse_event(|event: &MouseMoveEvent, phase, window, cx| {
+        if phase != DispatchPhase::Capture
+            || !window.last_input_was_keyboard()
+            || !cx.has_active_drag()
+        {
+            return;
+        }
+        let event = event.clone();
+        // events can't be dispatched while one is being handled
+        window.defer(cx, move |window, cx| {
+            window.dispatch_event(PlatformInput::MouseMove(event), cx);
+        });
+    });
 }
 
 #[cfg(test)]

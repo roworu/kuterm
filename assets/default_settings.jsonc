@@ -108,6 +108,9 @@
     "cursor_blink_interval": 500,
     // lines of scrollback history to keep, 0 keeps everything
     "max_history_length": 10000,
+    // macos only: option key works as meta, so option-b sends esc b like alt-b does on linux.
+    // false keeps option typing special characters like ∫
+    "option_as_meta": false,
     "scrollbar": {
       // when to show it:
       //   "on"      - always

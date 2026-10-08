@@ -8,6 +8,7 @@ mod tab_icon;
 mod tab_title;
 
 use std::{
+    path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -21,7 +22,7 @@ use gpui::{
     ManagedView, Pixels, Point, ScrollHandle, Subscription, Task, Window, actions, prelude::*,
 };
 
-pub use app_menu::app_menus;
+pub use app_menu::{app_menus, dock_menu, open_urls};
 use notifications::Notification;
 use tab_title::TitleInputs;
 
@@ -61,6 +62,11 @@ actions!(
 #[derive(Clone, PartialEq, Action)]
 #[action(namespace = workspace, no_json)]
 pub struct ActivateTab(pub usize);
+
+/// run one command palette action, for menu items and keys with no action of their own
+#[derive(Clone, PartialEq, Action)]
+#[action(namespace = workspace, no_json)]
+pub struct RunAction(pub CommandAction);
 
 // programs, folders and command output change without events, so titles are polled
 const TITLE_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
@@ -492,8 +498,16 @@ impl Workspace {
         cx.notify();
     }
 
-    fn add_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// open a tab with the default profile and switch to it
+    pub fn add_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let profile = Settings::get(cx).default_profile().clone();
+        self.add_profile_tab(self.focused, &profile, true, window, cx);
+    }
+
+    /// open a tab with the default profile in `folder`
+    pub fn open_folder(&mut self, folder: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        let mut profile = Settings::get(cx).default_profile().clone();
+        profile.working_directory = Some(folder);
         self.add_profile_tab(self.focused, &profile, true, window, cx);
     }
 
@@ -926,7 +940,7 @@ impl Workspace {
     }
 
     /// quit, asking first when programs still run in some tabs
-    fn request_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn request_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.confirm_close.is_some() {
             return;
         }
@@ -1227,6 +1241,22 @@ impl Workspace {
                     .terminal_at(pane, ix, cx)
                     .update(cx, |terminal, _| terminal.scroll_to(0)),
                 CommandAction::Quit => self.request_quit(window, cx),
+                CommandAction::SelectAll => self
+                    .terminal_at(pane, ix, cx)
+                    .update(cx, |terminal, _| terminal.select_all()),
+                CommandAction::Clear => self
+                    .terminal_at(pane, ix, cx)
+                    .update(cx, |terminal, _| terminal.clear()),
+                CommandAction::IncreaseFontSize => {
+                    self.set_font_size(Settings::get(cx).terminal.font_size + 1., window, cx)
+                }
+                CommandAction::DecreaseFontSize => {
+                    self.set_font_size(Settings::get(cx).terminal.font_size - 1., window, cx)
+                }
+                CommandAction::ResetFontSize => {
+                    self.set_font_size(Settings::load().terminal.font_size, window, cx)
+                }
+                CommandAction::OpenSettings => self.open_settings(cx),
                 CommandAction::Type(text) => self.input_to(pane, ix, text.clone().into_bytes(), cx),
                 CommandAction::Notify(text) => self.show_notification(text.clone(), None, cx),
                 CommandAction::NotifyWhenDone(text) => {
@@ -1477,6 +1507,64 @@ impl Workspace {
     fn zoom(&mut self, _: &Zoom, window: &mut Window, _: &mut Context<Self>) {
         window.zoom_window();
     }
+
+    fn run_action(&mut self, action: &RunAction, window: &mut Window, cx: &mut Context<Self>) {
+        let command = Command {
+            name: String::new(),
+            category: None,
+            pinned: false,
+            actions: vec![action.0.clone()],
+        };
+        self.run_command(&command, window, cx);
+    }
+
+    fn set_font_size(&mut self, size: f32, window: &mut Window, cx: &mut Context<Self>) {
+        cx.update_global::<Settings, _>(|settings, _| settings.set_font_size(size));
+        // terminal views are cached, so they only pick up the new size on a full redraw
+        window.refresh();
+    }
+
+    fn open_settings(&mut self, cx: &mut Context<Self>) {
+        let Some(path) = Settings::path() else {
+            self.show_notification("no config folder to open settings from", None, cx);
+            return;
+        };
+        // macos has no app set for .jsonc files, so it is opened as plain text
+        if cfg!(target_os = "macos") {
+            cx.background_spawn(async move {
+                std::process::Command::new("open")
+                    .arg("-t")
+                    .arg(path)
+                    .status()
+                    .ok();
+            })
+            .detach();
+        } else {
+            cx.open_with_system(&path);
+        }
+    }
+}
+
+/// run `f` on the workspace, bringing its window to the front first. app wide actions use
+/// it, since with the window minimized or the dock menu in use no window is active
+pub fn with_workspace(
+    cx: &mut App,
+    f: impl FnOnce(&mut Workspace, &mut Window, &mut Context<Workspace>),
+) {
+    let Some(handle) = cx
+        .windows()
+        .into_iter()
+        .find_map(|window| window.downcast::<Workspace>())
+    else {
+        return;
+    };
+    cx.activate(true);
+    handle
+        .update(cx, |workspace, window, cx| {
+            window.activate_window();
+            f(workspace, window, cx);
+        })
+        .ok();
 }
 
 /// program names joined for a dialog, cut short after a few

@@ -3,8 +3,10 @@
 use std::sync::atomic::Ordering;
 
 use alacritty_terminal::{
+    grid::Dimensions,
     index::{Column, Line, Point as AlacPoint, Side},
     selection::{Selection, SelectionType},
+    term::TermMode,
 };
 use gpui::{Pixels, Point};
 
@@ -69,6 +71,22 @@ impl Terminal {
             Some(selection) => selection.update(point, side),
             None => term.selection = Some(Selection::new(SelectionType::Simple, point, side)),
         }
+        self.dirty.store(true, Ordering::Release);
+    }
+
+    /// select the whole scrollback and screen
+    pub fn select_all(&mut self) {
+        let mut term = self.term.lock();
+        let start = AlacPoint::new(term.topmost_line(), Column(0));
+        // lines below a shell's cursor are empty, so they would only add blank lines
+        let last_line = if term.mode().contains(TermMode::ALT_SCREEN) {
+            term.bottommost_line()
+        } else {
+            term.grid().cursor.point.line
+        };
+        let mut selection = Selection::new(SelectionType::Simple, start, Side::Left);
+        selection.update(AlacPoint::new(last_line, term.last_column()), Side::Right);
+        term.selection = Some(selection);
         self.dirty.store(true, Ordering::Release);
     }
 

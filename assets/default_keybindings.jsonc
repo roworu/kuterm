@@ -37,6 +37,20 @@
   "hide_others": null,
   // minimize the window
   "minimize": null,
+  // switch to the tab on the left, wrapping around to the last one
+  "prev_tab": "ctrl-shift-tab",
+  // select the whole history and screen of the active tab
+  "select_all": null,
+  // drop the active tab's history, its prompt moves to the top
+  "clear": null,
+  // make the terminal font one pixel bigger
+  "increase_font_size": null,
+  // make the terminal font one pixel smaller
+  "decrease_font_size": null,
+  // set the terminal font back to its size from settings
+  "reset_font_size": null,
+  // open settings.jsonc in the system text editor
+  "open_settings": null,
   // switch to tab by its position, any "activate_tab_<n>" with n from 1 up can be added
   "activate_tab_1": "alt-1",
   "activate_tab_2": "alt-2",

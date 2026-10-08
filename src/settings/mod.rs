@@ -98,6 +98,8 @@ pub struct TerminalSettings {
     /// milliseconds the blinking cursor stays shown, then hidden
     pub cursor_blink_interval: f32,
     pub max_history_length: usize,
+    /// option key sends esc prefixed keys like alt does on linux, macos only
+    pub option_as_meta: bool,
     pub scrollbar: ScrollbarSettings,
     pub smooth_scroll: SmoothScrollSettings,
 }
@@ -344,6 +346,11 @@ impl Settings {
     /// load settings from the settings file, using defaults when it is missing or invalid
     pub fn load() -> Self {
         load_file(Self::path(), DEFAULT_SETTINGS, "settings", Self::parse)
+    }
+
+    /// set terminal font size, kept inside the allowed range
+    pub fn set_font_size(&mut self, size: f32) {
+        self.terminal.font_size = size.clamp(FONT_SIZE_RANGE.0, FONT_SIZE_RANGE.1);
     }
 
     /// settings loaded at startup

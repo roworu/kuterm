@@ -59,6 +59,18 @@ pub enum CommandAction {
     ScrollBottom,
     /// close every tab and exit
     Quit,
+    /// select the active tab's whole history and screen
+    SelectAll,
+    /// drop the active tab's history and move its prompt to the top
+    Clear,
+    /// make the terminal font one pixel bigger
+    IncreaseFontSize,
+    /// make the terminal font one pixel smaller
+    DecreaseFontSize,
+    /// set the terminal font back to its size from settings
+    ResetFontSize,
+    /// open settings.jsonc in the system text editor
+    OpenSettings,
     /// text written to the active tab as if typed
     Type(String),
     /// show a notification with this text
@@ -151,7 +163,9 @@ mod tests {
                 "split_left", "split_right", "split_up", "split_down",
                 "next_tab", "prev_tab", {"activate_tab": 2}, "pick_tab", "copy", "paste",
                 {"scroll_up": 10}, {"scroll_down": 3}, "scroll_top", "scroll_bottom",
-                "quit", {"type": "ls\n"}, {"notify": "hi"}, {"notify_when_done": "done"},
+                "quit", "select_all", "clear", "increase_font_size", "decrease_font_size",
+                "reset_font_size", "open_settings",
+                {"type": "ls\n"}, {"notify": "hi"}, {"notify_when_done": "done"},
             ]}]}"#,
         )
         .unwrap();
@@ -189,6 +203,12 @@ mod tests {
                     CommandAction::ScrollTop,
                     CommandAction::ScrollBottom,
                     CommandAction::Quit,
+                    CommandAction::SelectAll,
+                    CommandAction::Clear,
+                    CommandAction::IncreaseFontSize,
+                    CommandAction::DecreaseFontSize,
+                    CommandAction::ResetFontSize,
+                    CommandAction::OpenSettings,
                     CommandAction::Type("ls\n".into()),
                     CommandAction::Notify("hi".into()),
                     CommandAction::NotifyWhenDone("done".into()),

@@ -120,17 +120,24 @@ mod macos {
         })
     }
 
-    /// processes started by `pid`
+    /// processes started by `pid`, oldest first
     pub fn children(pid: u32) -> Vec<u32> {
         let mut pids: Vec<libc::pid_t> = vec![0; 1024];
         let size = (pids.len() * mem::size_of::<libc::pid_t>()) as libc::c_int;
         // returns the number of pids, not bytes
         let count = unsafe { libc::proc_listchildpids(pid as _, pids.as_mut_ptr().cast(), size) };
         pids.truncate(count.clamp(0, pids.len() as libc::c_int) as usize);
-        pids.into_iter().map(|pid| pid as u32).collect()
+        let mut pids: Vec<u32> = pids.into_iter().map(|pid| pid as u32).collect();
+        // libproc order is not by age, callers expect the oldest first like linux gives
+        pids.sort_by_key(|pid| bsd_info(*pid).map(|i| (i.pbi_start_tvsec, i.pbi_start_tvusec)));
+        pids
     }
 
     fn bsd_info(pid: u32) -> Option<libc::proc_bsdinfo> {
+        // pid 0 is the kernel, not a program, and linux has no /proc/0 either
+        if pid == 0 {
+            return None;
+        }
         // SAFETY: proc_bsdinfo is a plain c struct, all zero is valid
         unsafe { pid_info(pid, libc::PROC_PIDTBSDINFO) }
     }
@@ -243,14 +250,8 @@ pub(crate) mod tests {
     // with a controlling terminal the tty's foreground process is reported instead of the pid,
     // so name checks only work without one, like in the container
     fn has_no_ctty() -> bool {
-        let stat = std::fs::read_to_string("/proc/self/stat").unwrap();
-        stat.rsplit_once(')')
-            .unwrap()
-            .1
-            .split_whitespace()
-            .nth(5)
-            .unwrap()
-            == "-1"
+        // opening /dev/tty fails without a controlling terminal, on linux and macos alike
+        std::fs::File::open("/dev/tty").is_err()
     }
 
     #[test]
@@ -284,6 +285,8 @@ pub(crate) mod tests {
         }
         let dir = std::env::temp_dir().join(format!("kuterm_proc_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
+        // macos temp dir is a symlink, while the process reports the real folder
+        let dir = dir.canonicalize().unwrap();
         let exe = dir.join("we ird) (x 1 2");
         std::fs::copy("/bin/bash", &exe).unwrap();
         // other tests fork while the copy's write fd is open, so exec may briefly fail with ETXTBSY
