@@ -6,6 +6,7 @@ mod keybindings;
 mod options;
 mod pins;
 mod tab_icons;
+mod window_size;
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -19,11 +20,13 @@ pub(crate) use config::defaults as bundled_settings;
 pub use config::{Config, ConfigFiles};
 pub use keybindings::Keybindings;
 pub use options::{
-    CursorBlink, CursorShape, LineHeight, NewTabButton, ScrollEasing, ScrollbarEnable,
-    ScrollbarPlacement, Shell, TabIconPosition, TabTitleAlign, TabTitleBlock, ThemeMode,
+    ConfirmQuit, CursorBlink, CursorShape, Decorations, LineHeight, NewTabButton, ScrollEasing,
+    ScrollbarEnable, ScrollbarPlacement, Shell, StartupMode, TabIconPosition, TabTitleAlign,
+    TabTitleBlock, ThemeMode,
 };
 pub use pins::Pins;
 pub use tab_icons::TabIcons;
+pub use window_size::WindowSize;
 
 use crate::cli::Cli;
 
@@ -40,10 +43,12 @@ pub struct Settings {
     pub show_tab_close_button: bool,
     pub drag_tabs: bool,
     pub close_running_tab_warn: bool,
+    pub confirm_quit: ConfirmQuit,
     pub new_tab_button: NewTabButton,
     pub window_title: Vec<TabTitleBlock>,
     pub default_title: String,
     pub theme: ThemeSettings,
+    pub window: WindowSettings,
     pub terminal: TerminalSettings,
     pub profiles: Vec<Profile>,
     pub command_palette: CommandPaletteSettings,
@@ -105,6 +110,31 @@ pub struct NotificationSettings {
     pub copy: bool,
     /// notify when text is pasted
     pub paste: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct WindowSettings {
+    /// pixels between the window edges and the terminal grid
+    pub padding: WindowPadding,
+    /// split the space left over by whole cells between both sides
+    pub padding_balance: bool,
+    /// terminal background opacity, from 0 to 1
+    pub opacity: f32,
+    /// blur what is behind a see through background
+    pub blur: bool,
+    pub decorations: Decorations,
+    /// grid size the window opens with
+    pub columns: u32,
+    pub rows: u32,
+    pub startup: StartupMode,
+    /// open with the size the window had when it was last resized
+    pub remember_size: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+pub struct WindowPadding {
+    pub x: f32,
+    pub y: f32,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -202,6 +232,13 @@ const CURSOR_BLINK_TIMEOUT_RANGE: (f32, f32) = (0., 3600.);
 const SMOOTH_SCROLL_DURATION_RANGE: (f32, f32) = (0., 1000.);
 
 pub const MAX_HISTORY_LENGTH: usize = u32::MAX as usize;
+
+// more padding than this leaves no room for the grid
+const PADDING_RANGE: (f32, f32) = (0., 200.);
+const OPACITY_RANGE: (f32, f32) = (0., 1.);
+// a window smaller than this is useless, bigger ones don't fit any screen
+const COLUMNS_RANGE: (f32, f32) = (10., 1000.);
+const ROWS_RANGE: (f32, f32) = (2., 500.);
 
 // Duration panics on negative or huge seconds, an hour is already "until clicked"
 const NOTIFICATION_TIMEOUT_RANGE: (f32, f32) = (0., 3600.);
@@ -326,6 +363,17 @@ impl Settings {
             NOTIFICATION_TIMEOUT_RANGE,
         )
         .unwrap_or(defaults.notifications.timeout);
+        let window = &mut settings.window;
+        window.padding.x = limit("window.padding.x", window.padding.x, PADDING_RANGE)
+            .unwrap_or(defaults.window.padding.x);
+        window.padding.y = limit("window.padding.y", window.padding.y, PADDING_RANGE)
+            .unwrap_or(defaults.window.padding.y);
+        window.opacity = limit("window.opacity", window.opacity, OPACITY_RANGE)
+            .unwrap_or(defaults.window.opacity);
+        window.columns = limit("window.columns", window.columns as f32, COLUMNS_RANGE)
+            .map_or(defaults.window.columns, |columns| columns as u32);
+        window.rows = limit("window.rows", window.rows as f32, ROWS_RANGE)
+            .map_or(defaults.window.rows, |rows| rows as u32);
         if settings.profiles.is_empty() {
             eprintln!("profiles is empty, using the default profiles");
             settings.profiles = defaults.profiles;
@@ -2068,6 +2116,134 @@ mod smooth_scroll_settings {
             let t = step as f32 / 100.;
             let sum = e.apply(t) + e.apply(1. - t);
             assert!((sum - 1.).abs() < 1e-5, "{t}: {sum}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod window_settings {
+    use super::*;
+
+    fn window(json: &str) -> WindowSettings {
+        Settings::parse(&format!(r#"{{"window": {json}}}"#))
+            .unwrap()
+            .window
+    }
+
+    #[test]
+    fn bundled_settings_have_window_keys() {
+        let full = config::defaults();
+        let window = full["window"].as_object().expect("no window section");
+        for key in [
+            "padding",
+            "padding_balance",
+            "opacity",
+            "blur",
+            "decorations",
+            "columns",
+            "rows",
+            "startup",
+            "remember_size",
+        ] {
+            assert!(window.contains_key(key), "window.{key} is missing");
+        }
+        assert!(full["confirm_quit"].is_string());
+        // bundled values are already within limits
+        assert_eq!(
+            Settings::default().window,
+            Settings::from_full(full).unwrap().window
+        );
+    }
+
+    #[test]
+    fn parses_window_values() {
+        let w = window(
+            r#"{"padding": {"x": 12, "y": 0}, "padding_balance": true, "opacity": 0.5,
+                "blur": true, "decorations": "client", "columns": 120, "rows": 40,
+                "startup": "maximized", "remember_size": true}"#,
+        );
+        assert_eq!(w.padding, WindowPadding { x: 12., y: 0. });
+        assert!(w.padding_balance && w.blur && w.remember_size);
+        assert_eq!(w.opacity, 0.5);
+        assert_eq!(w.decorations, Decorations::Client);
+        assert_eq!((w.columns, w.rows), (120, 40));
+        assert_eq!(w.startup, StartupMode::Maximized);
+        for (name, mode) in [
+            ("full", Decorations::Full),
+            ("none", Decorations::None),
+            ("client", Decorations::Client),
+        ] {
+            assert_eq!(
+                window(&format!(r#"{{"decorations": "{name}"}}"#)).decorations,
+                mode
+            );
+        }
+        for (name, mode) in [
+            ("windowed", StartupMode::Windowed),
+            ("fullscreen", StartupMode::Fullscreen),
+        ] {
+            assert_eq!(window(&format!(r#"{{"startup": "{name}"}}"#)).startup, mode);
+        }
+        for (name, mode) in [
+            ("always", ConfirmQuit::Always),
+            ("running", ConfirmQuit::Running),
+            ("never", ConfirmQuit::Never),
+        ] {
+            let json = format!(r#"{{"confirm_quit": "{name}"}}"#);
+            assert_eq!(Settings::parse(&json).unwrap().confirm_quit, mode);
+        }
+    }
+
+    #[test]
+    fn partial_window_section_keeps_other_defaults() {
+        let defaults = Settings::default().window;
+        let w = window(r#"{"padding": {"x": 9}}"#);
+        assert_eq!(w.padding.x, 9.);
+        assert_eq!(w.padding.y, defaults.padding.y);
+        assert_eq!(w.opacity, defaults.opacity);
+        assert_eq!(w.decorations, defaults.decorations);
+    }
+
+    #[test]
+    fn window_limits() {
+        let defaults = Settings::default().window;
+        assert_eq!(
+            window(r#"{"padding": {"x": 0, "y": 200}}"#).padding,
+            WindowPadding { x: 0., y: 200. }
+        );
+        assert_eq!(
+            window(r#"{"padding": {"x": 500, "y": -1}}"#).padding,
+            WindowPadding {
+                x: 200.,
+                y: defaults.padding.y
+            }
+        );
+        assert_eq!(window(r#"{"opacity": 0}"#).opacity, 0.);
+        assert_eq!(window(r#"{"opacity": 3}"#).opacity, 1.);
+        assert_eq!(window(r#"{"opacity": -0.5}"#).opacity, defaults.opacity);
+        assert_eq!(window(r#"{"columns": 10, "rows": 2}"#).columns, 10);
+        assert_eq!(window(r#"{"columns": 5000, "rows": 9000}"#).rows, 500);
+        assert_eq!(window(r#"{"columns": 5000}"#).columns, 1000);
+        let small = window(r#"{"columns": 3, "rows": 1}"#);
+        assert_eq!(
+            (small.columns, small.rows),
+            (defaults.columns, defaults.rows)
+        );
+    }
+
+    #[test]
+    fn rejects_bad_window_values() {
+        for json in [
+            r#"{"window": {"decorations": "fancy"}}"#,
+            r#"{"window": {"decorations": true}}"#,
+            r#"{"window": {"startup": "minimized"}}"#,
+            r#"{"window": {"columns": -1}}"#,
+            r#"{"window": {"padding": 4}}"#,
+            r#"{"window": {"blur": "yes"}}"#,
+            r#"{"confirm_quit": true}"#,
+            r#"{"confirm_quit": "sometimes"}"#,
+        ] {
+            assert!(Settings::parse(json).is_err(), "{json}");
         }
     }
 }

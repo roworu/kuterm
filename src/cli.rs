@@ -6,7 +6,7 @@ use std::sync::OnceLock;
 
 use serde_json_lenient::Value;
 
-use crate::settings::{Pins, Settings, ThemeMode};
+use crate::settings::{Pins, Settings, ThemeMode, WindowSize};
 
 pub const USAGE: &str = "usage: kuterm [options]
 
@@ -90,7 +90,10 @@ impl Cli {
 
     /// delete config files, so loading them writes defaults again
     pub fn remove_configs(&self) {
-        for path in [Settings::path(), Pins::path()].into_iter().flatten() {
+        for path in [Settings::path(), Pins::path(), WindowSize::path()]
+            .into_iter()
+            .flatten()
+        {
             if let Err(error) = std::fs::remove_file(&path)
                 && error.kind() != std::io::ErrorKind::NotFound
             {

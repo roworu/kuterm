@@ -50,9 +50,13 @@
   "show_tab_close_button": true,
   // drag tabs with the mouse to reorder them
   "drag_tabs": true,
-  // ask before closing a tab while a program still runs in it, like vim or a long build.
-  // also asks before quitting or closing the window while any tab runs one
+  // ask before closing a tab while a program still runs in it, like vim or a long build
   "close_running_tab_warn": true,
+  // ask before quitting or closing the window:
+  //   "always"  - every time
+  //   "running" - only while a program still runs in some tab
+  //   "never"   - quit right away
+  "confirm_quit": "running",
   // where the "+" new tab button sits: "left" or "right" end of the tab bar, or "after_tabs" next to the last tab
   "new_tab_button": "after_tabs",
   // window title, built from the active tab with the same blocks as "tab_title"
@@ -161,6 +165,34 @@
         "ansi_dim": ["#727479", "#eb877e", "#83bc82", "#d2a74c", "#4ca7cf", "#bf66be", "#51b5c8", "#b8b9bd"],
       },
     },
+  },
+
+  "window": {
+    // pixels between the window edges and the terminal text, from 0 to 200
+    "padding": { "x": 4, "y": 4 },
+    // the grid is made of whole cells, so some pixels are left over at the right and bottom.
+    // true splits them equally on both sides
+    "padding_balance": false,
+    // terminal background opacity from 0 (see through) to 1 (solid), text stays solid.
+    // cells colored by programs stay solid too, needs a compositor on linux
+    "opacity": 1.0,
+    // blur what is behind the window when "opacity" is below 1, only where the system
+    // supports it, like kde and macos
+    "blur": false,
+    // window frame, linux only:
+    //   "full"   - title bar and borders from the window manager
+    //   "none"   - no frame, drag the empty part of the tab bar to move the window
+    //   "client" - like "none", with minimize, maximize and close buttons in the tab bar
+    // the tab bar stays shown with one tab when it is not "full"
+    "decorations": "full",
+    // terminal size in cells the window opens with, columns from 10 to 1000, rows from 2 to 500
+    "columns": 100,
+    "rows": 30,
+    // how the window opens: "windowed", "maximized" or "fullscreen"
+    "startup": "windowed",
+    // open with the last size of the window instead of "columns" and "rows", the size is
+    // kept in window_size.json in the state folder
+    "remember_size": false,
   },
 
   "terminal": {

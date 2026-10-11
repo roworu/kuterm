@@ -9,8 +9,8 @@ use alacritty_terminal::{term::TermMode, vte::ansi::CursorShape};
 use gpui::{
     App, Bounds, ContentMask, CursorStyle, DispatchPhase, Element, ElementId, Entity, FocusHandle,
     Font, FontFeatures, GlobalElementId, Hitbox, HitboxBehavior, InspectorElementId, IntoElement,
-    LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Style, TextRun,
-    Window, fill, point, px, relative, size,
+    LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Size, Style,
+    TextRun, Window, fill, point, px, relative, size,
 };
 
 use crate::{
@@ -22,6 +22,26 @@ use cursor::CursorLayout;
 use grid::{BatchedTextRun, LayoutRect, layout_grid};
 use input_handler::TerminalInputHandler;
 use scrollbar::ScrollbarLayout;
+
+/// terminal font with ligatures off, they would break the grid
+fn terminal_font(family: &str) -> Font {
+    Font {
+        features: FontFeatures::disable_ligatures(),
+        ..gpui::font(family.to_owned())
+    }
+}
+
+/// width and height of one grid cell at `font_size`
+pub fn cell_size(font_size: Pixels, cx: &App) -> Size<Pixels> {
+    let settings = &Settings::get(cx).terminal;
+    let text_system = cx.text_system();
+    let font_id = text_system.resolve_font(&terminal_font(&settings.font_family));
+    let cell_width = text_system.advance(font_id, font_size, 'm').unwrap().width;
+    size(
+        cell_width,
+        (font_size * settings.line_height.value()).round(),
+    )
+}
 
 /// everything computed in prepaint that paint needs
 pub struct LayoutState {
@@ -160,16 +180,12 @@ impl Element for TerminalElement {
         window: &mut Window,
         cx: &mut App,
     ) -> Self::PrepaintState {
+        let window_settings = Settings::get(cx).window.clone();
         let settings = &Settings::get(cx).terminal;
-        let font = Font {
-            features: FontFeatures::disable_ligatures(),
-            ..gpui::font(settings.font_family.clone())
-        };
+        let font = terminal_font(&settings.font_family);
         let font_size = px(self.terminal_view.read(cx).font_size(cx));
-        let line_height = (font_size * settings.line_height.value()).round();
-        let text_system = cx.text_system();
-        let font_id = text_system.resolve_font(&font);
-        let cell_width = text_system.advance(font_id, font_size, 'm').unwrap().width;
+        let cell = cell_size(font_size, cx);
+        let (cell_width, line_height) = (cell.width, cell.height);
 
         // the bar keeps its space while hidden, so showing it never reflows the grid
         let bar_settings = settings.scrollbar.clone();
@@ -186,15 +202,22 @@ impl Element for TerminalElement {
             size(bar_width, bounds.size.height),
         );
 
-        let mut origin = bounds.origin;
-        origin.x += cell_width;
+        let padding = window_settings.padding;
+        let (pad_x, pad_y) = (px(padding.x), px(padding.y));
+        let mut origin = point(bounds.origin.x + pad_x, bounds.origin.y + pad_y);
         if bar_settings.placement == ScrollbarPlacement::Left {
             origin.x += bar_width;
         }
         let mut grid_size = bounds.size;
-        grid_size.width = (grid_size.width - cell_width - bar_width).max(cell_width * 2.);
+        grid_size.width = (grid_size.width - pad_x * 2. - bar_width).max(cell_width * 2.);
         // alacritty panics on a grid without rows
-        grid_size.height = grid_size.height.max(line_height);
+        grid_size.height = (grid_size.height - pad_y * 2.).max(line_height);
+        if window_settings.padding_balance {
+            // only whole cells are drawn, so the rest of the grid size is spare room
+            let spare = |length: Pixels, cell: Pixels| px(f32::from(length) % f32::from(cell));
+            origin.x += spare(grid_size.width, cell_width) / 2.;
+            origin.y += spare(grid_size.height, line_height) / 2.;
+        }
 
         // snap to device pixels so glyphs do not jitter while resizing
         let scale_factor = window.scale_factor();
@@ -318,7 +341,8 @@ impl Element for TerminalElement {
 
         window.with_content_mask(Some(ContentMask { bounds }), |window| {
             let background = self.terminal.read(cx).theme(cx).terminal_background;
-            window.paint_quad(fill(bounds, background));
+            let opacity = Settings::get(cx).window.opacity;
+            window.paint_quad(fill(bounds, background.opacity(opacity)));
 
             let origin = layout.dimensions.bounds.origin;
             window.handle_input(

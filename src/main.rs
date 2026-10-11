@@ -8,7 +8,7 @@ use std::{borrow::Cow, sync::Arc};
 
 use futures::{StreamExt, channel::mpsc::unbounded};
 
-use gpui::{App, AppContext, Bounds, TitlebarOptions, WindowBounds, WindowOptions, px, size};
+use gpui::{App, AppContext, TitlebarOptions, WindowBounds, WindowOptions, px, size};
 use gpui_platform::application;
 
 use crate::{
@@ -18,8 +18,8 @@ use crate::{
     ui::{
         text_input,
         workspace::{
-            Hide, HideOthers, NewTab, Quit, ShowAll, Workspace, app_menus, dock_menu, open_urls,
-            with_workspace,
+            Hide, HideOthers, NewTab, Quit, ShowAll, Workspace, app_menus, background_appearance,
+            dock_menu, open_urls, startup_bounds, window_decorations, with_workspace,
         },
     },
 };
@@ -122,13 +122,15 @@ fn main() {
         })
         .detach();
 
-        let bounds = Bounds::centered(None, size(px(900.), px(600.)), cx);
+        let settings = Settings::get(cx);
         cx.open_window(
             WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                window_bounds: Some(WindowBounds::Windowed(startup_bounds(cx))),
+                window_background: background_appearance(settings),
+                window_decorations: Some(window_decorations(settings)),
                 window_min_size: Some(size(px(400.), px(250.))),
                 titlebar: Some(TitlebarOptions {
-                    title: Some(Settings::get(cx).default_title.clone().into()),
+                    title: Some(settings.default_title.clone().into()),
                     ..Default::default()
                 }),
                 app_id: Some("kuterm".into()),

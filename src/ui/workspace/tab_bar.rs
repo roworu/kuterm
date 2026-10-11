@@ -13,9 +13,12 @@ use skrifa::{
     instance::{LocationRef, Size},
 };
 
-use super::{DropSide, LayoutNode, Pane, SplitAxis, Workspace, end_truncated::EndTruncated};
+use super::{
+    DropSide, LayoutNode, Pane, SplitAxis, Workspace, end_truncated::EndTruncated,
+    window::shows_tab_bar,
+};
 use crate::{
-    settings::{NewTabButton, Settings, TabIconPosition, TabTitleAlign},
+    settings::{Decorations, NewTabButton, Settings, TabIconPosition, TabTitleAlign},
     theme::Theme,
 };
 
@@ -322,14 +325,18 @@ impl Workspace {
         let settings = Settings::get(cx);
         let theme = Theme::get(cx);
         let pane_id = pane.id;
-        let show_bar = !(settings.hide_bar_for_one_tab && pane.tabs.len() == 1);
+        let show_bar = shows_tab_bar(settings, pane.tabs.len());
+        let framed = settings.window.decorations == Decorations::Full;
         // fixed width tabs only take the room they need, so the button follows the last one.
-        // expanded tabs fill the row anyway, which puts the button at the right end
-        let hug_tabs = settings.new_tab_button == NewTabButton::AfterTabs && !settings.expand_tabs;
+        // expanded tabs fill the row anyway, which puts the button at the right end.
+        // without a frame the room after the tabs is left free for moving the window
+        let hug_tabs = (settings.new_tab_button == NewTabButton::AfterTabs || !framed)
+            && !settings.expand_tabs;
         let tab_row = tab_row(&pane.tab_scroll)
             .when(hug_tabs, |row| row.flex_initial())
             .children((0..pane.tabs.len()).map(|ix| self.render_tab(pane_id, ix, cx)));
         let new_tab = self.render_new_tab_button(pane_id, cx);
+        let drag_area = (!framed).then(|| self.render_drag_area(pane_id, cx));
         let bar = div()
             .flex()
             .flex_none()
@@ -338,9 +345,15 @@ impl Workspace {
             .border_b_1()
             .border_color(theme.border)
             .map(|bar| match settings.new_tab_button {
-                NewTabButton::Left => bar.child(new_tab).child(tab_row),
-                NewTabButton::Right | NewTabButton::AfterTabs => bar.child(tab_row).child(new_tab),
-            });
+                NewTabButton::Left => bar.child(new_tab).child(tab_row).children(drag_area),
+                NewTabButton::Right => bar.child(tab_row).children(drag_area).child(new_tab),
+                NewTabButton::AfterTabs => bar.child(tab_row).child(new_tab).children(drag_area),
+            })
+            .when(
+                settings.window.decorations == Decorations::Client
+                    && self.layout.corner_pane_id() == Some(pane_id),
+                |bar| bar.child(self.render_window_buttons(cx)),
+            );
         let zone = self
             .drop_zone
             .filter(|(id, _)| *id == pane_id)
@@ -581,7 +594,7 @@ impl Render for Workspace {
             .size_full()
             .flex()
             .flex_col()
-            .bg(theme.terminal_background)
+            .bg(theme.terminal_background.opacity(settings.window.opacity))
             .font_family(settings.ui_font_family.clone())
             .text_size(rems(TEXT_SIZE))
             .child(layout)

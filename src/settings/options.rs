@@ -148,6 +148,37 @@ pub enum ScrollbarPlacement {
     Right,
 }
 
+/// who draws the window frame
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum Decorations {
+    /// title bar and borders from the window manager
+    Full,
+    /// no frame, the tab bar moves the window
+    None,
+    /// no frame, window buttons sit in the tab bar
+    Client,
+}
+
+/// how the window opens
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum StartupMode {
+    Windowed,
+    Maximized,
+    Fullscreen,
+}
+
+/// when quitting asks first
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ConfirmQuit {
+    Always,
+    /// only while a program still runs in some tab
+    Running,
+    Never,
+}
+
 /// speed curve of a smooth scroll
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]

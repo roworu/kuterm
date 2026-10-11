@@ -375,6 +375,14 @@ class App:
                 script_path.write_text(SCRIPT_PREAMBLE + script + "\nexec sleep 100000\n")
                 command = {"with_arguments": {"program": "/bin/sh", "args": [str(script_path)]}}
             self.settings["profiles"] = [{"name": "test", "command": command}]
+        if isinstance(self.settings, dict):
+            window = self.settings.get("window", {})
+            if "remember_size" not in window:
+                # tests are laid out for a 900x600 window, the remembered size opens it at that
+                self.settings["window"] = {**window, "remember_size": True}
+                state = self.home / ".local/state/kuterm"
+                state.mkdir(parents=True)
+                (state / "window_size.json").write_text('{"width": 900, "height": 600}')
         if themes and isinstance(self.settings, dict):
             # a copy, callers often share one settings dict between tests
             self.settings["theme"] = {**self.settings.get("theme", {}), "themes": themes}
@@ -773,20 +781,31 @@ class App:
     def scrollbar_width(self) -> float:
         return self._scrollbar_width() * self.scale
 
+    def _padding(self) -> tuple:
+        """(x, y) logical pixels between the window edges and the grid"""
+        bundled = bundled_settings()["window"]["padding"]
+        values = []
+        for axis in ("x", "y"):
+            value = float(self._get("window", "padding", axis, default=bundled[axis]))
+            values.append(float(bundled[axis]) if value < 0 else min(value, 200.0))
+        return tuple(values)
+
     def expected_pty(self, w: int, h: int, top: int = 0) -> tuple:
         """(rows, cols) for a window of w x h logical pixels with `top` of them taken by the tab bar"""
         cw, lh = self._cell_width(), self._line_height()
-        cols = int(max(w - cw - self._scrollbar_width(), cw * 2) // cw)
-        rows = int(max(h - top, lh) // lh)
+        px, py = self._padding()
+        cols = int(max(w - 2 * px - self._scrollbar_width(), cw * 2) // cw)
+        rows = int(max(h - top - 2 * py, lh) // lh)
         return rows, cols
 
     def cell_rect(self, col: int, row: int, cols: int = 1, rows: int = 1, top: int = 0) -> tuple:
         """(x0, y0, x1, y1) of a block of cells, top is the tab bar height when shown"""
         cw, lh = self.cell_width(), self.line_height()
-        # cell (0, 0) sits one cell width in from the left edge, after a left scrollbar
-        ox, oy = math.floor(cw), top
+        px, py = (value * self.scale for value in self._padding())
+        # cell (0, 0) sits inside the padding, after a left scrollbar, snapped to whole pixels
+        ox, oy = math.floor(px), top + math.floor(py)
         if self._get("terminal", "scrollbar", "placement") == "left":
-            ox = math.floor(cw + self.scrollbar_width())
+            ox = math.floor(px + self.scrollbar_width())
         return (
             ox + math.floor(col * cw),
             oy + math.floor(row * lh),

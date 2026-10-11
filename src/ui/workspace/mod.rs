@@ -6,6 +6,7 @@ mod notifications;
 mod tab_bar;
 mod tab_icon;
 mod tab_title;
+mod window;
 
 use std::{
     path::PathBuf,
@@ -25,12 +26,13 @@ use gpui::{
 pub use app_menu::{app_menus, dock_menu, open_urls};
 use notifications::Notification;
 use tab_title::TitleInputs;
+pub use window::{background_appearance, startup_bounds, window_decorations};
 
 use crate::{
     cli::Cli,
     settings::{
-        Command, CommandAction, Commands, Config, ConfigFiles, Profile, Settings, TabIconSettings,
-        TabIcons, TabTitleBlock,
+        Command, CommandAction, Commands, Config, ConfigFiles, ConfirmQuit, Profile, Settings,
+        TabIconSettings, TabIcons, TabTitleBlock,
     },
     terminal::{Event, Terminal, TerminalBuilder, foreground_process},
     theme::Theme,
@@ -175,6 +177,20 @@ impl LayoutNode {
             Self::Leaf(pane) => pane.id == id,
             Self::Split { first, second, .. } => first.contains(id) || second.contains(id),
             Self::Empty => false,
+        }
+    }
+
+    /// pane at the top right corner of the window, where window buttons go
+    fn corner_pane_id(&self) -> Option<usize> {
+        match self {
+            Self::Leaf(pane) => Some(pane.id),
+            Self::Split {
+                axis: SplitAxis::Horizontal,
+                second,
+                ..
+            } => second.corner_pane_id(),
+            Self::Split { first, .. } => first.corner_pane_id(),
+            Self::Empty => None,
         }
     }
 
@@ -337,6 +353,8 @@ pub struct Workspace {
     _config_watch: Task<()>,
     /// set once quitting is decided, so closing the window asks nothing more
     quitting: bool,
+    /// writes the window size once resizing stops
+    _size_save: Task<()>,
 }
 
 // modified time and size of each file, none for missing ones
@@ -481,6 +499,7 @@ impl Workspace {
             _title_task: title_task,
             _config_watch: config_watch,
             quitting: false,
+            _size_save: Task::ready(()),
         };
         // the window manager's close button goes through here, false keeps the window open
         let workspace = cx.weak_entity();
@@ -493,6 +512,11 @@ impl Workspace {
             this.reload_themes(window, cx);
         })
         .detach();
+        cx.observe_window_bounds(window, |this: &mut Self, window, cx| {
+            this.window_resized(window, cx);
+        })
+        .detach();
+        window::apply_startup_mode(window, cx);
         this.add_tab(window, cx);
         // config problems from launch, printed before any window could show them
         if cx.has_global::<ConfigFiles>() {
@@ -1009,9 +1033,10 @@ impl Workspace {
         self.confirm_close.is_none() && !self.ask_before_quit(window, cx)
     }
 
-    /// open the quit dialog when the warning is on and programs run, true when it opened
+    /// open the quit dialog when `confirm_quit` asks for it, true when it opened
     fn ask_before_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        if !Settings::get(cx).close_running_tab_warn {
+        let confirm = Settings::get(cx).confirm_quit;
+        if confirm == ConfirmQuit::Never {
             return false;
         }
         let names: Vec<String> = self
@@ -1021,7 +1046,7 @@ impl Workspace {
             .flat_map(|pane| (0..pane.tabs.len()).map(move |ix| (pane.id, ix)))
             .filter_map(|(pane_id, ix)| self.running_program(pane_id, ix, cx))
             .collect();
-        if names.is_empty() {
+        if names.is_empty() && confirm != ConfirmQuit::Always {
             return false;
         }
         self.open_confirm(quit_message(&names), CloseTarget::Window, window, cx);
@@ -1182,6 +1207,7 @@ impl Workspace {
         cx.bind_keys(crate::ui::text_input::bindings());
         // menus show the keys bound to their actions, so they are rebuilt with the new keys
         cx.set_menus(app_menus());
+        self.apply_window_settings(window, cx);
         // theme mode and theme files are picked in settings
         self.reload_themes(window, cx);
         self.refresh_titles();
@@ -1652,6 +1678,7 @@ fn side_close_message(names: &[String]) -> String {
 fn quit_message(names: &[String]) -> String {
     let list = name_list(names);
     match names.len() {
+        0 => "quit kuterm?".to_owned(),
         1 => format!("1 tab is still running a program: {list}"),
         count => format!("{count} tabs are still running programs: {list}"),
     }
@@ -1670,7 +1697,7 @@ mod tests {
     use super::*;
     use crate::{
         settings::{Keybindings, Pins},
-        terminal::Terminal,
+        terminal::{Terminal, TerminalBounds},
     };
 
     /// open a workspace with `tabs` tabs and user keybindings `keys`, the last tab is active
@@ -3795,6 +3822,7 @@ mod tests {
             quit_message(&names(&["a", "b", "c", "d"])),
             "4 tabs are still running programs: a, b, c, …"
         );
+        assert_eq!(quit_message(&[]), "quit kuterm?");
     }
 
     #[gpui::test]
@@ -3824,12 +3852,38 @@ mod tests {
         assert!(dialog(&ws, cx).is_none());
         assert!(quitting(&ws, cx));
 
-        let settings = Settings::parse(r#"{"close_running_tab_warn": false}"#).unwrap();
+        let settings = Settings::parse(r#"{"confirm_quit": "never"}"#).unwrap();
         let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
         start_program(&ws, cx);
         run_actions(&ws, cx, r#""quit""#);
         assert!(dialog(&ws, cx).is_none());
         assert!(quitting(&ws, cx));
+    }
+
+    #[gpui::test]
+    fn confirm_quit_always_asks_when_idle(cx: &mut TestAppContext) {
+        let settings = Settings::parse(r#"{"confirm_quit": "always"}"#).unwrap();
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        run_actions(&ws, cx, r#""quit""#);
+        let (target, message) = dialog(&ws, cx).expect("quit asked nothing");
+        assert_eq!(target, CloseTarget::Window);
+        assert_eq!(message, "quit kuterm?");
+        type_keys(cx, "escape");
+        assert!(!quitting(&ws, cx));
+        assert!(!cx.simulate_close(), "idle window closed without asking");
+        type_keys(cx, "enter");
+        assert!(quitting(&ws, cx));
+    }
+
+    #[gpui::test]
+    fn confirm_quit_is_separate_from_close_tab_warning(cx: &mut TestAppContext) {
+        let settings =
+            Settings::parse(r#"{"close_running_tab_warn": false, "confirm_quit": "running"}"#)
+                .unwrap();
+        let (ws, cx) = open_with_settings(cx, 2, "{}", settings);
+        start_program(&ws, cx);
+        assert!(!cx.simulate_close(), "busy window closed without asking");
+        assert_eq!(dialog(&ws, cx).map(|d| d.0), Some(CloseTarget::Window));
     }
 
     #[gpui::test]
@@ -3862,7 +3916,7 @@ mod tests {
 
     #[gpui::test]
     fn disabled_warning_closes_busy_window(cx: &mut TestAppContext) {
-        let settings = Settings::parse(r#"{"close_running_tab_warn": false}"#).unwrap();
+        let settings = Settings::parse(r#"{"confirm_quit": "never"}"#).unwrap();
         let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
         start_program(&ws, cx);
         assert!(cx.simulate_close());
@@ -4050,5 +4104,189 @@ mod tests {
         assert_eq!(scroll_offset(&terminal, cx), top - 5);
         run_actions(&ws, cx, r#""scroll_bottom""#);
         assert_eq!(scroll_offset(&terminal, cx), 0);
+    }
+
+    fn window_settings(json: &str) -> Settings {
+        Settings::parse(&format!(
+            r#"{{"hide_bar_for_one_tab": true, "terminal": {{"scrollbar": {{"enable": "off"}}}},
+                "window": {json}}}"#
+        ))
+        .unwrap()
+    }
+
+    fn grid_bounds(ws: &Entity<Workspace>, cx: &mut VisualTestContext) -> TerminalBounds {
+        let terminal = terminal(ws, cx, 0);
+        terminal.read_with(cx, |t, _| t.last_content.terminal_bounds)
+    }
+
+    #[gpui::test]
+    fn padding_moves_and_shrinks_the_grid(cx: &mut TestAppContext) {
+        let settings = window_settings(
+            r#"{"decorations": "full", "padding": {"x": 30, "y": 20}, "padding_balance": false}"#,
+        );
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        cx.run_until_parked();
+        let b = grid_bounds(&ws, cx);
+        assert_eq!(b.bounds.origin, point(gpui::px(30.), gpui::px(20.)));
+        assert_eq!(b.bounds.size, gpui::size(gpui::px(840.), gpui::px(560.)));
+        assert_eq!(b.num_columns(), (840. / f32::from(b.cell_width)) as usize);
+        assert_eq!(b.num_lines(), (560. / f32::from(b.line_height)) as usize);
+    }
+
+    #[gpui::test]
+    fn balanced_padding_centers_the_grid(cx: &mut TestAppContext) {
+        let settings = window_settings(
+            r#"{"decorations": "full", "padding": {"x": 30, "y": 20}, "padding_balance": true}"#,
+        );
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        cx.run_until_parked();
+        let b = grid_bounds(&ws, cx);
+        let spare_x = 840. % f32::from(b.cell_width);
+        let spare_y = 560. % f32::from(b.line_height);
+        // origins are snapped down to whole device pixels
+        let expected_x = (30. + spare_x / 2.).floor();
+        let expected_y = (20. + spare_y / 2.).floor();
+        assert_eq!(f32::from(b.bounds.origin.x), expected_x);
+        assert_eq!(f32::from(b.bounds.origin.y), expected_y);
+        // the grid is never pushed past the padding on the far side
+        let right = f32::from(b.bounds.origin.x + b.cell_width * b.num_columns() as f32);
+        let bottom = f32::from(b.bounds.origin.y + b.line_height * b.num_lines() as f32);
+        assert!(right <= 870., "{right}");
+        assert!(bottom <= 580., "{bottom}");
+    }
+
+    #[gpui::test]
+    fn startup_size_fits_columns_and_rows(cx: &mut TestAppContext) {
+        let settings = window_settings(
+            r#"{"decorations": "full", "padding": {"x": 7, "y": 3}, "columns": 83, "rows": 27,
+                "startup": "windowed", "remember_size": false}"#,
+        );
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        let bounds = cx.update(|_, cx| startup_bounds(cx));
+        cx.simulate_resize(bounds.size);
+        cx.run_until_parked();
+        let b = grid_bounds(&ws, cx);
+        assert_eq!((b.num_columns(), b.num_lines()), (83, 27));
+    }
+
+    #[gpui::test]
+    fn startup_size_counts_the_tab_bar_without_frame(cx: &mut TestAppContext) {
+        let settings = window_settings(
+            r#"{"decorations": "none", "padding": {"x": 0, "y": 0}, "columns": 50, "rows": 10,
+                "startup": "windowed", "remember_size": false}"#,
+        );
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        let bounds = cx.update(|_, cx| startup_bounds(cx));
+        cx.simulate_resize(bounds.size);
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("drag-area").is_some(), "tab bar is hidden");
+        let b = grid_bounds(&ws, cx);
+        assert_eq!((b.num_columns(), b.num_lines()), (50, 10));
+    }
+
+    #[gpui::test]
+    fn frameless_window_shows_tab_bar_with_drag_area(cx: &mut TestAppContext) {
+        let settings = window_settings(r#"{"decorations": "full"}"#);
+        let (_ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        assert!(cx.debug_bounds("drag-area").is_none());
+        assert!(
+            cx.debug_bounds("new-tab").is_none(),
+            "one tab shows the bar"
+        );
+
+        let settings = window_settings(r#"{"decorations": "none"}"#);
+        let (_ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        let area = cx.debug_bounds("drag-area").expect("no drag area");
+        let tab = cx.debug_bounds("tab-title-0").expect("no tab bar");
+        assert!(area.left() >= tab.right(), "drag area overlaps the tab");
+        assert!(cx.debug_bounds("window-close").is_none());
+    }
+
+    #[gpui::test]
+    fn client_frame_draws_window_buttons_in_the_corner_pane(cx: &mut TestAppContext) {
+        let settings = window_settings(r#"{"decorations": "client"}"#);
+        let (ws, cx) = open_with_settings(cx, 2, "{}", settings);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        for id in ["window-minimize", "window-maximize", "window-close"] {
+            let button = cx.debug_bounds(id).unwrap_or_else(|| panic!("no {id}"));
+            assert!(button.left() > gpui::px(450.), "{id} is not on the right");
+        }
+        run_actions(&ws, cx, r#""split_left""#);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        // the moved tab is on the left, the buttons stay at the right edge
+        let close = cx.debug_bounds("window-close").expect("no close button");
+        assert!(close.left() > gpui::px(450.));
+        assert_eq!(ws.update(cx, |ws, _| ws.layout.panes().len()), 2);
+
+        // the close button asks like any other quit
+        start_program(&ws, cx);
+        cx.simulate_click(close.center(), Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(dialog(&ws, cx).map(|d| d.0), Some(CloseTarget::Window));
+    }
+
+    #[test]
+    fn corner_pane_is_top_right() {
+        let leaf = |id| {
+            Box::new(LayoutNode::Leaf(Pane {
+                id,
+                tabs: Vec::new(),
+                active: 0,
+                tab_scroll: ScrollHandle::new(),
+            }))
+        };
+        assert_eq!(leaf(3).corner_pane_id(), Some(3));
+        let side_by_side = LayoutNode::Split {
+            axis: SplitAxis::Horizontal,
+            ratio: 0.5,
+            first: leaf(1),
+            second: leaf(2),
+        };
+        assert_eq!(side_by_side.corner_pane_id(), Some(2));
+        // right column split into top and bottom
+        let nested = LayoutNode::Split {
+            axis: SplitAxis::Horizontal,
+            ratio: 0.5,
+            first: leaf(1),
+            second: Box::new(LayoutNode::Split {
+                axis: SplitAxis::Vertical,
+                ratio: 0.5,
+                first: leaf(4),
+                second: leaf(5),
+            }),
+        };
+        assert_eq!(nested.corner_pane_id(), Some(4));
+        assert_eq!(LayoutNode::Empty.corner_pane_id(), None);
+    }
+
+    #[test]
+    fn opacity_and_blur_pick_background_appearance() {
+        use gpui::WindowBackgroundAppearance as Appearance;
+        for (json, expected) in [
+            (r#"{"opacity": 1.0, "blur": true}"#, Appearance::Opaque),
+            (
+                r#"{"opacity": 0.8, "blur": false}"#,
+                Appearance::Transparent,
+            ),
+            (r#"{"opacity": 0.8, "blur": true}"#, Appearance::Blurred),
+        ] {
+            assert_eq!(
+                background_appearance(&window_settings(json)),
+                expected,
+                "{json}"
+            );
+        }
+        for (mode, expected) in [
+            ("full", gpui::WindowDecorations::Server),
+            ("none", gpui::WindowDecorations::Client),
+            ("client", gpui::WindowDecorations::Client),
+        ] {
+            let settings = window_settings(&format!(r#"{{"decorations": "{mode}"}}"#));
+            assert_eq!(window_decorations(&settings), expected, "{mode}");
+        }
     }
 }

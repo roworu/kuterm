@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from harness import ASSETS, BIN, BASH, App, bundled_theme, close_to, dominant, near, session_env
+from harness import ASSETS, BIN, BASH, App, bundled_settings, bundled_theme, close_to, dominant, near, session_env
 
 FEATURE = "config files and command line"
 
@@ -60,7 +60,9 @@ def test_lenient_syntax_and_partial_settings(app_factory):
     }""" % __import__("json").dumps(BASH)
     app = app_factory(text)
     app.wait(lambda: close_to(background(app), DARK["terminal_background"]), msg="dark background")
-    assert app.pty_size() == app.expected_pty(900, 600)
+    # no remembered size here, the window fits the bundled grid size
+    window = bundled_settings()["window"]
+    assert app.pty_size() == (window["rows"], window["columns"])
 
 
 def test_valid_settings_file_is_not_rewritten(app_factory):
