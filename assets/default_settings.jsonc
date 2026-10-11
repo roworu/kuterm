@@ -83,6 +83,28 @@
     "paste": true,
   },
 
+  // focus a split pane when the mouse moves over it, without clicking
+  "focus_follows_mouse": false,
+
+  // what happens when a program rings the bell, like a shell on a failed tab completion
+  "bell": {
+    // flash over the terminal that fades out
+    "visual": {
+      "enable": true,
+      // flash color as a hex string, alpha keeps text readable, like "#ffffff40".
+      // null uses a faint terminal text color
+      "color": null,
+      // milliseconds the flash takes to fade out, from 0 to 2000
+      "duration": 150,
+    },
+    // play the system bell sound
+    "audio": false,
+    // ask the desktop to highlight the window when it is not focused, on x11 and macos
+    "urgent": true,
+    // show a bell icon on a background tab that rang, until it is opened
+    "tab_indicator": true,
+  },
+
   "theme": {
     // which theme to use, applied right away when the system switches:
     //   "system" - follow system dark/light preference
@@ -244,6 +266,19 @@
     "line_height": "standard",
     // cursor shape: "block", "bar", "underline" or "hollow"
     "cursor_shape": "bar",
+    "cursor": {
+      // cursor color as a hex string like "#ff8800", null uses the theme "cursor" color
+      "color": null,
+      // color of the character under a block cursor, null uses the theme "terminal_background"
+      "text_color": null,
+      // pixels a "bar" or "underline" cursor is thick, from 1 to 8
+      "thickness": 2,
+      // cursor while the terminal is not focused:
+      //   "hollow" - outline of a block
+      //   "same"   - the focused shape
+      //   "none"   - not drawn
+      "unfocused": "hollow",
+    },
     // cursor blinking:
     //   "on"  - always blink
     //   "off" - never blink
@@ -263,6 +298,14 @@
     "select_to_copy": false,
     // right click copies selected text into the clipboard
     "right_click_copy": true,
+    // drop spaces and tabs at the end of each copied line
+    "copy_trim_trailing_whitespace": true,
+    // characters that end a word when double clicking to select it
+    "word_separators": " ,│`|:\"'()[]{}<>\t",
+    // lines scrolled per mouse wheel step, also speeds up touchpad scrolling, from 0.1 to 20
+    "scroll_multiplier": 2,
+    // hide the mouse pointer when typing, moving the mouse shows it again
+    "hide_mouse_when_typing": true,
     "scrollbar": {
       // when to show it:
       //   "on"      - always

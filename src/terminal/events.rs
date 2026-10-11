@@ -44,9 +44,8 @@ impl Terminal {
             }
             AlacTermEvent::Exit | AlacTermEvent::ChildExit(_) => cx.emit(Event::CloseTerminal),
             AlacTermEvent::Wakeup => cx.emit(Event::Wakeup),
-            AlacTermEvent::MouseCursorDirty
-            | AlacTermEvent::CursorBlinkingChange
-            | AlacTermEvent::Bell => {}
+            AlacTermEvent::Bell => cx.emit(Event::Bell),
+            AlacTermEvent::MouseCursorDirty | AlacTermEvent::CursorBlinkingChange => {}
         }
     }
 }

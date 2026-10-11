@@ -9,7 +9,7 @@ mod scrollbar;
 use alacritty_terminal::{term::TermMode, vte::ansi::CursorShape};
 use gpui::{
     App, Bounds, ContentMask, CursorStyle, DispatchPhase, Element, ElementId, Entity, FocusHandle,
-    Font, FontFallbacks, FontFeatures, FontWeight, GlobalElementId, Hitbox, HitboxBehavior,
+    Font, FontFallbacks, FontFeatures, FontWeight, GlobalElementId, Hitbox, HitboxBehavior, Hsla,
     InspectorElementId, IntoElement, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent,
     MouseUpEvent, Pixels, Point, Size, Style, TextRun, Window, fill, point, px, relative, size,
 };
@@ -96,6 +96,8 @@ pub struct TerminalElement {
     cursor_on: bool,
     /// false once auto hide kicked in
     scrollbar_visible: bool,
+    /// fading bell flash painted over the terminal
+    bell_flash: Option<Hsla>,
 }
 
 impl TerminalElement {
@@ -107,6 +109,7 @@ impl TerminalElement {
         focused: bool,
         cursor_on: bool,
         scrollbar_visible: bool,
+        bell_flash: Option<Hsla>,
     ) -> Self {
         Self {
             terminal,
@@ -115,6 +118,7 @@ impl TerminalElement {
             focused,
             cursor_on,
             scrollbar_visible,
+            bell_flash,
         }
     }
 
@@ -217,6 +221,7 @@ impl Element for TerminalElement {
         let settings = &Settings::get(cx).terminal;
         let fonts = terminal_fonts(settings);
         let glyph_offset = point(px(settings.glyph_offset.x), px(settings.glyph_offset.y));
+        let cursor_settings = settings.cursor;
         let style = GridStyle {
             fonts: &fonts,
             bold_is_bright: settings.bold_is_bright,
@@ -295,7 +300,9 @@ impl Element for TerminalElement {
                 &[TextRun {
                     len: content.cursor_char.len_utf8(),
                     font: fonts.regular.clone(),
-                    color: theme.terminal_background,
+                    color: cursor_settings
+                        .text_color
+                        .unwrap_or(theme.terminal_background),
                     background_color: None,
                     underline: None,
                     strikethrough: None,
@@ -317,8 +324,10 @@ impl Element for TerminalElement {
                     size(width.ceil(), line_height),
                 ),
                 shape: content.cursor.shape,
-                color: theme.cursor,
+                color: cursor_settings.color.unwrap_or(theme.cursor),
                 focused: self.focused,
+                unfocused: cursor_settings.unfocused,
+                thickness: px(cursor_settings.thickness),
                 text,
                 text_offset: glyph_offset,
             }
@@ -421,6 +430,9 @@ impl Element for TerminalElement {
             }
             if let Some((scrollbar, _)) = &layout.scrollbar {
                 scrollbar.paint(window);
+            }
+            if let Some(flash) = self.bell_flash {
+                window.paint_quad(fill(bounds, flash));
             }
         });
     }

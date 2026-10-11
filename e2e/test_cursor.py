@@ -1,4 +1,4 @@
-"""cursor painting on screen: every cursor_shape, program-set shapes, hidden, hollow while unfocused"""
+"""cursor painting on screen: every cursor_shape, program-set shapes, hidden, unfocused look, colors, thickness"""
 
 import subprocess
 
@@ -138,3 +138,51 @@ def test_cursor_hollow_while_unfocused(app_factory, thief, shape):
     app.snap("another window focused")
     app.focus()
     wait_shape(app, theme, shape)
+
+
+MAGENTA = (255, 0, 255)
+GREEN = (0, 255, 0)
+
+
+@pytest.mark.parametrize("shape, thickness", [("bar", 5), ("underline", 4)])
+def test_cursor_color_and_thickness(app_factory, shape, thickness):
+    """cursor.color paints the cursor in that color, cursor.thickness sets bar width and underline height"""
+    app = app_factory({"theme": {"mode": "dark"}, "terminal": {
+        "cursor_shape": shape, "font_size": 24,
+        "cursor": {"color": "#ff00ff", "thickness": thickness}}}, script="")
+    cw, lh = round(app.cell_width()), app.line_height()
+
+    def sized():
+        fp = footprint(app, {"cursor": MAGENTA})
+        if fp is None:
+            return False
+        w, h, _ = fp
+        return (w, abs(h - lh) <= 1) == (thickness, True) if shape == "bar" else \
+            (abs(w - cw) <= 1, h) == (True, thickness)
+
+    app.wait(sized, msg=f"{thickness}px magenta {shape}, footprint {footprint(app, {'cursor': MAGENTA})}")
+    app.snap(f"magenta {shape} {thickness}px thick")
+
+
+def test_cursor_text_color(app_factory):
+    """cursor.text_color colors the character under a block cursor"""
+    app = app_factory({"theme": {"mode": "dark"}, "terminal": {
+        "cursor_shape": "block", "font_size": 24,
+        "cursor": {"text_color": "#00ff00"}}}, script="printf 'W\\r'")
+    x0, y0, x1, y1 = app.cell_rect(0, 0)
+    app.wait(lambda: near(app.shot()[y0:y1, x0:x1], GREEN, 40).sum() > 10, msg="green W under the block")
+    app.snap("green W under the block cursor")
+
+
+@pytest.mark.parametrize("unfocused", ["same", "none"])
+def test_unfocused_cursor_setting(app_factory, thief, unfocused):
+    """cursor.unfocused keeps the focused shape or hides the cursor while not focused"""
+    app = app_factory({"theme": {"mode": "dark"}, "terminal": {
+        "cursor_shape": "bar", "font_size": 24, "cursor": {"unfocused": unfocused}}}, script="")
+    theme = bundled_theme(True)
+    wait_shape(app, theme, "bar")
+    thief()
+    wait_shape(app, theme, "bar" if unfocused == "same" else "hidden")
+    app.snap(f"unfocused: {unfocused}")
+    app.focus()
+    wait_shape(app, theme, "bar")

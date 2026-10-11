@@ -7,7 +7,7 @@ use std::{
 
 use alacritty_terminal::selection::SelectionType;
 use gpui::{
-    App, ClipboardItem, Context, Entity, EventEmitter, ExternalPaths, FocusHandle, Focusable,
+    App, ClipboardItem, Context, Entity, EventEmitter, ExternalPaths, FocusHandle, Focusable, Hsla,
     InteractiveElement, IntoElement, KeyDownEvent, Modifiers, MouseDownEvent, MouseMoveEvent,
     MouseUpEvent, ParentElement, Pixels, Point, Render, ScrollDelta, ScrollWheelEvent, Styled,
     Subscription, Task, Window, actions, div, px,
@@ -27,8 +27,8 @@ pub enum ClipboardEvent {
     Pasted,
 }
 
-// default terminal scroll_multiplier
-const SCROLL_MULTIPLIER: f32 = 2.;
+// alpha of the default bell flash, enough to see without hiding the text
+const BELL_FLASH_OPACITY: f32 = 0.2;
 
 /// glide of the viewport between two history offsets
 #[derive(Clone, Copy, Debug)]
@@ -71,6 +71,8 @@ pub struct TerminalView {
     blink: Option<Task<()>>,
     /// font size of this tab only, none follows settings
     font_size: Option<f32>,
+    /// when the bell rang, while its flash is still fading
+    bell_at: Option<Instant>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -79,10 +81,10 @@ impl TerminalView {
     pub fn new(terminal: Entity<Terminal>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus_handle = cx.focus_handle();
         let subscriptions = vec![
-            cx.subscribe(&terminal, |_, _, event: &Event, cx| {
-                if *event == Event::Wakeup {
-                    cx.notify();
-                }
+            cx.subscribe(&terminal, |this, _, event: &Event, cx| match event {
+                Event::Wakeup => cx.notify(),
+                Event::Bell => this.ring_bell(cx),
+                _ => {}
             }),
             cx.on_focus_in(&focus_handle, window, |this, _, cx| {
                 this.terminal.read(cx).focus_changed(true);
@@ -107,6 +109,7 @@ impl TerminalView {
             cursor_on: true,
             blink: None,
             font_size: None,
+            bell_at: None,
             _subscriptions: subscriptions,
         }
     }
@@ -126,6 +129,31 @@ impl TerminalView {
     pub fn set_font_size(&mut self, size: Option<f32>, cx: &mut Context<Self>) {
         self.font_size = size.map(Settings::clamp_font_size);
         cx.notify();
+    }
+
+    // a new ring restarts the flash
+    fn ring_bell(&mut self, cx: &mut Context<Self>) {
+        if Settings::get(cx).bell.visual.enable {
+            self.bell_at = Some(Instant::now());
+            cx.notify();
+        }
+    }
+
+    // fades with each frame until the duration is over
+    fn bell_flash(&mut self, cx: &App) -> Option<Hsla> {
+        let rang = self.bell_at?;
+        let visual = Settings::get(cx).bell.visual;
+        let t = rang.elapsed().as_secs_f32() * 1000. / visual.duration;
+        // a zero duration gives nan or infinity, which shows no flash
+        if !visual.enable || t.is_nan() || t >= 1. {
+            self.bell_at = None;
+            return None;
+        }
+        let color = visual.color.unwrap_or_else(|| {
+            let theme = self.terminal.read(cx).theme(cx);
+            theme.terminal_foreground.opacity(BELL_FLASH_OPACITY)
+        });
+        Some(color.opacity(1. - t))
     }
 
     // shows the cursor and restarts its phase, so it stays visible while typing
@@ -192,11 +220,12 @@ impl TerminalView {
             .last_content
             .terminal_bounds
             .line_height;
+        let multiplier = Settings::get(cx).terminal.scroll_multiplier;
         let lines = match event.delta {
-            ScrollDelta::Lines(delta) => (delta.y * SCROLL_MULTIPLIER) as i32,
+            ScrollDelta::Lines(delta) => (delta.y * multiplier) as i32,
             ScrollDelta::Pixels(delta) => {
                 // accumulate touchpad pixels until they add up to whole lines
-                self.scroll_px += delta.y * SCROLL_MULTIPLIER;
+                self.scroll_px += delta.y * multiplier;
                 let lines = (self.scroll_px / line_height) as i32;
                 self.scroll_px -= line_height * lines as f32;
                 lines
@@ -418,7 +447,7 @@ impl TerminalView {
     }
 
     fn copy_selection(&mut self, cx: &mut Context<Self>) {
-        if let Some(text) = self.terminal.read(cx).selection_text() {
+        if let Some(text) = copied_text(self.terminal.read(cx), cx) {
             cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
             cx.emit(ClipboardEvent::Copied(text));
         }
@@ -448,6 +477,22 @@ impl TerminalView {
         self.input_happened(cx);
         self.terminal.update(cx, |term, _| term.paste(&text));
     }
+}
+
+/// selected text as it goes into the clipboard, none when nothing is selected
+pub fn copied_text(terminal: &Terminal, cx: &App) -> Option<String> {
+    let text = terminal.selection_text()?;
+    if !Settings::get(cx).terminal.copy_trim_trailing_whitespace {
+        return Some(text);
+    }
+    Some(trim_trailing_whitespace(&text))
+}
+
+fn trim_trailing_whitespace(text: &str) -> String {
+    text.split('\n')
+        .map(|line| line.trim_end_matches([' ', '\t']))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// path as one shell word, single quoted when it has characters the shell would expand
@@ -508,6 +553,10 @@ impl Render for TerminalView {
         } else if self.blink.is_none() {
             self.restart_blink(cx);
         }
+        let bell_flash = self.bell_flash(cx);
+        if bell_flash.is_some() {
+            window.request_animation_frame();
+        }
         div()
             .id("terminal-view")
             .size_full()
@@ -524,6 +573,7 @@ impl Render for TerminalView {
                 focused,
                 self.cursor_on,
                 self.scrollbar_visible(cx),
+                bell_flash,
             ))
     }
 }
@@ -720,6 +770,123 @@ mod tests {
     fn right_click_does_not_copy_without_right_click_copy(cx: &mut TestAppContext) {
         let (view, cx) = focused_view(r#"{"terminal": {"right_click_copy": false}}"#, cx);
         assert_eq!(select_and_right_click(&view, cx).as_deref(), Some("before"));
+    }
+
+    #[gpui::test]
+    fn scroll_multiplier_scales_wheel_steps(cx: &mut TestAppContext) {
+        let (view, cx) = focused_view(r#"{"terminal": {"scroll_multiplier": 0.5}}"#, cx);
+        let start = view.read_with(cx, |view, cx| view.font_size(cx));
+        // ctrl-wheel changes the size by one per event that adds up to a whole line
+        let wheel = ScrollWheelEvent {
+            delta: ScrollDelta::Lines(gpui::point(0., 1.)),
+            modifiers: Modifiers {
+                control: true,
+                ..Modifiers::default()
+            },
+            ..ScrollWheelEvent::default()
+        };
+        view.update_in(cx, |view, window, cx| view.scroll_wheel(&wheel, window, cx));
+        assert_eq!(view.read_with(cx, |view, cx| view.font_size(cx)), start);
+
+        cx.update(|_, cx| {
+            let mut settings = Settings::get(cx).clone();
+            settings.terminal.scroll_multiplier = 3.;
+            cx.set_global(settings);
+        });
+        view.update_in(cx, |view, window, cx| view.scroll_wheel(&wheel, window, cx));
+        assert_eq!(
+            view.read_with(cx, |view, cx| view.font_size(cx)),
+            start + 1.
+        );
+    }
+
+    #[test]
+    fn trailing_whitespace_is_trimmed_per_line() {
+        assert_eq!(
+            trim_trailing_whitespace("a b  \n\tc\t \n  \nd"),
+            "a b\n\tc\n\nd"
+        );
+        assert_eq!(trim_trailing_whitespace("line\n"), "line\n");
+    }
+
+    /// line the shell printed with a trailing space and tab, as copied with `json` settings
+    fn copied_padded_line(json: &str, cx: &mut TestAppContext) -> String {
+        let (view, cx) = focused_view(json, cx);
+        // a tab leaves a tab cell behind, so alacritty copies it with the space before it
+        view.update(cx, |view, cx| {
+            view.terminal.update(cx, |term, _| {
+                term.input(b"printf 'padded \\t\\n'\r".to_vec())
+            })
+        });
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            let copied = view.update(cx, |view, cx| {
+                view.terminal.update(cx, |term, _| {
+                    term.sync();
+                    term.select_all();
+                });
+                copied_text(view.terminal.read(cx), cx)
+            });
+            if let Some(line) = copied
+                .as_deref()
+                .and_then(|text| text.lines().find(|line| line.starts_with("padded")))
+            {
+                return line.to_string();
+            }
+            assert!(Instant::now() < deadline, "shell never printed");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
+    #[gpui::test]
+    fn copy_trims_trailing_whitespace(cx: &mut TestAppContext) {
+        let json = r#"{"terminal": {"copy_trim_trailing_whitespace": true}}"#;
+        assert_eq!(copied_padded_line(json, cx), "padded");
+    }
+
+    #[gpui::test]
+    fn copy_keeps_trailing_whitespace_without_trimming(cx: &mut TestAppContext) {
+        let json = r#"{"terminal": {"copy_trim_trailing_whitespace": false}}"#;
+        assert_eq!(copied_padded_line(json, cx), "padded \t");
+    }
+
+    #[gpui::test]
+    fn bell_starts_a_flash_only_when_visual_bell_is_on(cx: &mut TestAppContext) {
+        let (view, cx) = focused_view(r#"{"bell": {"visual": {"enable": true}}}"#, cx);
+        let terminal = view.read_with(cx, |view, _| view.terminal.clone());
+        terminal.update(cx, |_, cx| cx.emit(Event::Bell));
+        assert!(view.read_with(cx, |view, _| view.bell_at.is_some()));
+
+        cx.update(|_, cx| {
+            let mut settings = Settings::get(cx).clone();
+            settings.bell.visual.enable = false;
+            cx.set_global(settings);
+        });
+        view.update(cx, |view, _| view.bell_at = None);
+        terminal.update(cx, |_, cx| cx.emit(Event::Bell));
+        assert!(view.read_with(cx, |view, _| view.bell_at.is_none()));
+    }
+
+    #[gpui::test]
+    fn bell_flash_fades_and_ends(cx: &mut TestAppContext) {
+        let (view, cx) = focused_view(
+            r##"{"bell": {"visual": {"enable": true, "color": "#ff0000", "duration": 200}}}"##,
+            cx,
+        );
+        let flash = |cx: &mut VisualTestContext| view.update(cx, |view, cx| view.bell_flash(cx));
+        view.update(cx, |view, _| view.bell_at = Some(Instant::now()));
+        let first = flash(cx).expect("flash right after the bell");
+        assert!(first.a > 0.5 && first.a <= 1.);
+        view.update(cx, |view, _| {
+            view.bell_at = Some(Instant::now() - Duration::from_millis(150))
+        });
+        let later = flash(cx).expect("flash before the duration ends");
+        assert!(later.a < first.a && later.a > 0.);
+        view.update(cx, |view, _| {
+            view.bell_at = Some(Instant::now() - Duration::from_millis(250))
+        });
+        assert_eq!(flash(cx), None);
+        assert!(view.read_with(cx, |view, _| view.bell_at.is_none()));
     }
 
     #[test]

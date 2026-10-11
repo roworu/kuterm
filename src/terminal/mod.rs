@@ -36,11 +36,11 @@ pub use mouse::{MouseAction, MouseButton};
 pub(crate) use process::tests::{Kill, spawn};
 pub use process::{ForegroundProcess, children, foreground_process, process_info};
 
-use builder::ZedListener;
+use builder::{ZedListener, term_config};
 use keys::to_esc_str;
 
 use crate::{
-    settings::{ProfileTheme, ThemeSettings},
+    settings::{ProfileTheme, TerminalSettings, ThemeSettings},
     theme::Theme,
 };
 
@@ -50,6 +50,8 @@ pub enum Event {
     TitleChanged,
     Wakeup,
     CloseTerminal,
+    /// the program rang the bell
+    Bell,
 }
 
 enum InternalEvent {
@@ -95,6 +97,12 @@ impl Terminal {
             .theme_settings
             .as_ref()
             .map(|profile| Theme::for_appearance(&themes.with_profile(profile), appearance));
+    }
+
+    /// apply changed settings, like word separators, to the running terminal
+    pub fn apply_settings(&mut self, settings: &TerminalSettings) {
+        self.term.lock().set_options(term_config(settings));
+        self.dirty.store(true, Ordering::Release);
     }
 
     fn write_to_pty(&self, input: impl Into<Cow<'static, [u8]>>) {

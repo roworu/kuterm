@@ -153,6 +153,30 @@ def test_double_click_selects_word(app_factory):
     app.wait(lambda: get_clipboard() == "bravo", msg=f"clipboard, got {get_clipboard()!r}")
 
 
+def test_word_separators(app_factory):
+    """word_separators decides where a double clicked word ends"""
+    app = keyed(app_factory, terminal={"word_separators": " -"})
+    app.run("clear; echo alpha-bravo charlie")
+    time.sleep(1)
+    x0, y0, x1, y1 = app.cell_rect(8, 0)
+    app.click((x0 + x1) // 2, (y0 + y1) // 2, repeat=2)
+    app.key("ctrl+shift+c")
+    app.wait(lambda: get_clipboard() == "bravo", msg=f"clipboard, got {get_clipboard()!r}")
+
+
+@pytest.mark.parametrize("trim", [True, False])
+def test_copy_trim_trailing_whitespace(app_factory, trim):
+    """copy_trim_trailing_whitespace drops spaces and tabs at the end of copied lines"""
+    app = keyed(app_factory, terminal={"copy_trim_trailing_whitespace": trim})
+    app.run("clear; printf 'padded \\t\\n'")
+    time.sleep(1)
+    x0, y0, x1, y1 = app.cell_rect(2, 0)
+    app.click((x0 + x1) // 2, (y0 + y1) // 2, repeat=3)
+    app.key("ctrl+shift+c")
+    expected = "padded\n" if trim else "padded \t\n"
+    app.wait(lambda: get_clipboard() == expected, msg=f"clipboard, got {get_clipboard()!r}")
+
+
 def selected(app: App, col: int, row: int, cols: int) -> bool:
     """the selection color fills the cells around their glyphs"""
     x0, y0, x1, y1 = app.cell_rect(col, row, cols)

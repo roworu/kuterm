@@ -1,4 +1,4 @@
-"""scrollback on screen: scrollbar modes, placement, width, auto hide, history length, smooth scroll"""
+"""scrollback on screen: scrollbar modes, placement, width, auto hide, history length, smooth scroll, wheel speed"""
 
 import time
 
@@ -100,6 +100,28 @@ def test_click_on_track_jumps(app_factory):
     app.wait(lambda: thumb(app) and thumb(app)[3] >= 598, msg=f"thumb at the bottom, got {thumb(app)}")
     app.click(895, 5)
     app.wait(lambda: thumb(app) and thumb(app)[1] <= 2, msg=f"thumb at the top, got {thumb(app)}")
+
+
+def test_scroll_multiplier(app_factory):
+    """scroll_multiplier sets how many lines one wheel step scrolls"""
+    # lines per wheel step differ by backend, so two multipliers are compared
+    moved = {}
+    for multiplier in (1, 5):
+        app = app_factory({"theme": {"mode": "dark"}, "terminal": {
+            "scrollbar": {"enable": "on", "auto_hide": 0}, "smooth_scroll": {"enable": False},
+            "scroll_multiplier": multiplier}},
+            script=LINES.format(n=300), themes={"dark": {"scrollbar": "#ff00ff"}},
+            name=f"scroll_multiplier_{multiplier}")
+        app.wait(lambda: thumb(app) and thumb(app)[3] >= 598, msg=f"thumb at the bottom, got {thumb(app)}")
+        time.sleep(0.5)
+        bottom = thumb(app)[3]
+        app.wheel(450, 300, up=True, clicks=2)
+        app.wait(lambda: thumb(app) and thumb(app)[3] < bottom, msg="thumb moved up")
+        time.sleep(0.5)
+        moved[multiplier] = bottom - thumb(app)[3]
+        app.snap(f"2 wheel steps with scroll_multiplier {multiplier}")
+        app.close()
+    assert moved[5] >= moved[1] * 3, moved
 
 
 @pytest.mark.parametrize("enable", [True, False])

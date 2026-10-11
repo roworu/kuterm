@@ -46,6 +46,22 @@ impl EventListener for ZedListener {
     }
 }
 
+/// alacritty options from settings
+pub(super) fn term_config(settings: &TerminalSettings) -> Config {
+    Config {
+        default_cursor_style: CursorStyle {
+            shape: settings.cursor_shape.into(),
+            blinking: false,
+        },
+        scrolling_history: match settings.max_history_length {
+            0 => crate::settings::MAX_HISTORY_LENGTH,
+            lines => lines,
+        },
+        semantic_escape_chars: settings.word_separators.clone(),
+        ..Config::default()
+    }
+}
+
 pub struct TerminalBuilder {
     pub(super) terminal: Terminal,
     pub(super) events_rx: UnboundedReceiver<AlacTermEvent>,
@@ -99,17 +115,7 @@ impl TerminalBuilder {
             ..Default::default()
         };
 
-        let config = Config {
-            default_cursor_style: CursorStyle {
-                shape: settings.cursor_shape.into(),
-                blinking: false,
-            },
-            scrolling_history: match settings.max_history_length {
-                0 => crate::settings::MAX_HISTORY_LENGTH,
-                lines => lines,
-            },
-            ..Config::default()
-        };
+        let config = term_config(settings);
 
         // alacritty's event loop talks to us with that channel
         let (events_tx, events_rx) = unbounded();

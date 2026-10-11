@@ -11,7 +11,7 @@ mod window_size;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
-use gpui::{App, Global};
+use gpui::{App, CursorHideMode, Global, Hsla};
 use serde::Deserialize;
 use serde_json_lenient::Value;
 
@@ -20,9 +20,9 @@ pub(crate) use config::defaults as bundled_settings;
 pub use config::{Config, ConfigFiles};
 pub use keybindings::Keybindings;
 pub use options::{
-    ConfirmQuit, CursorBlink, CursorShape, Decorations, FontSlant, LineHeight, NewTabButton,
-    ScrollEasing, ScrollbarEnable, ScrollbarPlacement, Shell, StartupMode, TabIconPosition,
-    TabTitleAlign, TabTitleBlock, ThemeMode,
+    ConfirmQuit, CursorBlink, CursorShape, CursorUnfocused, Decorations, FontSlant, LineHeight,
+    NewTabButton, ScrollEasing, ScrollbarEnable, ScrollbarPlacement, Shell, StartupMode,
+    TabIconPosition, TabTitleAlign, TabTitleBlock, ThemeMode,
 };
 pub use pins::Pins;
 pub use tab_icons::TabIcons;
@@ -53,6 +53,9 @@ pub struct Settings {
     pub profiles: Vec<Profile>,
     pub command_palette: CommandPaletteSettings,
     pub notifications: NotificationSettings,
+    /// hovering a pane focuses it
+    pub focus_follows_mouse: bool,
+    pub bell: BellSettings,
 }
 
 impl Default for Settings {
@@ -113,6 +116,27 @@ pub struct NotificationSettings {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct BellSettings {
+    pub visual: VisualBell,
+    /// play the system bell sound
+    pub audio: bool,
+    /// ask the desktop for attention while the window is not focused
+    pub urgent: bool,
+    /// mark a background tab that rang until it is shown
+    pub tab_indicator: bool,
+}
+
+/// flash over the terminal that fades out
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+pub struct VisualBell {
+    pub enable: bool,
+    /// flash color, a faint terminal foreground when none
+    pub color: Option<Hsla>,
+    /// milliseconds the flash takes to fade out
+    pub duration: f32,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct WindowSettings {
     /// pixels between the window edges and the terminal grid
     pub padding: WindowPadding,
@@ -165,6 +189,7 @@ pub struct TerminalSettings {
     pub builtin_box_drawing: bool,
     pub line_height: LineHeight,
     pub cursor_shape: CursorShape,
+    pub cursor: CursorSettings,
     pub cursor_blink: CursorBlink,
     /// milliseconds the blinking cursor stays shown, then hidden
     pub cursor_blink_interval: f32,
@@ -177,6 +202,14 @@ pub struct TerminalSettings {
     pub select_to_copy: bool,
     /// right click copies the selection into the clipboard
     pub right_click_copy: bool,
+    /// drop spaces and tabs at the end of each copied line
+    pub copy_trim_trailing_whitespace: bool,
+    /// characters that end a word for double click selection
+    pub word_separators: String,
+    /// lines scrolled per wheel step, and touchpad speed
+    pub scroll_multiplier: f32,
+    /// hide the mouse pointer on key presses until it moves
+    pub hide_mouse_when_typing: bool,
     pub scrollbar: ScrollbarSettings,
     pub smooth_scroll: SmoothScrollSettings,
 }
@@ -211,6 +244,17 @@ pub struct BoldItalicFont {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+pub struct CursorSettings {
+    /// cursor color, theme cursor color when none
+    pub color: Option<Hsla>,
+    /// color of the glyph under a block cursor, terminal background when none
+    pub text_color: Option<Hsla>,
+    /// pixels a bar or underline cursor is thick
+    pub thickness: f32,
+    pub unfocused: CursorUnfocused,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 pub struct GlyphOffset {
     pub x: f32,
     pub y: f32,
@@ -237,6 +281,17 @@ impl SmoothScrollSettings {
     /// true when scrolling should glide instead of jump
     pub fn active(&self) -> bool {
         self.enable && self.duration > 0.
+    }
+}
+
+impl TerminalSettings {
+    /// when gpui hides the mouse pointer on key presses
+    pub fn cursor_hide_mode(&self) -> CursorHideMode {
+        if self.hide_mouse_when_typing {
+            CursorHideMode::OnTypingAndAction
+        } else {
+            CursorHideMode::Never
+        }
     }
 }
 
@@ -285,6 +340,12 @@ const AUTO_HIDE_RANGE: (f32, f32) = (0., 3600.);
 const CURSOR_BLINK_INTERVAL_RANGE: (f32, f32) = (100., 2000.);
 // Duration panics on negative or huge seconds, an hour is already "never"
 const CURSOR_BLINK_TIMEOUT_RANGE: (f32, f32) = (0., 3600.);
+// thinner is invisible, thicker looks like a block
+const CURSOR_THICKNESS_RANGE: (f32, f32) = (1., 8.);
+// slower scrolling is useless, faster skips whole screens
+const SCROLL_MULTIPLIER_RANGE: (f32, f32) = (0.1, 20.);
+// Duration panics on negative seconds, a longer flash hides the output
+const BELL_DURATION_RANGE: (f32, f32) = (0., 2000.);
 // longer glides feel like lag, not smoothness
 const SMOOTH_SCROLL_DURATION_RANGE: (f32, f32) = (0., 1000.);
 
@@ -424,6 +485,18 @@ impl Settings {
             CURSOR_BLINK_TIMEOUT_RANGE,
         )
         .unwrap_or(defaults.terminal.cursor_blink_timeout);
+        terminal.cursor.thickness = limit(
+            "terminal.cursor.thickness",
+            terminal.cursor.thickness,
+            CURSOR_THICKNESS_RANGE,
+        )
+        .unwrap_or(defaults.terminal.cursor.thickness);
+        terminal.scroll_multiplier = limit(
+            "terminal.scroll_multiplier",
+            terminal.scroll_multiplier,
+            SCROLL_MULTIPLIER_RANGE,
+        )
+        .unwrap_or(defaults.terminal.scroll_multiplier);
         if terminal.max_history_length > MAX_HISTORY_LENGTH {
             eprintln!(
                 "terminal.max_history_length {} is above {MAX_HISTORY_LENGTH}, using {MAX_HISTORY_LENGTH}",
@@ -457,6 +530,12 @@ impl Settings {
             NOTIFICATION_TIMEOUT_RANGE,
         )
         .unwrap_or(defaults.notifications.timeout);
+        settings.bell.visual.duration = limit(
+            "bell.visual.duration",
+            settings.bell.visual.duration,
+            BELL_DURATION_RANGE,
+        )
+        .unwrap_or(defaults.bell.visual.duration);
         let window = &mut settings.window;
         window.padding.x = limit("window.padding.x", window.padding.x, PADDING_RANGE)
             .unwrap_or(defaults.window.padding.x);
@@ -1171,6 +1250,121 @@ pub(crate) mod tests {
         assert_eq!(timeout("2.5"), 2.5);
         assert_eq!(timeout("3600"), 3600.);
         assert_eq!(timeout("1e30"), 3600.);
+    }
+
+    #[test]
+    fn parses_cursor_settings_and_thickness_limits() {
+        let cursor = |json: &str| Settings::parse(json).unwrap().terminal.cursor;
+        let parsed = cursor(
+            r##"{"terminal": {"cursor": {"color": "#ff0000", "text_color": "#00ff00", "thickness": 3, "unfocused": "none"}}}"##,
+        );
+        assert_eq!(parsed.color, Some(gpui::rgb(0xff0000).into()));
+        assert_eq!(parsed.text_color, Some(gpui::rgb(0x00ff00).into()));
+        assert_eq!(parsed.thickness, 3.);
+        assert_eq!(parsed.unfocused, CursorUnfocused::None);
+        let unfocused = |value: &str| {
+            cursor(&format!(
+                r#"{{"terminal": {{"cursor": {{"unfocused": "{value}"}}}}}}"#
+            ))
+            .unfocused
+        };
+        assert_eq!(unfocused("hollow"), CursorUnfocused::Hollow);
+        assert_eq!(unfocused("same"), CursorUnfocused::Same);
+        // null colors fall back to the theme
+        let parsed = cursor(r#"{"terminal": {"cursor": {"color": null, "text_color": null}}}"#);
+        assert_eq!((parsed.color, parsed.text_color), (None, None));
+
+        let thickness = |value: &str| {
+            cursor(&format!(
+                r#"{{"terminal": {{"cursor": {{"thickness": {value}}}}}}}"#
+            ))
+            .thickness
+        };
+        let default = Settings::default().terminal.cursor.thickness;
+        assert_eq!(thickness("0"), default);
+        assert_eq!(thickness("-2"), default);
+        assert_eq!(thickness("1"), 1.);
+        assert_eq!(thickness("8"), 8.);
+        assert_eq!(thickness("20"), 8.);
+
+        for json in [
+            r#"{"terminal": {"cursor": {"unfocused": "dim"}}}"#,
+            r#"{"terminal": {"cursor": {"color": "red"}}}"#,
+            r#"{"terminal": {"cursor": {"color": 5}}}"#,
+            r#"{"terminal": {"cursor": "bar"}}"#,
+        ] {
+            assert!(
+                Settings::parse(json).is_err(),
+                "expected error for {json:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn mouse_settings_parse_and_scroll_multiplier_limits() {
+        let terminal = |json: &str| Settings::parse(json).unwrap().terminal;
+        let parsed = terminal(
+            r#"{"terminal": {"hide_mouse_when_typing": false, "word_separators": " -", "copy_trim_trailing_whitespace": false}}"#,
+        );
+        assert!(!parsed.hide_mouse_when_typing);
+        assert_eq!(parsed.cursor_hide_mode(), CursorHideMode::Never);
+        assert_eq!(parsed.word_separators, " -");
+        assert!(!parsed.copy_trim_trailing_whitespace);
+        let parsed = terminal(r#"{"terminal": {"hide_mouse_when_typing": true}}"#);
+        assert_eq!(parsed.cursor_hide_mode(), CursorHideMode::OnTypingAndAction);
+        assert!(
+            Settings::parse(r#"{"focus_follows_mouse": true}"#)
+                .unwrap()
+                .focus_follows_mouse
+        );
+
+        let multiplier = |value: &str| {
+            terminal(&format!(
+                r#"{{"terminal": {{"scroll_multiplier": {value}}}}}"#
+            ))
+            .scroll_multiplier
+        };
+        let default = Settings::default().terminal.scroll_multiplier;
+        assert_eq!(multiplier("0"), default);
+        assert_eq!(multiplier("-1"), default);
+        assert_eq!(multiplier("0.1"), 0.1);
+        assert_eq!(multiplier("5.5"), 5.5);
+        assert_eq!(multiplier("100"), 20.);
+    }
+
+    #[test]
+    fn parses_bell_settings_and_duration_limits() {
+        let bell = |json: &str| Settings::parse(json).unwrap().bell;
+        let parsed = bell(
+            r##"{"bell": {"visual": {"enable": false, "color": "#ffffff40", "duration": 300}, "audio": true, "urgent": false, "tab_indicator": false}}"##,
+        );
+        assert_eq!(
+            parsed,
+            BellSettings {
+                visual: VisualBell {
+                    enable: false,
+                    color: Some(gpui::rgba(0xffffff40).into()),
+                    duration: 300.,
+                },
+                audio: true,
+                urgent: false,
+                tab_indicator: false,
+            }
+        );
+        let duration = |value: &str| {
+            bell(&format!(
+                r#"{{"bell": {{"visual": {{"duration": {value}}}}}}}"#
+            ))
+            .visual
+            .duration
+        };
+        let default = Settings::default().bell.visual.duration;
+        assert_eq!(duration("-1"), default);
+        assert_eq!(duration("0"), 0.);
+        assert_eq!(duration("2000"), 2000.);
+        assert_eq!(duration("1e9"), 2000.);
+        assert!(Settings::parse(r#"{"bell": {"audio": "loud"}}"#).is_err());
+        assert!(Settings::parse(r#"{"bell": true}"#).is_err());
     }
 
     #[test]

@@ -25,6 +25,9 @@ use crate::{
 // tab bar text size in rems, the icon offset is scaled by it
 const TEXT_SIZE: f32 = 0.875;
 
+// nerd font bell, shown on a background tab that rang
+const BELL_ICON: &str = "\u{f0f3}";
+
 // width of the divider between two split panes
 const DIVIDER_WIDTH: f32 = 4.;
 
@@ -212,9 +215,9 @@ impl Workspace {
         let settings = Settings::get(cx);
         let indicator = theme.text;
         let title = self.tab_title(pane, ix, cx);
-        let icon = self.pane(pane).expect("pane from caller").tabs[ix]
-            .icon
-            .clone();
+        let tab_state = &self.pane(pane).expect("pane from caller").tabs[ix];
+        let icon = tab_state.icon.clone();
+        let bell = tab_state.bell;
         tab(ix, title.clone(), icon.clone(), settings)
             .group("tab")
             .border_r_1()
@@ -262,6 +265,15 @@ impl Workspace {
                         this.move_tab_to_pane(dragged.pane, dragged.ix, pane, ix, window, cx);
                     },
                 ))
+            })
+            .when(bell, |tab| {
+                tab.child(
+                    div()
+                        .debug_selector(move || format!("tab-bell-{ix}"))
+                        .flex_none()
+                        .text_color(theme.text)
+                        .child(BELL_ICON),
+                )
             })
             .when(settings.show_tab_close_button, |tab| {
                 tab.child(
@@ -407,6 +419,15 @@ impl Workspace {
                     this.focus_pane(pane_id, window, cx);
                 }),
             )
+            .when(settings.focus_follows_mouse, |pane| {
+                pane.on_mouse_move(
+                    cx.listener(move |this, event: &MouseMoveEvent, window, cx| {
+                        if event.pressed_button.is_none() && !cx.has_active_drag() {
+                            this.hover_pane(pane_id, window, cx);
+                        }
+                    }),
+                )
+            })
             .when(show_bar, |pane| pane.child(bar))
             .child(terminal)
             .into_any_element()

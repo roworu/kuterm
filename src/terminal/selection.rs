@@ -222,6 +222,29 @@ mod tests {
     }
 
     #[test]
+    fn word_separators_split_double_click_words() {
+        let profile = profile(Shell::WithArguments {
+            program: "/bin/sh".into(),
+            args: vec!["-c".into(), "printf 'foo-bar baz'; sleep 5".into()],
+        });
+        let mut settings = TerminalSettings {
+            word_separators: " ".into(),
+            ..TerminalSettings::default()
+        };
+        let mut builder = spawn_with(&settings, &profile);
+        let terminal = &mut builder.terminal;
+        wait_for_text(terminal, "foo-bar baz");
+        terminal.start_selection(cell(0, 5, false), SelectionType::Semantic);
+        assert_eq!(terminal.selection_text().as_deref(), Some("foo-bar"));
+
+        // changed settings reach the running terminal
+        settings.word_separators = " -".into();
+        terminal.apply_settings(&settings);
+        terminal.start_selection(cell(0, 5, false), SelectionType::Semantic);
+        assert_eq!(terminal.selection_text().as_deref(), Some("bar"));
+    }
+
+    #[test]
     fn double_click_selects_word_and_triple_click_line() {
         let mut builder = two_lines();
         let terminal = &mut builder.terminal;

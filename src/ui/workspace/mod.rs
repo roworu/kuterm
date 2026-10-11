@@ -38,7 +38,7 @@ use crate::{
     theme::Theme,
     ui::{
         command_palette::{About, CloseConfirmed, CloseTarget, CommandPalette, ConfirmClose},
-        terminal_view::{ClipboardEvent, TerminalView},
+        terminal_view::{ClipboardEvent, TerminalView, copied_text},
     },
 };
 
@@ -111,6 +111,8 @@ struct Tab {
     ready_task: Task<()>,
     /// input a command queued before the shell was ready
     pending_input: Vec<u8>,
+    /// the bell rang while the tab was in the background, cleared when it is shown
+    bell: bool,
     _subscriptions: [Subscription; 2],
 }
 
@@ -573,6 +575,24 @@ impl Workspace {
         cx.notify();
     }
 
+    /// focus a pane the mouse moved over, only while a terminal has focus, so open overlays
+    /// like the palette keep it
+    pub(super) fn hover_pane(
+        &mut self,
+        pane_id: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let pane = self.focused_pane();
+        let in_terminal = pane
+            .tabs
+            .get(pane.active)
+            .is_some_and(|tab| tab.view.focus_handle(cx).is_focused(window));
+        if pane_id != self.focused && in_terminal {
+            self.focus_pane(pane_id, window, cx);
+        }
+    }
+
     /// open a tab with the default profile and switch to it
     pub fn add_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let profile = Settings::get(cx).default_profile().clone();
@@ -626,6 +646,7 @@ impl Workspace {
                     this.schedule_ready(&view, window, cx);
                     this.refresh_titles_later();
                 }
+                Event::Bell => this.ring_bell(&view, window, cx),
             }
         });
         let clipboard_subscription =
@@ -648,6 +669,7 @@ impl Workspace {
             ready: false,
             ready_task: Task::ready(()),
             pending_input: Vec::new(),
+            bell: false,
             _subscriptions: [subscription, clipboard_subscription],
         });
         let ix = pane.tabs.len() - 1;
@@ -655,6 +677,30 @@ impl Workspace {
             self.activate_tab(pane_id, ix, window, cx);
         } else {
             self.refresh_titles();
+            cx.notify();
+        }
+    }
+
+    /// sound, window urgency and tab mark for a bell rung in the tab of `view`
+    fn ring_bell(
+        &mut self,
+        view: &Entity<TerminalView>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let bell = &Settings::get(cx).bell;
+        if bell.audio {
+            window.play_system_bell();
+        }
+        if bell.urgent && !window.is_window_active() {
+            window.request_attention();
+        }
+        if bell.tab_indicator
+            && let Some((pane_id, ix)) = self.find_view(view)
+            && let Some(pane) = self.pane_mut(pane_id)
+            && pane.active != ix
+        {
+            pane.tabs[ix].bell = true;
             cx.notify();
         }
     }
@@ -730,6 +776,7 @@ impl Workspace {
                 return;
             };
             pane.active = ix;
+            pane.tabs[ix].bell = false;
             pane.tab_scroll.scroll_to_item(ix);
             pane.tabs[ix].view.clone()
         };
@@ -1198,6 +1245,13 @@ impl Workspace {
         };
         let mut settings = config.settings;
         settings.use_installed_fonts(&cx.text_system().all_font_names());
+        cx.set_cursor_hide_mode(settings.terminal.cursor_hide_mode());
+        for tab in self.layout.panes().into_iter().flat_map(|pane| &pane.tabs) {
+            let terminal = tab.view.read(cx).terminal().clone();
+            terminal.update(cx, |terminal, _| {
+                terminal.apply_settings(&settings.terminal)
+            });
+        }
         cx.set_global(settings);
         cx.set_global(config.tab_icons);
         cx.set_global(config.commands);
@@ -1301,7 +1355,7 @@ impl Workspace {
                 }
                 CommandAction::PickTab => self.open_tab_picker(window, cx),
                 CommandAction::Copy => {
-                    let selection = self.terminal_at(pane, ix, cx).read(cx).selection_text();
+                    let selection = copied_text(self.terminal_at(pane, ix, cx).read(cx), cx);
                     match selection {
                         Some(text) => {
                             cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
@@ -2170,6 +2224,52 @@ mod tests {
         }
         cx.run_until_parked();
         pump(cx);
+    }
+
+    fn bells(ws: &Entity<Workspace>, cx: &mut VisualTestContext) -> Vec<bool> {
+        ws.update(cx, |ws, _| {
+            ws.focused_pane().tabs.iter().map(|t| t.bell).collect()
+        })
+    }
+
+    #[gpui::test]
+    fn bell_marks_background_tabs_until_shown(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 3);
+        // the last tab is active, so the bell of tab 0 rings in the background
+        terminal(&ws, cx, 0).update(cx, |_, cx| cx.emit(Event::Bell));
+        terminal(&ws, cx, 2).update(cx, |_, cx| cx.emit(Event::Bell));
+        cx.run_until_parked();
+        assert_eq!(bells(&ws, cx), vec![true, false, false]);
+        activate(&ws, cx, 0);
+        assert_eq!(bells(&ws, cx), vec![false, false, false]);
+    }
+
+    #[gpui::test]
+    fn bell_does_not_mark_tabs_without_tab_indicator(cx: &mut TestAppContext) {
+        let mut settings = Settings::default();
+        settings.bell.tab_indicator = false;
+        let (ws, cx) = open_with_settings(cx, 2, "{}", settings);
+        terminal(&ws, cx, 0).update(cx, |_, cx| cx.emit(Event::Bell));
+        cx.run_until_parked();
+        assert_eq!(bells(&ws, cx), vec![false, false]);
+    }
+
+    #[gpui::test]
+    fn hovering_a_pane_focuses_it(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 2);
+        let new_pane = split_pane(&ws, cx, DropSide::Right);
+        let other = ws.update(cx, |ws, _| {
+            ws.layout
+                .panes()
+                .into_iter()
+                .map(|pane| pane.id)
+                .find(|id| *id != new_pane)
+                .unwrap()
+        });
+        ws.update_in(cx, |ws, window, cx| ws.hover_pane(other, window, cx));
+        cx.run_until_parked();
+        assert_eq!(ws.update(cx, |ws, _| ws.focused), other);
+        assert_eq!(current(&ws, cx), 0);
     }
 
     fn terminal(ws: &Entity<Workspace>, cx: &mut VisualTestContext, ix: usize) -> Entity<Terminal> {

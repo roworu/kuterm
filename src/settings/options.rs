@@ -65,6 +65,16 @@ impl From<CursorShape> for AlacCursorShape {
     }
 }
 
+/// how the cursor looks while the terminal is not focused
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum CursorUnfocused {
+    Hollow,
+    /// same shape as when focused
+    Same,
+    None,
+}
+
 /// slant of italic text
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]

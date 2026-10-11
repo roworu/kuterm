@@ -64,6 +64,7 @@ fn init(cx: &mut App) {
         eprintln!("{problem}");
     }
     settings.use_installed_fonts(&cx.text_system().all_font_names());
+    cx.set_cursor_hide_mode(settings.terminal.cursor_hide_mode());
     cx.set_global(settings);
     cx.set_global(config.tab_icons);
     cx.set_global(config.commands);
