@@ -290,10 +290,7 @@ mod tab_icon_logic {
 
     use super::tab_icon;
     use crate::{
-        settings::{
-            Settings, TabIconPosition, TabIconSettings, TabIcons,
-            tests::{temp_dir, with_config_home},
-        },
+        settings::{Settings, TabIconPosition, TabIconSettings, TabIcons},
         terminal::foreground_process,
     };
 
@@ -734,106 +731,6 @@ mod tab_icon_logic {
         for command in TabIcons::default().groups.iter().flat_map(|g| &g.commands) {
             assert!(seen.insert(command), "{command} is in two groups");
         }
-    }
-
-    // user file on disk
-
-    fn with_home(name: &str, f: impl FnOnce(&Path)) {
-        let dir = temp_dir(&format!("agent_tab_icons_{name}"));
-        with_config_home(&dir, || f(&dir.join("kuterm").join("tab_icons.jsonc")));
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    fn write(path: &Path, contents: &str) {
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, contents).unwrap();
-    }
-
-    #[test]
-    fn user_file_path_is_next_to_settings() {
-        with_home("path", |path| {
-            assert_eq!(TabIcons::path().as_deref(), Some(path));
-            assert_eq!(
-                TabIcons::path().unwrap().parent(),
-                Settings::path().unwrap().parent()
-            );
-        });
-    }
-
-    #[test]
-    fn user_file_is_created_from_defaults() {
-        with_home("create", |path| {
-            assert!(!path.exists());
-            assert_eq!(TabIcons::load(), TabIcons::default());
-            let written = std::fs::read_to_string(path).expect("tab_icons.jsonc not created");
-            assert_eq!(
-                written,
-                include_str!("../../../assets/default_tab_icons.jsonc")
-            );
-        });
-    }
-
-    #[test]
-    fn existing_user_file_is_not_overwritten() {
-        with_home("keep", |path| {
-            let mine = r#"{"groups": [{"icon": "H", "commands": ["htop"]}]}"#;
-            write(path, mine);
-            TabIcons::load();
-            assert_eq!(std::fs::read_to_string(path).unwrap(), mine);
-        });
-    }
-
-    #[test]
-    fn user_file_groups_are_used() {
-        with_home("groups", |path| {
-            write(
-                path,
-                r#"{"groups": [{"icon": "A", "commands": ["mc", "htop"]}, {"icon": "B", "commands": ["htop", "x"]}]}"#,
-            );
-            let loaded = TabIcons::load();
-            assert_eq!(loaded.groups.len(), 2);
-            assert_eq!(loaded.icon("mc"), Some("A"));
-            // first group wins
-            assert_eq!(loaded.icon("htop"), Some("A"));
-            assert_eq!(loaded.icon("x"), Some("B"));
-            // interpreters left out keep defaults
-            assert_eq!(loaded.interpreters, TabIcons::default().interpreters);
-        });
-    }
-
-    #[test]
-    fn user_file_interpreters_are_used() {
-        with_home("interpreters", |path| {
-            write(path, r#"{"interpreters": ["ruby"]}"#);
-            let loaded = TabIcons::load();
-            assert_eq!(loaded.interpreters, ["ruby"]);
-            assert_eq!(loaded.groups, TabIcons::default().groups);
-        });
-    }
-
-    #[test]
-    fn invalid_user_file_falls_back_to_defaults() {
-        for broken in [
-            "{",
-            r#"{"groups": [{"icon": "H"}]}"#,
-            r#"{"interpreters": 1}"#,
-        ] {
-            with_home("invalid", |path| {
-                write(path, broken);
-                assert_eq!(TabIcons::load(), TabIcons::default(), "{broken:?}");
-                // the broken file is left for the user to fix
-                assert_eq!(std::fs::read_to_string(path).unwrap(), broken);
-            });
-        }
-    }
-
-    #[test]
-    fn unreadable_user_file_falls_back_to_defaults() {
-        with_home("dir", |path| {
-            // a directory where the file should be cannot be read
-            std::fs::create_dir_all(path).unwrap();
-            assert_eq!(TabIcons::load(), TabIcons::default());
-        });
     }
 }
 

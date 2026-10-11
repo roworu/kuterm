@@ -128,7 +128,7 @@ def test_ui_font_size_scales_tab_bar(app_factory, ui_size):
     theme = unique_theme(0x40)
     colors = as_rgb(theme)
     app = app_factory({"theme": {"mode": "dark"}, "hide_bar_for_one_tab": False, "ui_font_size": ui_size},
-                      files={"themes/dark.jsonc": theme})
+                      themes={"dark": theme})
     h = app.bar_height()
     app.wait(lambda: close_to(tuple(app.shot()[h - 1, 450]), colors["border"]), msg="bar border")
     img = app.shot()
@@ -145,7 +145,7 @@ def test_ui_font_family_changes_tab_text(app_factory):
     shots = []
     for family in ["JetBrainsMonoNL Nerd Font Mono", "DejaVu Serif"]:
         app = app_factory({"theme": {"mode": "dark"}, "hide_bar_for_one_tab": False, "ui_font_family": family,
-                           "tab_title": [{"text": "Wig@0123"}]}, files={"themes/dark.jsonc": theme})
+                           "tab_title": [{"text": "Wig@0123"}]}, themes={"dark": theme})
         h = app.bar_height()
         app.wait(lambda: ink_bbox(app.shot()[: h - 1, :200], colors["tab_active_background"]), msg="title")
         app.wait(lambda: app.title() != "", msg="titles refreshed")

@@ -21,7 +21,7 @@ def write(name: str) -> dict:
 
 def palette_app(app_factory, commands: list, **settings) -> App:
     app = app_factory({"theme": {"mode": "dark"}, "window_title": ["number"], **settings},
-                      files={"themes/dark.jsonc": THEME}, commands={"commands": commands})
+                      themes={"dark": THEME}, commands={"commands": commands})
     app.mouse(450, 580)
     return app
 
@@ -177,7 +177,7 @@ def test_click_on_pin_unpins_and_saves(app_factory):
     time.sleep(0.3)
     app.snap("hovering the pin shows the unpin icon")
     app.click(x1 - 60 + (pin[0] + pin[2]) // 2, top + 4 + (pin[1] + pin[3]) // 2)
-    pins = app.config / "pinned_commands.json"
+    pins = app.home / ".local/state/kuterm/pinned_commands.json"
     app.wait(pins.exists, msg="pins saved")
     assert json.loads(pins.read_text())["overrides"] == {"zzz": False}
 
@@ -326,20 +326,21 @@ def test_profile_actions(app_factory):
     app.snap("notification for a missing profile")
 
 
-def test_commands_file_is_created_and_bundled_commands_work(app_factory):
-    """without commands.jsonc the bundled commands are written and listed"""
-    app = app_factory({"theme": {"mode": "dark"}, "window_title": ["number"]}, files={"themes/dark.jsonc": THEME})
-    app.wait((app.config / "commands.jsonc").exists, msg="commands file")
+def test_bundled_commands_work_without_commands_section(app_factory):
+    """without a "commands" section the bundled commands are listed, no commands.jsonc is written"""
+    app = app_factory({"theme": {"mode": "dark"}, "window_title": ["number"]}, themes={"dark": THEME})
     app.palette("tabs: create new")
     app.wait_title("2")
+    assert not (app.config / "commands.jsonc").exists()
 
 
-def test_broken_commands_file_uses_bundled(app_factory):
-    """an invalid commands file prints an error and the bundled commands are used"""
-    app = app_factory({"theme": {"mode": "dark"}, "window_title": ["number"]}, commands="{ broken")
-    app.palette("tabs: create new")
-    app.wait_title("2")
-    assert "invalid" in app.output()
+def test_broken_commands_section_is_reported(app_factory):
+    """an unknown action in the commands section prints an error naming the section, defaults are used"""
+    app = app_factory({"theme": {"mode": "dark"}, "window_title": ["number"]},
+                      commands={"commands": [{"name": "x", "actions": ["launch_rockets"]}]})
+    app.wait(lambda: "invalid settings in" in app.output(), msg="error on stderr")
+    assert "commands" in app.output() and "launch_rockets" in app.output()
+    assert app.alive()
 
 
 def test_background_tab_notifies_when_done(app_factory):

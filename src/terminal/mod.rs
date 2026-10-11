@@ -39,7 +39,10 @@ pub use process::{ForegroundProcess, children, foreground_process, process_info}
 use builder::ZedListener;
 use keys::to_esc_str;
 
-use crate::{settings::ThemeSettings, theme::Theme};
+use crate::{
+    settings::{ProfileTheme, ThemeSettings},
+    theme::Theme,
+};
 
 /// events emitted to terminal view
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -65,7 +68,7 @@ pub struct Terminal {
     /// pid of the shell running in the pty
     pub shell_pid: u32,
     /// color scheme from the profile, global theme when none
-    theme_settings: Option<ThemeSettings>,
+    theme_settings: Option<ProfileTheme>,
     theme: Option<Theme>,
     _event_loop_task: Task<()>,
 }
@@ -86,12 +89,12 @@ impl Terminal {
         self.theme.as_ref().unwrap_or_else(|| Theme::get(cx))
     }
 
-    /// load the profile theme for this system appearance
-    pub fn apply_theme(&mut self, appearance: WindowAppearance) {
+    /// load the profile theme for this system appearance, its names come from `themes`
+    pub fn apply_theme(&mut self, appearance: WindowAppearance, themes: &ThemeSettings) {
         self.theme = self
             .theme_settings
             .as_ref()
-            .map(|settings| Theme::for_appearance(settings, appearance));
+            .map(|profile| Theme::for_appearance(&themes.with_profile(profile), appearance));
     }
 
     fn write_to_pty(&self, input: impl Into<Cow<'static, [u8]>>) {
@@ -337,24 +340,30 @@ mod tests {
         use gpui::WindowAppearance;
 
         use crate::{
-            settings::{ThemeMode, ThemeSettings},
+            settings::{ProfileTheme, Settings, ThemeMode},
             theme::Theme,
         };
 
         let mut builder = spawn(&TerminalSettings::default());
-        builder.terminal.apply_theme(WindowAppearance::Light);
+        builder
+            .terminal
+            .apply_theme(WindowAppearance::Light, &Settings::default().theme);
         assert_eq!(builder.terminal.theme, None);
 
         let mut profile = profile(Shell::System);
-        profile.theme = Some(ThemeSettings {
+        profile.theme = Some(ProfileTheme {
             mode: ThemeMode::System,
             dark: None,
             light: None,
         });
         let mut builder = spawn_with(&TerminalSettings::default(), &profile);
-        builder.terminal.apply_theme(WindowAppearance::Light);
+        builder
+            .terminal
+            .apply_theme(WindowAppearance::Light, &Settings::default().theme);
         assert_eq!(builder.terminal.theme, Some(Theme::bundled(false)));
-        builder.terminal.apply_theme(WindowAppearance::Dark);
+        builder
+            .terminal
+            .apply_theme(WindowAppearance::Dark, &Settings::default().theme);
         assert_eq!(builder.terminal.theme, Some(Theme::bundled(true)));
     }
 
@@ -695,7 +704,7 @@ mod profiles_terminal {
 
     use super::tests::{profile, spawn_with, wait_for_text};
     use crate::{
-        settings::{Shell, TerminalSettings, ThemeMode, ThemeSettings},
+        settings::{ProfileTheme, Settings, Shell, TerminalSettings, ThemeMode},
         theme::Theme,
     };
 
@@ -779,22 +788,24 @@ mod profiles_terminal {
     #[test]
     fn profile_theme_mode_overrides_appearance() {
         let mut p = profile(Shell::System);
-        p.theme = Some(ThemeSettings {
+        p.theme = Some(ProfileTheme {
             mode: ThemeMode::Dark,
             dark: None,
             light: None,
         });
         let mut b = spawn_with(&TerminalSettings::default(), &p);
-        b.terminal.apply_theme(WindowAppearance::Light);
+        b.terminal
+            .apply_theme(WindowAppearance::Light, &Settings::default().theme);
         assert_eq!(b.terminal.theme, Some(Theme::bundled(true)));
 
-        p.theme = Some(ThemeSettings {
+        p.theme = Some(ProfileTheme {
             mode: ThemeMode::Light,
             dark: None,
             light: None,
         });
         let mut b = spawn_with(&TerminalSettings::default(), &p);
-        b.terminal.apply_theme(WindowAppearance::Dark);
+        b.terminal
+            .apply_theme(WindowAppearance::Dark, &Settings::default().theme);
         assert_eq!(b.terminal.theme, Some(Theme::bundled(false)));
     }
 
@@ -803,7 +814,8 @@ mod profiles_terminal {
         let p = profile(Shell::System);
         let mut b = spawn_with(&TerminalSettings::default(), &p);
         for appearance in [WindowAppearance::Dark, WindowAppearance::Light] {
-            b.terminal.apply_theme(appearance);
+            b.terminal
+                .apply_theme(appearance, &Settings::default().theme);
             assert_eq!(b.terminal.theme, None);
         }
     }

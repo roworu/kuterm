@@ -28,6 +28,8 @@ pub(super) struct Notification {
     pub(super) detail: Option<String>,
     /// tab switched to when the notification is clicked
     tab: Option<Entity<TerminalView>>,
+    /// a problem the user has to fix, like a broken config file
+    pub(super) error: bool,
     _dismiss: Task<()>,
 }
 
@@ -39,7 +41,13 @@ impl Workspace {
         tab: Option<Entity<TerminalView>>,
         cx: &mut Context<Self>,
     ) {
-        self.push_notification(text.into(), None, tab, cx);
+        self.push_notification(text.into(), None, tab, false, cx);
+    }
+
+    /// show a problem until it is clicked, even with notifications turned off, since
+    /// nothing else in the window tells about it
+    pub(super) fn show_error(&mut self, text: impl Into<String>, cx: &mut Context<Self>) {
+        self.push_notification(text.into(), None, None, true, cx);
     }
 
     fn push_notification(
@@ -47,13 +55,14 @@ impl Workspace {
         text: String,
         detail: Option<String>,
         tab: Option<Entity<TerminalView>>,
+        error: bool,
         cx: &mut Context<Self>,
     ) {
         let settings = &Settings::get(cx).notifications;
-        if !settings.enable {
+        if !settings.enable && !error {
             return;
         }
-        let timeout = settings.timeout;
+        let timeout = if error { 0. } else { settings.timeout };
         let id = self.next_notification_id;
         self.next_notification_id += 1;
         let _dismiss = if timeout > 0. {
@@ -72,6 +81,7 @@ impl Workspace {
             text,
             detail,
             tab,
+            error,
             _dismiss,
         });
         if self.notifications.len() > NOTIFICATIONS_MAX {
@@ -84,7 +94,7 @@ impl Workspace {
     pub(super) fn notify_copied(&mut self, text: &str, cx: &mut Context<Self>) {
         if Settings::get(cx).notifications.copy {
             let detail = Some(copied_preview(text));
-            self.push_notification("copied".into(), detail, None, cx);
+            self.push_notification("copied".into(), detail, None, false, cx);
         }
     }
 
@@ -188,7 +198,11 @@ impl Workspace {
                 .py_2()
                 .bg(theme.tab_bar_background)
                 .border_1()
-                .border_color(theme.border)
+                .border_color(if notification.error {
+                    theme.danger_button
+                } else {
+                    theme.border
+                })
                 .rounded_md()
                 .shadow_lg()
                 .text_color(theme.text)

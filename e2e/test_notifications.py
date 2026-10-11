@@ -12,7 +12,7 @@ C = as_rgb(THEME)
 
 def notify_app(app_factory, **notifications) -> App:
     app = app_factory({"theme": {"mode": "dark"}, "notifications": notifications},
-                      files={"themes/dark.jsonc": THEME},
+                      themes={"dark": THEME},
                       commands={"commands": [{"name": "say hi", "actions": [{"notify": "hi from e2e"}]},
                                              {"name": "say many", "actions": [{"notify": f"note {i}"}
                                                                               for i in range(7)]}]})

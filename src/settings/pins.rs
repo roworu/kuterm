@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use gpui::{App, Global};
 use serde::{Deserialize, Serialize};
 
-use super::{Command, config_dir};
+use super::{Command, state_dir};
 
 /// pin choices made in the palette, keyed by command label
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
@@ -19,9 +19,9 @@ pub struct Pins {
 impl Global for Pins {}
 
 impl Pins {
-    /// `pinned_commands.json` in the config dir
+    /// `pinned_commands.json` in the state dir
     pub fn path() -> Option<PathBuf> {
-        Some(config_dir()?.join("pinned_commands.json"))
+        Some(state_dir()?.join("pinned_commands.json"))
     }
 
     /// load pins from the file, empty when it is missing or invalid
@@ -38,7 +38,7 @@ impl Pins {
         })
     }
 
-    /// write pins next to the other config files
+    /// write pins to the state dir
     pub fn save(&self) {
         let Some(path) = Self::path() else {
             return;
@@ -91,17 +91,17 @@ mod tests {
             name: "reload".into(),
             category: Some("config".into()),
             pinned,
-            actions: vec![CommandAction::ReloadSettings],
+            actions: vec![CommandAction::ReloadConfig],
         }
     }
 
     #[test]
     fn save_reports_write_errors() {
         let dir = temp_dir("pins_save_error");
-        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::create_dir_all(dir.join("state")).unwrap();
         with_config_home(&dir, || {
-            // a file where the config folder should be makes create_dir_all fail
-            std::fs::write(dir.join("kuterm"), "not a dir").unwrap();
+            // a file where the state folder should be makes create_dir_all fail
+            std::fs::write(dir.join("state/kuterm"), "not a dir").unwrap();
             Pins::default().save();
         });
         let _ = std::fs::remove_dir_all(&dir);
@@ -125,7 +125,7 @@ mod tests {
         let dir = temp_dir("pins_round_trip");
         with_config_home(&dir, || {
             let path = Pins::path().unwrap();
-            assert_eq!(path, dir.join("kuterm/pinned_commands.json"));
+            assert_eq!(path, dir.join("state/kuterm/pinned_commands.json"));
             // missing file loads as empty
             assert_eq!(Pins::load(), Pins::default());
 

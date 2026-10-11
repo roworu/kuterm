@@ -22,10 +22,9 @@ cargo build --release
 
 config lives in `~/.config/kuterm/` (or whatever is your `$XDG_CONFIG_HOME`) and is created with defaults on first launch:
 
-- `settings.jsonc`: fonts, tabs, titles, shell, cursor, theme
-- `keybindings.jsonc`: keys for each action, `null` disables
-- `commands.jsonc`: command palette (ctrl-shift-p) commands, add your own there
-- `themes/dark.jsonc`, `themes/light.jsonc`: color shemas
+- `settings.jsonc`: fonts, tabs, titles, shell, cursor, themes (color schemes by name, picked for dark and light mode), keybindings (`null` disables a key), command palette (ctrl-shift-p) commands and tab icons
+
+changes apply as soon as a file is saved. a broken file keeps the last good config and shows the error in the window. `"import"` merges other files first, so the config can be split by hand, and an `"os"` block sets values for one system only.
 
 each option described in file with comments, you don't need any external docs to set it up.
 

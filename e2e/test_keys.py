@@ -193,7 +193,7 @@ def test_shift_click_extends_selection(app_factory):
 @pytest.mark.parametrize("action,keys", [("new_tab", "ctrl+shift+t"), ("next_tab", "ctrl+Tab"),
                                          ("activate_tab_1", "alt+1")])
 def test_null_disables_action(app_factory, action, keys):
-    """null in keybindings.jsonc disables an action and its key"""
+    """null in the keybindings section disables an action and its key"""
     keys_file = {action: None} if action == "new_tab" else {action: None, "new_tab": "ctrl-shift-t"}
     app = keyed(app_factory, keybindings=keys_file)
     if action != "new_tab":
@@ -234,13 +234,22 @@ def test_activate_tab_above_nine(app_factory):
     app.wait_title("10")
 
 
-@pytest.mark.parametrize("content", ["{", "[]", '{"new_tab": 5}'])
-def test_invalid_keybindings_use_defaults(app_factory, content):
-    """a broken keybindings file prints an error and keeps the default keys"""
-    app = keyed(app_factory, keybindings=content)
+@pytest.mark.parametrize("keys", [{"new_tab": 5}, {"new_tab": "foo-t"}, {"launch_rockets": "ctrl-b"}])
+def test_invalid_keybindings_at_launch_are_reported(app_factory, keys):
+    """a bad keybindings section at launch prints an error naming the section, defaults are used"""
+    app = keyed(app_factory, keybindings=keys)
+    app.wait(lambda: "invalid settings in" in app.output(), msg="error on stderr")
+    assert "keybindings" in app.output()
+    assert app.alive()
+
+
+def test_invalid_keybindings_section_keeps_the_last_good_keys(app_factory):
+    """a bad key saved in the keybindings section is reported, the running keys stay"""
+    app = keyed(app_factory)
+    app.write("settings.jsonc", {**app.settings, "keybindings": {"new_tab": 5}})
+    app.wait(lambda: "keybindings" in app.output() and "invalid settings" in app.output(), msg="error on stderr")
     app.key("ctrl+shift+t")
     app.wait_title("2")
-    assert "invalid keybindings" in app.output()
 
 
 def test_wheel_scrolls_history_and_typing_jumps_back(app_factory):

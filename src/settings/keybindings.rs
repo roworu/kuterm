@@ -1,12 +1,13 @@
-//! user keybindings, read from a jsonc file next to settings
+//! user keybindings, the "keybindings" section of settings
 
-use std::{collections::BTreeMap, path::PathBuf};
+use std::collections::BTreeMap;
 
 use gpui::{KeyBinding, Keystroke};
+use serde::Deserialize;
 use serde::de::Error;
+use serde_json_lenient::Value;
 
-use super::{CommandAction, config_dir, load_file, parse_over};
-use crate::cli::Cli;
+use super::{CommandAction, config};
 use crate::ui::{
     terminal_view::{Copy, Paste},
     workspace::{
@@ -24,16 +25,6 @@ impl Default for Keybindings {
         Self::parse("{}").expect("bundled default keybindings are invalid")
     }
 }
-
-const LINUX_KEYBINDINGS: &str = include_str!("../../assets/default_keybindings.jsonc");
-const MACOS_KEYBINDINGS: &str = include_str!("../../assets/default_keybindings_macos.jsonc");
-
-/// commented keybindings file written on first launch
-pub const DEFAULT_KEYBINDINGS: &str = if cfg!(target_os = "macos") {
-    MACOS_KEYBINDINGS
-} else {
-    LINUX_KEYBINDINGS
-};
 
 // keys are checked before this runs, so `KeyBinding::new` won't panic
 fn binding(action: &str, keys: &str) -> Option<KeyBinding> {
@@ -60,6 +51,7 @@ fn binding(action: &str, keys: &str) -> Option<KeyBinding> {
         }
         "reset_font_size" => KeyBinding::new(keys, RunAction(CommandAction::ResetFontSize), None),
         "open_settings" => KeyBinding::new(keys, RunAction(CommandAction::OpenSettings), None),
+        "reload_config" => KeyBinding::new(keys, RunAction(CommandAction::ReloadConfig), None),
         _ => {
             let number: usize = action.strip_prefix("activate_tab_")?.parse().ok()?;
             KeyBinding::new(keys, ActivateTab(number.checked_sub(1)?), None)
@@ -68,17 +60,17 @@ fn binding(action: &str, keys: &str) -> Option<KeyBinding> {
 }
 
 impl Keybindings {
-    /// `--keybindings-file`, or `keybindings.jsonc` in the config dir
-    pub fn path() -> Option<PathBuf> {
-        Cli::get()
-            .keybindings_file
-            .clone()
-            .or_else(|| Some(config_dir()?.join("keybindings.jsonc")))
+    /// parse a keybindings section over the bundled one
+    pub fn parse(json: &str) -> serde_json_lenient::Result<Self> {
+        let section = serde_json_lenient::from_str(json)?;
+        Self::from_full(&config::combine(config::section("keybindings", section)))
     }
 
-    /// parse keybindings over the bundled ones, rejecting unknown actions and bad keys
-    pub fn parse(json: &str) -> serde_json_lenient::Result<Self> {
-        let bindings: BTreeMap<String, Option<String>> = parse_over(DEFAULT_KEYBINDINGS, json)?;
+    /// keybindings section of settings merged over the bundled ones, rejecting unknown
+    /// actions and bad keys
+    pub fn from_full(full: &Value) -> serde_json_lenient::Result<Self> {
+        let section = full.get("keybindings").unwrap_or(&Value::Null);
+        let bindings = BTreeMap::<String, Option<String>>::deserialize(section)?;
         for (action, keys) in &bindings {
             let Some(keys) = keys else { continue };
             if keys.trim().is_empty() {
@@ -97,16 +89,6 @@ impl Keybindings {
         Ok(Self(bindings))
     }
 
-    /// load keybindings from the keybindings file, using defaults when it is missing or invalid
-    pub fn load() -> Self {
-        load_file(
-            Self::path(),
-            DEFAULT_KEYBINDINGS,
-            "keybindings",
-            Self::parse,
-        )
-    }
-
     /// gpui bindings for every enabled action
     pub fn bindings(&self) -> Vec<KeyBinding> {
         self.0
@@ -119,7 +101,7 @@ impl Keybindings {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::settings::tests::{temp_dir, with_config_home};
+    use crate::settings::DEFAULT_SETTINGS;
 
     #[test]
     fn defaults_bind_every_action() {
@@ -181,28 +163,6 @@ mod tests {
     }
 
     #[test]
-    fn load_creates_keeps_and_falls_back() {
-        let dir = temp_dir("keybindings_load");
-        with_config_home(&dir, || {
-            let path = Keybindings::path().unwrap();
-            assert_eq!(path, dir.join("kuterm/keybindings.jsonc"));
-            assert_eq!(Keybindings::load(), Keybindings::default());
-            assert_eq!(std::fs::read_to_string(&path).unwrap(), DEFAULT_KEYBINDINGS);
-
-            std::fs::write(&path, r#"{"paste": null}"#).unwrap();
-            assert_eq!(Keybindings::load().0["paste"], None);
-            assert_eq!(
-                std::fs::read_to_string(&path).unwrap(),
-                r#"{"paste": null}"#
-            );
-
-            std::fs::write(&path, r#"{"bogus": "ctrl-b"}"#).unwrap();
-            assert_eq!(Keybindings::load(), Keybindings::default());
-        });
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
     fn activate_tab_0_is_rejected() {
         let error = Keybindings::parse(r#"{"activate_tab_0": "alt-0"}"#).unwrap_err();
         assert!(error.to_string().contains("unknown action"), "{error}");
@@ -231,17 +191,11 @@ mod tests {
     }
 
     #[test]
-    fn macos_defaults_bind_the_same_actions() {
-        let actions = |file: &str| -> Vec<String> {
-            let bindings: BTreeMap<String, Option<String>> = parse_over(file, "{}").unwrap();
-            for keys in bindings.values().flatten() {
-                for key in keys.split_whitespace() {
-                    Keystroke::parse(key).unwrap();
-                }
-            }
-            bindings.into_keys().collect()
-        };
-        assert_eq!(actions(MACOS_KEYBINDINGS), actions(LINUX_KEYBINDINGS));
+    fn macos_block_binds_known_actions() {
+        let bundled: Value = serde_json_lenient::from_str(DEFAULT_SETTINGS).unwrap();
+        let macos = &bundled["os"]["macos"]["keybindings"];
+        assert!(macos.as_object().is_some_and(|keys| !keys.is_empty()));
+        Keybindings::parse(&macos.to_string()).unwrap();
     }
 
     #[test]
@@ -265,13 +219,16 @@ mod tests {
             "decrease_font_size",
             "reset_font_size",
             "open_settings",
+            "reload_config",
             "activate_tab_1",
         ] {
-            let line = DEFAULT_KEYBINDINGS
+            // other sections have keys like "copy" too
+            let section = &DEFAULT_SETTINGS[DEFAULT_SETTINGS.find("\"keybindings\": {").unwrap()..];
+            let line = section
                 .lines()
                 .position(|line| line.trim_start().starts_with(&format!("\"{action}\"")))
                 .unwrap();
-            let previous = DEFAULT_KEYBINDINGS.lines().nth(line - 1).unwrap();
+            let previous = section.lines().nth(line - 1).unwrap();
             assert!(
                 previous.trim_start().starts_with("//"),
                 "{action} has no comment above it"

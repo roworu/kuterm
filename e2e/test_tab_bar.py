@@ -17,7 +17,7 @@ PLAIN = {"tab_title": [{"text": "title"}], "tab_icon": {"dynamic": False, "defau
 
 def bar_app(app_factory, **settings) -> App:
     base = {"theme": {"mode": "dark"}, "window_title": ["number"]}
-    app = app_factory({**base, **settings}, files={"themes/dark.jsonc": THEME})
+    app = app_factory({**base, **settings}, themes={"dark": THEME})
     # keep the pointer away from the bar, hover changes its colors
     app.mouse(450, 500)
     return app
@@ -132,7 +132,7 @@ def test_dynamic_tab_icon_follows_program(app_factory, dynamic):
     """tab_icon.dynamic shows the icon of the running program, false keeps the default one"""
     app = app_factory({"theme": {"mode": "dark"}, "hide_bar_for_one_tab": False, "tab_title": [{"text": "t"}],
                        "tab_icon": {"dynamic": dynamic, "default": "D"}},
-                      files={"themes/dark.jsonc": THEME},
+                      themes={"dark": THEME},
                       tab_icons={"groups": [{"icon": "", "commands": ["sleep"]}]})
     app.mouse(450, 500)
     h = app.bar_height()
@@ -392,7 +392,7 @@ _references: dict = {}
 def cut_app(app_factory, title: str, **settings) -> App:
     app = app_factory({"theme": {"mode": "dark"}, "window_title": ["number"], **CUT_BASE,
                        "tab_title": [{"text": title}], **settings},
-                      files={"themes/dark.jsonc": CUT_THEME})
+                      themes={"dark": CUT_THEME})
     app.mouse(450, 500)
     return app
 

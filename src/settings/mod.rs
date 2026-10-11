@@ -1,20 +1,22 @@
 //! user settings, read from a jsonc file
 
 mod commands;
+mod config;
 mod keybindings;
 mod options;
 mod pins;
 mod tab_icons;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use gpui::{App, Global};
 use serde::Deserialize;
-use serde::de::DeserializeOwned;
 use serde_json_lenient::Value;
 
 pub use commands::{Command, CommandAction, Commands};
+pub(crate) use config::defaults as bundled_settings;
+pub use config::{Config, ConfigFiles};
 pub use keybindings::Keybindings;
 pub use options::{
     CursorBlink, CursorShape, LineHeight, NewTabButton, ScrollEasing, ScrollbarEnable,
@@ -50,7 +52,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        serde_json_lenient::from_str(DEFAULT_SETTINGS)
+        serde_json_lenient::from_value(config::defaults())
             .expect("bundled default settings are invalid")
     }
 }
@@ -58,10 +60,34 @@ impl Default for Settings {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct ThemeSettings {
     pub mode: ThemeMode,
-    /// custom dark theme file, bundled one when none
-    pub dark: Option<PathBuf>,
-    /// custom light theme file, bundled one when none
-    pub light: Option<PathBuf>,
+    /// theme name from `themes` or a theme file path, bundled theme when none
+    pub dark: Option<String>,
+    /// theme name from `themes` or a theme file path, bundled theme when none
+    pub light: Option<String>,
+    /// theme colors by name, checked when a theme is loaded
+    pub themes: BTreeMap<String, Value>,
+}
+
+impl ThemeSettings {
+    /// these themes picked the way `profile` says
+    pub fn with_profile(&self, profile: &ProfileTheme) -> Self {
+        Self {
+            mode: profile.mode,
+            dark: profile.dark.clone(),
+            light: profile.light.clone(),
+            themes: self.themes.clone(),
+        }
+    }
+}
+
+/// theme of a profile, names come from `theme.themes`
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct ProfileTheme {
+    pub mode: ThemeMode,
+    /// theme name or file path, bundled theme when none
+    pub dark: Option<String>,
+    /// theme name or file path, bundled theme when none
+    pub light: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -97,6 +123,8 @@ pub struct TerminalSettings {
     pub cursor_blink: CursorBlink,
     /// milliseconds the blinking cursor stays shown, then hidden
     pub cursor_blink_interval: f32,
+    /// seconds without typing after which the cursor stops blinking, 0 blinks forever
+    pub cursor_blink_timeout: f32,
     pub max_history_length: usize,
     /// option key sends esc prefixed keys like alt does on linux, macos only
     pub option_as_meta: bool,
@@ -149,7 +177,7 @@ pub struct Profile {
     /// folder to start in, kuterm's own folder when none
     pub working_directory: Option<PathBuf>,
     /// color scheme of the terminal, global theme when none
-    pub theme: Option<ThemeSettings>,
+    pub theme: Option<ProfileTheme>,
     pub icon: Option<String>,
     /// extra environment variables for the command
     #[serde(default)]
@@ -168,6 +196,8 @@ const SCROLLBAR_WIDTH_RANGE: (f32, f32) = (2., 64.);
 const AUTO_HIDE_RANGE: (f32, f32) = (0., 3600.);
 // faster blinking flickers, slower looks like a hang
 const CURSOR_BLINK_INTERVAL_RANGE: (f32, f32) = (100., 2000.);
+// Duration panics on negative or huge seconds, an hour is already "never"
+const CURSOR_BLINK_TIMEOUT_RANGE: (f32, f32) = (0., 3600.);
 // longer glides feel like lag, not smoothness
 const SMOOTH_SCROLL_DURATION_RANGE: (f32, f32) = (0., 1000.);
 
@@ -204,34 +234,23 @@ pub fn create_default_file(path: &Path, contents: &str) {
     }
 }
 
-/// read a config file, creating it from `defaults` first; falls back to defaults when missing or invalid
-pub(crate) fn load_file<T: Default>(
-    path: Option<PathBuf>,
-    defaults: &str,
-    what: &str,
-    parse: impl Fn(&str) -> serde_json_lenient::Result<T>,
-) -> T {
-    let Some(path) = path else {
-        return T::default();
-    };
-    create_default_file(&path, defaults);
-    let Ok(json) = std::fs::read_to_string(&path) else {
-        return T::default();
-    };
-    parse(&json).unwrap_or_else(|error| {
-        eprintln!("invalid {what} in {}: {error}", path.display());
-        T::default()
-    })
-}
-
 /// `$XDG_CONFIG_HOME/kuterm`, falling back to `~/.config/kuterm`
 pub fn config_dir() -> Option<PathBuf> {
+    xdg_dir("XDG_CONFIG_HOME", ".config")
+}
+
+/// `$XDG_STATE_HOME/kuterm`, falling back to `~/.local/state/kuterm`, for files the app writes
+pub fn state_dir() -> Option<PathBuf> {
+    xdg_dir("XDG_STATE_HOME", ".local/state")
+}
+
+fn xdg_dir(var: &str, fallback: &str) -> Option<PathBuf> {
     // xdg says empty or relative values must be ignored
-    let config_dir = std::env::var_os("XDG_CONFIG_HOME")
+    let dir = std::env::var_os(var)
         .map(PathBuf::from)
         .filter(|dir| dir.is_absolute())
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
-    Some(config_dir.join("kuterm"))
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(fallback)))?;
+    Some(dir.join("kuterm"))
 }
 
 impl Settings {
@@ -244,8 +263,14 @@ impl Settings {
     }
 
     /// parse settings, we allow comments and trailing commas
+    #[cfg(test)]
     pub fn parse(json: &str) -> serde_json_lenient::Result<Self> {
-        let mut settings: Self = parse_over(DEFAULT_SETTINGS, json)?;
+        Self::from_full(config::combine(serde_json_lenient::from_str(json)?))
+    }
+
+    /// settings from user values already merged over the bundled ones, keeping values in limits
+    pub fn from_full(full: Value) -> serde_json_lenient::Result<Self> {
+        let mut settings: Self = serde_json_lenient::from_value(full)?;
         let defaults = Self::default();
         settings.ui_font_size = limit("ui_font_size", settings.ui_font_size, FONT_SIZE_RANGE)
             .unwrap_or(defaults.ui_font_size);
@@ -262,6 +287,12 @@ impl Settings {
             CURSOR_BLINK_INTERVAL_RANGE,
         )
         .unwrap_or(defaults.terminal.cursor_blink_interval);
+        terminal.cursor_blink_timeout = limit(
+            "terminal.cursor_blink_timeout",
+            terminal.cursor_blink_timeout,
+            CURSOR_BLINK_TIMEOUT_RANGE,
+        )
+        .unwrap_or(defaults.terminal.cursor_blink_timeout);
         if terminal.max_history_length > MAX_HISTORY_LENGTH {
             eprintln!(
                 "terminal.max_history_length {} is above {MAX_HISTORY_LENGTH}, using {MAX_HISTORY_LENGTH}",
@@ -347,17 +378,12 @@ impl Settings {
             .unwrap_or(&self.profiles[0])
     }
 
-    /// load settings from the settings file, using defaults when it is missing or invalid
-    pub fn load() -> Self {
-        load_file(Self::path(), DEFAULT_SETTINGS, "settings", Self::parse)
-    }
-
     /// keep a font size inside the allowed range
     pub fn clamp_font_size(size: f32) -> f32 {
         size.clamp(FONT_SIZE_RANGE.0, FONT_SIZE_RANGE.1)
     }
 
-    /// settings loaded at startup
+    /// settings loaded at startup or on the last reload
     pub fn get(cx: &App) -> &Self {
         cx.global::<Self>()
     }
@@ -377,16 +403,6 @@ pub(crate) fn merge(base: &mut Value, overrides: Value) {
     }
 }
 
-/// parse `json` deep merged over the bundled `defaults`
-pub(crate) fn parse_over<T: DeserializeOwned>(
-    defaults: &str,
-    json: &str,
-) -> serde_json_lenient::Result<T> {
-    let mut value: Value = serde_json_lenient::from_str(defaults)?;
-    merge(&mut value, serde_json_lenient::from_str(json)?);
-    serde_json_lenient::from_value(value)
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     use std::sync::Mutex;
@@ -403,16 +419,28 @@ pub(crate) mod tests {
         dir
     }
 
-    /// run `f` with XDG_CONFIG_HOME pointing at `dir`, restoring it afterwards
+    /// run `f` with XDG_CONFIG_HOME pointing at `dir` and XDG_STATE_HOME at `dir/state`,
+    /// restoring them afterwards
     pub(crate) fn with_config_home(dir: &Path, f: impl FnOnce()) {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let old = std::env::var_os("XDG_CONFIG_HOME");
-        unsafe { std::env::set_var("XDG_CONFIG_HOME", dir) };
+        let vars = [
+            ("XDG_CONFIG_HOME", dir.to_path_buf()),
+            ("XDG_STATE_HOME", dir.join("state")),
+        ];
+        let old: Vec<_> = vars
+            .iter()
+            .map(|(name, _)| std::env::var_os(name))
+            .collect();
+        for (name, value) in &vars {
+            unsafe { std::env::set_var(name, value) };
+        }
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
-        unsafe {
-            match old {
-                Some(value) => std::env::set_var("XDG_CONFIG_HOME", value),
-                None => std::env::remove_var("XDG_CONFIG_HOME"),
+        for ((name, _), old) in vars.iter().zip(old) {
+            unsafe {
+                match old {
+                    Some(value) => std::env::set_var(name, value),
+                    None => std::env::remove_var(name),
+                }
             }
         }
         if let Err(panic) = result {
@@ -554,7 +582,7 @@ pub(crate) mod tests {
     fn theme_paths_keep_other_defaults() {
         let settings = Settings::parse(r#"{"theme": {"dark": "themes/d.jsonc"}}"#).unwrap();
         assert_eq!(settings.theme.mode, ThemeMode::System);
-        assert_eq!(settings.theme.dark, Some(PathBuf::from("themes/d.jsonc")));
+        assert_eq!(settings.theme.dark, Some("themes/d.jsonc".into()));
         assert_eq!(settings.theme.light, Settings::default().theme.light);
 
         let settings = Settings::parse(
@@ -563,7 +591,7 @@ pub(crate) mod tests {
         .unwrap();
         assert_eq!(settings.theme.mode, ThemeMode::Dark);
         assert_eq!(settings.theme.dark, None);
-        assert_eq!(settings.theme.light, Some(PathBuf::from("/abs/l.jsonc")));
+        assert_eq!(settings.theme.light, Some("/abs/l.jsonc".into()));
         assert_eq!(settings.terminal, Settings::default().terminal);
     }
 
@@ -620,19 +648,20 @@ pub(crate) mod tests {
             let path = dir.join("kuterm").join("settings.jsonc");
             assert_eq!(Settings::path(), Some(path.clone()));
 
+            let load = || Config::load().config.map(|config| config.settings);
             // missing file is created from the bundled one
-            assert_eq!(Settings::load(), Settings::default());
+            assert_eq!(load(), Ok(Settings::default()));
             assert_eq!(std::fs::read_to_string(&path).unwrap(), DEFAULT_SETTINGS);
 
             std::fs::write(&path, r#"{"theme": {"mode": "light", "light": "x.jsonc"}}"#).unwrap();
-            let settings = Settings::load();
+            let settings = load().unwrap();
             assert_eq!(settings.theme.mode, ThemeMode::Light);
-            assert_eq!(settings.theme.light, Some(PathBuf::from("x.jsonc")));
+            assert_eq!(settings.theme.light, Some("x.jsonc".into()));
 
-            // broken file falls back to defaults and is left untouched
+            // broken file is an error and is left untouched
             let broken = r#"{"theme": {"mode": "auto"}}"#;
             std::fs::write(&path, broken).unwrap();
-            assert_eq!(Settings::load(), Settings::default());
+            assert!(load().is_err());
             assert_eq!(std::fs::read_to_string(&path).unwrap(), broken);
         });
         let _ = std::fs::remove_dir_all(&dir);
@@ -751,10 +780,10 @@ pub(crate) mod tests {
         assert!(a.env.is_empty());
         assert_eq!(settings.default_profile(), b);
         assert_eq!(b.command, Shell::Program("zsh".into()));
-        assert_eq!(b.working_directory, Some(PathBuf::from("~/src")));
+        assert_eq!(b.working_directory, Some("~/src".into()));
         let theme = b.theme.as_ref().unwrap();
         assert_eq!(theme.mode, ThemeMode::Dark);
-        assert_eq!(theme.dark, Some(PathBuf::from("themes/b.jsonc")));
+        assert_eq!(theme.dark, Some("themes/b.jsonc".into()));
         assert_eq!(theme.light, None);
         assert_eq!(b.env["EDITOR"], "vim");
     }
@@ -950,6 +979,23 @@ pub(crate) mod tests {
         assert_eq!(interval("750"), 750.);
         assert_eq!(interval("2000"), 2000.);
         assert_eq!(interval("5000"), 2000.);
+    }
+
+    #[test]
+    fn cursor_blink_timeout_limits() {
+        let timeout = |value: &str| {
+            let json = format!(r#"{{"terminal": {{"cursor_blink_timeout": {value}}}}}"#);
+            Settings::parse(&json)
+                .unwrap()
+                .terminal
+                .cursor_blink_timeout
+        };
+        let default = Settings::default().terminal.cursor_blink_timeout;
+        assert_eq!(timeout("-1"), default);
+        assert_eq!(timeout("0"), 0.);
+        assert_eq!(timeout("2.5"), 2.5);
+        assert_eq!(timeout("3600"), 3600.);
+        assert_eq!(timeout("1e30"), 3600.);
     }
 
     #[test]
@@ -1530,7 +1576,7 @@ mod scrollbar_settings {
 
     use crate::{
         settings::{DEFAULT_SETTINGS, ScrollbarEnable, ScrollbarPlacement, Settings},
-        theme::{DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, Theme},
+        theme::Theme,
     };
 
     fn terminal(json: &str) -> serde_json_lenient::Result<Settings> {
@@ -1751,9 +1797,10 @@ mod scrollbar_settings {
 
     #[test]
     fn bundled_themes_have_scrollbar_color() {
-        for theme in [DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME] {
-            let raw: serde_json_lenient::Value = serde_json_lenient::from_str(theme).unwrap();
-            assert!(raw["scrollbar"].is_string());
+        let raw: serde_json_lenient::Value =
+            serde_json_lenient::from_str(DEFAULT_SETTINGS).unwrap();
+        for name in ["dark", "light"] {
+            assert!(raw["theme"]["themes"][name]["scrollbar"].is_string());
         }
         let _ = Theme::bundled(true);
         let _ = Theme::bundled(false);

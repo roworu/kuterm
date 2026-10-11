@@ -20,7 +20,7 @@ def scroll_app(app_factory, scrollbar=None, lines: int = 0, **terminal) -> App:
     terminal["scrollbar"] = {"auto_hide": 0, **(scrollbar or {})}
     return app_factory({"theme": {"mode": "dark"}, "terminal": terminal},
                        script=LINES.format(n=lines) if lines else None,
-                       files={"themes/dark.jsonc": {"scrollbar": "#ff00ff"}})
+                       themes={"dark": {"scrollbar": "#ff00ff"}})
 
 
 def thumb(app: App, img=None) -> tuple | None:

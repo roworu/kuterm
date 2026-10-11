@@ -18,7 +18,7 @@ def busy_app(app_factory, program: str = "sleep 1000", **settings) -> App:
     """two tabs, the active second one running program in the foreground"""
     app = app_factory({"theme": {"mode": "dark"}, "window_title": ["number", {"text": " "}, "command"],
                        "tab_width": 200, "tab_title": [{"text": "title"}], **settings},
-                      files={"themes/dark.jsonc": THEME})
+                      themes={"dark": THEME})
     app.mouse(450, 580)
     app.wait_title("1 bash")
     app.key("ctrl+shift+t")
@@ -201,7 +201,7 @@ def test_quit_asks_with_running_program(app_factory, how):
 @pytest.mark.parametrize("how", ["palette", "window"])
 def test_idle_quit_asks_nothing(app_factory, how):
     """with only shells in the tabs the app quits at once, ending the shells"""
-    app = app_factory({"theme": {"mode": "dark"}, "window_title": ["number"]}, files={"themes/dark.jsonc": THEME})
+    app = app_factory({"theme": {"mode": "dark"}, "window_title": ["number"]}, themes={"dark": THEME})
     app.run(f"echo $$ > {app.file('shell')}")
     shell = int(app.wait_file("shell"))
     if how == "palette":
@@ -238,7 +238,7 @@ def test_dialog_names_inactive_tab(app_factory):
     """a middle click on a busy tab that is not active asks about that tab and closes it"""
     app = app_factory({"theme": {"mode": "dark"}, "window_title": ["number", {"text": " "}, "command"],
                        "tab_width": 200, "tab_title": [{"text": "tab "}, "number"]},
-                      files={"themes/dark.jsonc": THEME})
+                      themes={"dark": THEME})
     app.mouse(450, 580)
     app.key("ctrl+shift+t")
     app.wait_title("2 bash")

@@ -13,7 +13,7 @@ use gpui_platform::application;
 
 use crate::{
     cli::{Cli, USAGE},
-    settings::{Commands, Keybindings, Pins, Settings, TabIcons},
+    settings::{Config, ConfigFiles, Pins, Settings},
     theme::Theme,
     ui::{
         text_input,
@@ -49,15 +49,31 @@ fn init(cx: &mut App) {
     if cli.recreate_confs {
         cli.remove_configs();
     }
-    let mut settings = Settings::load();
+    let load = Config::load();
+    let mut problems = load.warnings;
+    let config = load.config.unwrap_or_else(|error| {
+        problems.push(format!("{error}, using defaults"));
+        Config::default()
+    });
+    let mut settings = config.settings;
     cli.apply(&mut settings);
+    if let Err(error) = Theme::check(&settings) {
+        problems.push(format!("{error}, using the bundled theme"));
+    }
+    for problem in &problems {
+        eprintln!("{problem}");
+    }
     settings.use_installed_fonts(&cx.text_system().all_font_names());
     cx.set_global(settings);
-    cx.set_global(TabIcons::load());
-    cx.set_global(Commands::load());
+    cx.set_global(config.tab_icons);
+    cx.set_global(config.commands);
     cx.set_global(Pins::load());
+    cx.set_global(ConfigFiles {
+        paths: load.files,
+        problems,
+    });
     Theme::apply(cx.window_appearance(), cx);
-    cx.bind_keys(Keybindings::load().bindings());
+    cx.bind_keys(config.keybindings.bindings());
     cx.bind_keys(text_input::bindings());
     // app wide, they work with no window focused
     cx.on_action(|_: &Hide, cx| cx.hide());

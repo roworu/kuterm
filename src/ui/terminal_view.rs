@@ -131,16 +131,22 @@ impl TerminalView {
     // shows the cursor and restarts its phase, so it stays visible while typing
     fn restart_blink(&mut self, cx: &mut Context<Self>) {
         self.cursor_on = true;
-        let interval =
-            Duration::from_secs_f32(Settings::get(cx).terminal.cursor_blink_interval / 1000.);
+        let settings = &Settings::get(cx).terminal;
+        let interval = Duration::from_secs_f32(settings.cursor_blink_interval / 1000.);
+        let timeout = Duration::from_secs_f32(settings.cursor_blink_timeout);
         self.blink = Some(cx.spawn(async move |this, cx| {
+            // counted in ticks, not wall time, so the test clock drives it too
+            let mut elapsed = Duration::ZERO;
             loop {
                 cx.background_executor().timer(interval).await;
+                elapsed += interval;
+                // every blink repaints the whole window, a still cursor lets an idle one sleep
+                let stop = !timeout.is_zero() && elapsed >= timeout;
                 let flipped = this.update(cx, |this, cx| {
-                    this.cursor_on = !this.cursor_on;
+                    this.cursor_on = stop || !this.cursor_on;
                     cx.notify();
                 });
-                if flipped.is_err() {
+                if flipped.is_err() || stop {
                     break;
                 }
             }
@@ -554,7 +560,7 @@ mod tests {
     #[gpui::test]
     fn cursor_blinks_and_typing_shows_it(cx: &mut TestAppContext) {
         let (view, cx) = focused_view(
-            r#"{"terminal": {"cursor_blink": "on", "cursor_blink_interval": 400}}"#,
+            r#"{"terminal": {"cursor_blink": "on", "cursor_blink_interval": 400, "cursor_blink_timeout": 0}}"#,
             cx,
         );
         assert!(view.read_with(cx, |view, _| view.blink.is_some() && view.cursor_on));
@@ -570,6 +576,26 @@ mod tests {
 
         cx.simulate_keystrokes("a");
         assert!(view.read_with(cx, |view, _| view.cursor_on));
+    }
+
+    #[gpui::test]
+    fn cursor_stops_blinking_after_timeout_and_typing_restarts_it(cx: &mut TestAppContext) {
+        let (view, cx) = focused_view(
+            r#"{"terminal": {"cursor_blink": "on", "cursor_blink_interval": 400, "cursor_blink_timeout": 1}}"#,
+            cx,
+        );
+        // 3 ticks reach the timeout, the last one leaves the cursor shown
+        cx.executor().advance_clock(Duration::from_millis(1250));
+        cx.run_until_parked();
+        assert!(view.read_with(cx, |view, _| view.cursor_on));
+        cx.executor().advance_clock(Duration::from_secs(3));
+        cx.run_until_parked();
+        assert!(view.read_with(cx, |view, _| view.cursor_on));
+
+        cx.simulate_keystrokes("a");
+        cx.executor().advance_clock(Duration::from_millis(450));
+        cx.run_until_parked();
+        assert!(!view.read_with(cx, |view, _| view.cursor_on));
     }
 
     #[gpui::test]

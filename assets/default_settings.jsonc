@@ -2,9 +2,16 @@
 //
 // this file is created with default values on first launch.
 // comments and trailing commas are allowed, missing values use their defaults.
-// if this file is invalid, all defaults are used and an error is printed.
-// changes are applied on next launch.
+// changes are applied as soon as this file or a file it imports is saved.
+// if it is invalid, the last good settings are kept and the error is shown in the window,
+// at launch all defaults are used.
 {
+  // other settings files merged before this one, so values set here win over theirs, like
+  //   ["~/.config/kuterm/colors.jsonc", "local.jsonc"]
+  // relative paths are resolved from this folder, imported files can import more files.
+  // a missing file is skipped with a warning
+  "import": [],
+
   // font used for tabs and other ui text
   "ui_font_family": "JetBrainsMonoNL Nerd Font Mono",
   // ui font size in pixels, the whole ui scales with it
@@ -54,7 +61,7 @@
   "default_title": "kuterm",
 
   "command_palette": {
-    // allow opening the command palette with its key, commands are set in commands.jsonc
+    // allow opening the command palette with its key, commands are set in "commands" below
     "enable": true,
     // list recently run commands first, right after pinned ones
     "show_recent": true,
@@ -78,12 +85,82 @@
     //   "dark"   - always dark
     //   "light"  - always light
     "mode": "system",
-    // theme file for each mode, null uses the bundled one without a file.
-    // relative paths are resolved from this folder.
-    // a missing file is created as a copy of the bundled theme, ready to edit.
-    // missing colors fall back to the bundled theme of the same mode.
-    "dark": "themes/dark.jsonc",
-    "light": "themes/light.jsonc",
+    // theme for each mode: a name from "themes" below, or a path to a theme file with the
+    // same keys, like "themes/mine.jsonc" (relative paths are resolved from this folder).
+    // null uses the bundled theme
+    "dark": "dark",
+    "light": "light",
+    // themes by name, add your own next to these. colors are hex strings: "#rgb", "#rgba",
+    // "#rrggbb" or "#rrggbbaa". colors left out of a theme come from the bundled theme of
+    // the mode it is used for
+    "themes": {
+      // one dark
+      "dark": {
+        // tab bar
+        "tab_bar_background": "#2f343e",
+        "tab_active_background": "#282c33",
+        "border": "#464b57",
+        "text": "#dce0e5",
+        "text_muted": "#a9afbc",
+
+        // buttons that destroy something, like "close" in the dialog asking to close a busy tab
+        "danger_button": "#be5046",
+        "danger_button_text": "#ffffff",
+
+        // terminal
+        "terminal_background": "#282c34",
+        "terminal_foreground": "#abb2bf",
+        "cursor": "#74ade8",
+        "selection": "#3e4451",
+        "scrollbar": "#4e5666",
+        "bright_foreground": "#dce0e5",
+        "dim_foreground": "#636d83",
+
+        // 16 ansi colors, must have exactly 16 entries
+        "ansi": [
+          // normal: black, red, green, yellow, blue, magenta, cyan, white
+          "#282c34", "#e06c75", "#98c379", "#e5c07b", "#61afef", "#c678dd", "#56b6c2", "#abb2bf",
+          // bright: black, red, green, yellow, blue, magenta, cyan, white
+          "#636d83", "#ea858b", "#aad581", "#ffd885", "#85c1ff", "#d398eb", "#6ed5de", "#fafafa",
+        ],
+        // dim ansi colors, must have exactly 8 entries
+        // black, red, green, yellow, blue, magenta, cyan, white
+        "ansi_dim": ["#3b3f4a", "#a7545a", "#6d8f59", "#b8985b", "#457cad", "#8d54a0", "#3c818a", "#8f969b"],
+      },
+      // one light
+      "light": {
+        // tab bar
+        "tab_bar_background": "#ebebec",
+        "tab_active_background": "#fafafa",
+        "border": "#c9c9ca",
+        "text": "#383a42",
+        "text_muted": "#6a6b70",
+
+        // buttons that destroy something, like "close" in the dialog asking to close a busy tab
+        "danger_button": "#e45649",
+        "danger_button_text": "#ffffff",
+
+        // terminal
+        "terminal_background": "#fafafa",
+        "terminal_foreground": "#383a42",
+        "cursor": "#526fff",
+        "selection": "#e5e5e6",
+        "scrollbar": "#c4c4c7",
+        "bright_foreground": "#202227",
+        "dim_foreground": "#a0a1a7",
+
+        // 16 ansi colors, must have exactly 16 entries
+        "ansi": [
+          // normal: black, red, green, yellow, blue, magenta, cyan, white
+          "#383a42", "#e45649", "#50a14f", "#c18401", "#0184bc", "#a626a4", "#0997b3", "#a0a1a7",
+          // bright: black, red, green, yellow, blue, magenta, cyan, white
+          "#4f525e", "#e06c75", "#98c379", "#e5c07b", "#61afef", "#c678dd", "#56b6c2", "#ffffff",
+        ],
+        // dim ansi colors, must have exactly 8 entries
+        // black, red, green, yellow, blue, magenta, cyan, white
+        "ansi_dim": ["#727479", "#eb877e", "#83bc82", "#d2a74c", "#4ca7cf", "#bf66be", "#51b5c8", "#b8b9bd"],
+      },
+    },
   },
 
   "terminal": {
@@ -106,6 +183,9 @@
     "cursor_blink": "on",
     // milliseconds the blinking cursor stays shown, then hidden, from 100 to 2000
     "cursor_blink_interval": 500,
+    // seconds without typing after which the cursor stops blinking and stays shown,
+    // so an idle window does not repaint. 0 blinks forever, up to 3600
+    "cursor_blink_timeout": 15,
     // lines of scrollback history to keep, 0 keeps everything
     "max_history_length": 10000,
     // macos only: option key works as meta, so option-b sends esc b like alt-b does on linux.
@@ -144,6 +224,7 @@
   // what new tabs start with. ctrl-shift-t and a click on "+" open the default profile,
   // a right click on "+" picks any profile when there is more than one.
   // "name" and "command" are required, the other keys can be left out.
+  // changes to a profile apply to tabs opened after them.
   "profiles": [
     {
       // shown in the profile menu
@@ -157,8 +238,8 @@
       "command": "system",
       // folder to start in, "~" is the home folder, null uses the folder kuterm started in
       "working_directory": null,
-      // color scheme, same keys as "theme" above, like { "mode": "dark", "dark": "themes/red.jsonc" }.
-      // null uses "theme"
+      // color scheme, "mode", "dark" and "light" like in "theme" above, names come from
+      // "theme.themes", like { "mode": "dark", "dark": "red" }. null uses "theme"
       "theme": null,
       // tab icon, kept whatever runs in the tab. null uses "tab_icon"
       "icon": null,
@@ -166,4 +247,277 @@
       "env": {},
     },
   ],
+
+  // keys for actions. a bound key is never sent to the terminal, so defaults use ctrl-shift
+  // combinations that shells and editors like vim don't rely on (ctrl-w, ctrl-t, ctrl-c... keep
+  // reaching them). missing actions keep their default keys.
+  //
+  // each action maps to one key, written as modifiers and a key joined by "-":
+  //   modifiers: "ctrl", "alt", "shift", "super" (windows / cmd key), "fn"
+  //   keys: letters, digits, "tab", "enter", "space", "escape", "f1".."f12", ...
+  //   "ctrl-shift-t"   - ctrl, shift and t together
+  //   "ctrl-a t"       - ctrl-a, then t (keys separated by spaces are pressed one after another)
+  //   null             - no key, the action is disabled
+  // macos uses cmd keys instead, see "os" at the end of this file
+  "keybindings": {
+    // open a new tab
+    "new_tab": "ctrl-shift-t",
+    // close the active tab
+    "close_tab": "ctrl-shift-w",
+    // switch to the tab on the right, wrapping around to the first one
+    "next_tab": "ctrl-tab",
+    // copy text selected with the mouse to clipboard
+    "copy": "ctrl-shift-c",
+    // paste from clipboard into the terminal
+    "paste": "ctrl-shift-v",
+    // open command palette
+    "command_palette": "ctrl-shift-p",
+    // toggle fullscreen
+    "toggle_fullscreen": "f11",
+    // quit, asking first when programs still run in some tabs
+    "quit": null,
+    // hide kuterm, macos only
+    "hide": null,
+    // hide every other app, macos only
+    "hide_others": null,
+    // minimize the window
+    "minimize": null,
+    // switch to the tab on the left, wrapping around to the last one
+    "prev_tab": "ctrl-shift-tab",
+    // select the whole history and screen of the active tab
+    "select_all": null,
+    // drop the active tab's history, its prompt moves to the top
+    "clear": null,
+    // make the active tab font one pixel bigger, ctrl + mouse wheel too
+    "increase_font_size": "ctrl-=",
+    // make the active tab font one pixel smaller
+    "decrease_font_size": "ctrl--",
+    // set the active tab font back to its size from settings
+    "reset_font_size": "ctrl-0",
+    // open settings.jsonc in the system text editor
+    "open_settings": null,
+    // read this file and the files it uses again, they are also read on every save
+    "reload_config": null,
+    // switch to tab by its position, any "activate_tab_<n>" with n from 1 up can be added
+    "activate_tab_1": "alt-1",
+    "activate_tab_2": "alt-2",
+    "activate_tab_3": "alt-3",
+    "activate_tab_4": "alt-4",
+    "activate_tab_5": "alt-5",
+    "activate_tab_6": "alt-6",
+    "activate_tab_7": "alt-7",
+    "activate_tab_8": "alt-8",
+    "activate_tab_9": "alt-9",
+  },
+
+  // command palette commands. the palette opens with the "command_palette" key (ctrl-shift-p by
+  // default), typing filters commands by name, enter or a click runs the picked one. recently run
+  // commands are listed first, this can be turned off with "command_palette.show_recent".
+  //
+  // each command has a "name" shown in the palette and "actions" run one after another.
+  // an optional "category" is shown before the name and groups the list, so
+  // { "name": "create new", "category": "tabs" } appears as "tabs: create new".
+  // a command with "pinned": true stays at the very top of the palette. hover its pin icon
+  // and click the x to unpin it, those picks are saved in pinned_commands.json in the state
+  // folder ($XDG_STATE_HOME/kuterm, ~/.local/state/kuterm by default).
+  //
+  // actions run against the active tab, or against the tab opened by an earlier
+  // "new_background_tab" of the same command.
+  //
+  // actions:
+  //   "about"                            - show a page with the version and links
+  //   "reload_config"                    - read this file, its imports and theme files again
+  //   "new_tab"                          - open a tab with the default profile
+  //   { "new_tab_with_profile": "dev" }  - open a tab with the named profile
+  //   "new_background_tab"               - open a tab without switching to it
+  //   { "new_background_tab_with_profile": "dev" } - same, with the named profile
+  //   "close_tab"                        - close the active tab
+  //   "close_tabs_to_right"              - close every tab to the right of the active one
+  //   "close_tabs_to_left"               - close every tab to the left of the active one
+  //   "split_left"                       - split the focused pane, moving its active tab left
+  //   "split_right"                      - split the focused pane, moving its active tab right
+  //   "split_up"                         - split the focused pane, moving its active tab above
+  //   "split_down"                       - split the focused pane, moving its active tab below
+  //   "next_tab"                         - switch to the tab on the right
+  //   "prev_tab"                         - switch to the tab on the left
+  //   { "activate_tab": 2 }              - switch to the tab at this 1 based position
+  //   "pick_tab"                         - list the open tabs in the palette, pick one to switch to it
+  //   "copy"                             - copy the active tab's selection to the clipboard
+  //   "paste"                            - paste the clipboard into the active tab
+  //   { "scroll_up": 10 }                - scroll the active tab up by this many lines
+  //   { "scroll_down": 10 }              - scroll the active tab down by this many lines
+  //   "scroll_top"                       - scroll the active tab to the top of its history
+  //   "scroll_bottom"                    - scroll the active tab back to the prompt
+  //   "quit"                             - close every tab and exit, asks first while programs run
+  //   "select_all"                       - select the active tab's whole history and screen
+  //   "clear"                            - drop the active tab's history, its prompt moves to the top
+  //   "increase_font_size"               - make the active tab font one pixel bigger
+  //   "decrease_font_size"               - make the active tab font one pixel smaller
+  //   "reset_font_size"                  - set the active tab font back to its size from settings
+  //   "open_settings"                    - open settings.jsonc in the system text editor
+  //   { "type": "ls\n" }                 - type text into the active tab, "\n" presses enter
+  //   { "notify": "hi" }                 - show a notification inside the window
+  //   { "notify_when_done": "built" }    - show a notification once the program running in the
+  //                                        tab finishes, clicking it switches to that tab
+  //
+  // actions can be mixed freely to build bigger commands, see the examples below.
+  "commands": [
+    { "name": "about", "category": "app", "actions": ["about"] },
+    { "name": "quit", "category": "app", "actions": ["quit"] },
+
+    { "name": "reload config", "category": "config", "actions": ["reload_config"] },
+    { "name": "open settings", "category": "config", "actions": ["open_settings"] },
+
+    { "name": "copy selection", "category": "edit", "actions": ["copy"] },
+    { "name": "paste", "category": "edit", "actions": ["paste"] },
+    { "name": "select all", "category": "edit", "actions": ["select_all"] },
+    { "name": "clear history", "category": "edit", "actions": ["clear"] },
+
+    { "name": "create new", "category": "tabs", "actions": ["new_tab"] },
+    { "name": "close current", "category": "tabs", "actions": ["close_tab"] },
+    { "name": "close tabs to the right", "category": "tabs", "actions": ["close_tabs_to_right"] },
+    { "name": "close tabs to the left", "category": "tabs", "actions": ["close_tabs_to_left"] },
+    { "name": "split left", "category": "tabs", "actions": ["split_left"] },
+    { "name": "split right", "category": "tabs", "actions": ["split_right"] },
+    { "name": "split up", "category": "tabs", "actions": ["split_up"] },
+    { "name": "split down", "category": "tabs", "actions": ["split_down"] },
+    { "name": "switch to left", "category": "tabs", "actions": ["prev_tab"] },
+    { "name": "switch to right", "category": "tabs", "actions": ["next_tab"] },
+    { "name": "go to tab", "category": "tabs", "actions": ["pick_tab"] },
+
+    { "name": "scroll to top", "category": "view", "actions": ["scroll_top"] },
+    { "name": "scroll to bottom", "category": "view", "actions": ["scroll_bottom"] },
+    { "name": "bigger font", "category": "view", "actions": ["increase_font_size"] },
+    { "name": "smaller font", "category": "view", "actions": ["decrease_font_size"] },
+    { "name": "reset font size", "category": "view", "actions": ["reset_font_size"] },
+
+    // custom command example: open a new tab and run a command in it
+    {
+      "name": "say hello in new tab",
+      "category": "examples",
+      "actions": ["new_tab", { "type": "echo hello from kuterm\n" }],
+    },
+    // custom command example: list the folder, then jump to the top of the output
+    {
+      "name": "list files from the top",
+      "category": "examples",
+      "actions": [{ "type": "ls -la\n" }, "scroll_top"],
+    },
+    // custom command example: run a slow command in a background tab, get notified when it ends
+    {
+      "name": "sleep in the background",
+      "category": "examples",
+      "actions": [
+        "new_background_tab",
+        { "type": "sleep 3 && echo woke up\n" },
+        { "notify_when_done": "sleep finished" },
+      ],
+    },
+  ],
+
+  // icons of programs in tabs, when "tab_icon.dynamic" is on.
+  // more icons to use are listed on https://www.nerdfonts.com/cheat-sheet
+  "tab_icons": {
+    // programs started through these are matched by their script, like "pi" in "node /usr/bin/pi"
+    "interpreters": ["node", "nodejs", "bun", "deno", "python", "python3", "ruby", "perl"],
+    // programs that run another one, like "htop" in "sudo htop", show the icon of the program they run
+    "wrappers": ["sudo", "doas", "run0", "pkexec", "env", "nice", "nohup", "timeout"],
+    "groups": [
+      {
+        // remote shells
+        "icon": "",
+        "commands": ["ssh", "mosh", "telnet", "sftp", "ftp", "lftp", "scp", "rlogin", "rsh", "autossh", "sshpass"],
+      },
+      {
+        // network tools
+        "icon": "",
+        "commands": ["ping", "ping6", "traceroute", "tracepath", "mtr", "nmap", "dig", "nslookup", "host", "whois", "netstat", "ss", "tcpdump", "tshark", "iperf", "iperf3", "nc", "ncat", "netcat", "socat", "arp", "iftop", "nethogs", "bandwhich", "nload", "speedtest", "speedtest-cli"],
+      },
+      {
+        // downloads
+        "icon": "󰇚",
+        "commands": ["curl", "wget", "aria2c", "xh", "http"],
+      },
+      {
+        // ai and agents
+        "icon": "󰚩",
+        "commands": ["claude", "opencode", "pi", "codex", "gemini", "aider", "crush", "goose", "amp", "cursor-agent", "copilot", "qwen", "llama-cli", "llama-server", "llama-bench", "ollama", "llm", "droid", "kiro-cli"],
+      },
+      {
+        // system monitors
+        "icon": "󰨇",
+        "commands": ["htop", "btop", "top", "atop", "bpytop", "bashtop", "glances", "nvtop", "iotop", "btm", "gotop", "gtop", "zenith", "s-tui", "bottom"],
+      },
+      {
+        // editors
+        "icon": "",
+        "commands": ["vi", "vim", "nvim", "nano", "micro", "hx", "helix", "emacs", "kak", "vis"],
+      },
+      {
+        // git
+        "icon": "",
+        "commands": ["git", "lazygit", "tig", "gitui", "gh"],
+      },
+      {
+        // containers
+        "icon": "󰡨",
+        "commands": ["docker", "podman", "lazydocker", "docker-compose", "podman-compose"],
+      },
+      {
+        // kubernetes
+        "icon": "󱃾",
+        "commands": ["kubectl", "k9s", "helm", "kubectx", "kubens", "minikube", "kind"],
+      },
+      {
+        // package managers
+        "icon": "󰏖",
+        "commands": ["apt", "apt-get", "aptitude", "dpkg", "nala", "dnf", "dnf5", "yum", "rpm", "rpm-ostree", "zypper", "pacman", "yay", "paru", "pamac", "apk", "emerge", "xbps-install", "eopkg", "nix", "nix-env", "flatpak", "snap", "brew", "pkg"],
+      },
+
+      {
+        // compilers and build tools
+        "icon": "",
+        "commands": [
+          "gcc", "g++", "cc", "c++", "clang", "clang++", "zig", "rustc", "cargo", "go", "javac", "kotlinc", "make", "gmake", "cmake", "ninja", "meson", "mvn", "gradle", "python", "python3"
+        ],
+      }
+    ]
+  },
+
+  // values for one os only, merged over everything else on that os:
+  //   "linux", "macos", "freebsd", ...
+  // like { "linux": { "terminal": { "font_size": 14 } } }
+  "os": {
+    "macos": {
+      // macos apps use cmd keys, the shell never gets them, so ctrl-w, ctrl-t, ctrl-c... keep
+      // reaching it
+      "keybindings": {
+        "new_tab": "cmd-t",
+        "close_tab": "cmd-w",
+        "copy": "cmd-c",
+        "paste": "cmd-v",
+        "command_palette": "cmd-shift-p",
+        "toggle_fullscreen": "ctrl-cmd-f",
+        "quit": "cmd-q",
+        "hide": "cmd-h",
+        "hide_others": "alt-cmd-h",
+        "minimize": "cmd-m",
+        "select_all": "cmd-a",
+        "clear": "cmd-k",
+        "increase_font_size": "cmd-=",
+        "decrease_font_size": "cmd--",
+        "reset_font_size": "cmd-0",
+        "open_settings": "cmd-,",
+        "activate_tab_1": "cmd-1",
+        "activate_tab_2": "cmd-2",
+        "activate_tab_3": "cmd-3",
+        "activate_tab_4": "cmd-4",
+        "activate_tab_5": "cmd-5",
+        "activate_tab_6": "cmd-6",
+        "activate_tab_7": "cmd-7",
+        "activate_tab_8": "cmd-8",
+        "activate_tab_9": "cmd-9",
+      },
+    },
+  },
 }

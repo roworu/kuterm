@@ -1,12 +1,13 @@
-//! theme colors, dark or light from bundled or custom jsonc files
+//! theme colors, picked by name from the "theme" block of settings or read from files
 
 use std::path::{Path, PathBuf};
 
 use alacritty_terminal::vte::ansi::{Color, NamedColor};
 use gpui::{App, Global, Hsla, WindowAppearance, rgb};
 use serde::Deserialize;
+use serde_json_lenient::Value;
 
-use crate::settings::{Settings, ThemeMode, ThemeSettings, create_default_file, parse_over};
+use crate::settings::{Settings, ThemeMode, ThemeSettings, bundled_settings, merge};
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct Theme {
@@ -37,28 +38,27 @@ impl Default for Theme {
 
 impl Global for Theme {}
 
-/// bundled theme for dark mode
-pub const DEFAULT_DARK_THEME: &str = include_str!("../assets/default_theme_dark.jsonc");
-/// bundled theme for light mode
-pub const DEFAULT_LIGHT_THEME: &str = include_str!("../assets/default_theme_light.jsonc");
-
 impl Theme {
-    fn bundled_json(dark: bool) -> &'static str {
-        if dark {
-            DEFAULT_DARK_THEME
-        } else {
-            DEFAULT_LIGHT_THEME
-        }
+    // colors of the bundled theme for dark or light mode, they live in the bundled settings
+    fn bundled_value(dark: bool) -> Value {
+        let name = if dark { "dark" } else { "light" };
+        bundled_settings()["theme"]["themes"][name].clone()
     }
 
     /// bundled dark or light theme
     pub fn bundled(dark: bool) -> Self {
-        serde_json_lenient::from_str(Self::bundled_json(dark)).expect("bundled theme is invalid")
+        serde_json_lenient::from_value(Self::bundled_value(dark)).expect("bundled theme is invalid")
     }
 
     /// parse theme, missing colors come from the bundled theme of the same mode
     pub fn parse(json: &str, dark: bool) -> serde_json_lenient::Result<Self> {
-        parse_over(Self::bundled_json(dark), json)
+        Self::from_value(serde_json_lenient::from_str(json)?, dark)
+    }
+
+    fn from_value(colors: Value, dark: bool) -> serde_json_lenient::Result<Self> {
+        let mut value = Self::bundled_value(dark);
+        merge(&mut value, colors);
+        serde_json_lenient::from_value(value)
     }
 
     // relative paths start from the folder with settings.jsonc
@@ -68,34 +68,80 @@ impl Theme {
             .unwrap_or_else(|| path.to_path_buf())
     }
 
+    // a name with a slash or a json extension is a file, anything else names a theme in `themes`
+    fn path_of(name: &str) -> Option<PathBuf> {
+        let path = Path::new(name);
+        let extension = path.extension().and_then(|extension| extension.to_str());
+        let file = name.contains('/') || matches!(extension, Some("json" | "jsonc"));
+        file.then(|| Self::resolve(path))
+    }
+
+    /// theme `name` from `settings.themes`, or from a file, the error tells what is wrong
+    pub fn named(settings: &ThemeSettings, name: &str, dark: bool) -> Result<Self, String> {
+        if let Some(path) = Self::path_of(name) {
+            return Self::read(&path, dark);
+        }
+        let colors = settings
+            .themes
+            .get(name)
+            .ok_or_else(|| format!("unknown theme {name:?}, add it to \"theme.themes\""))?;
+        Self::from_value(colors.clone(), dark)
+            .map_err(|error| format!("invalid theme {name:?}: {error}"))
+    }
+
     /// load dark or light theme set in settings, using the bundled one when not set or invalid
     pub fn load(settings: &ThemeSettings, dark: bool) -> Self {
-        // create both theme files up front, so the unused mode is ready to edit too
-        for (path, is_dark) in [(&settings.dark, true), (&settings.light, false)] {
-            if let Some(path) = path {
-                create_default_file(&Self::resolve(path), Self::bundled_json(is_dark));
-            }
-        }
-
-        let custom = if dark {
+        let name = if dark {
             &settings.dark
         } else {
             &settings.light
         };
-        let Some(path) = custom else {
+        let Some(name) = name else {
             return Self::bundled(dark);
         };
-        let path = Self::resolve(path);
-        match std::fs::read_to_string(&path) {
-            Ok(json) => Self::parse(&json, dark).unwrap_or_else(|error| {
-                eprintln!("invalid theme in {}: {error}", path.display());
-                Self::bundled(dark)
-            }),
-            Err(error) => {
-                eprintln!("failed to read theme {}: {error}", path.display());
-                Self::bundled(dark)
+        Self::named(settings, name, dark).unwrap_or_else(|error| {
+            eprintln!("{error}");
+            Self::bundled(dark)
+        })
+    }
+
+    /// read a theme file, the error tells what is wrong with it
+    pub fn read(path: &Path, dark: bool) -> Result<Self, String> {
+        let json = std::fs::read_to_string(path)
+            .map_err(|error| format!("failed to read theme {}: {error}", path.display()))?;
+        Self::parse(&json, dark)
+            .map_err(|error| format!("invalid theme in {}: {error}", path.display()))
+    }
+
+    /// theme files picked in settings and in profiles, watched for changes
+    pub fn files(settings: &Settings) -> Vec<PathBuf> {
+        let profiles = settings.profiles.iter().filter_map(|p| p.theme.as_ref());
+        let profiles = profiles.flat_map(|theme| [&theme.dark, &theme.light]);
+        [&settings.theme.dark, &settings.theme.light]
+            .into_iter()
+            .chain(profiles)
+            .filter_map(|name| Self::path_of(name.as_deref()?))
+            .collect()
+    }
+
+    /// make sure every theme of `settings` can be used, the named ones and the picked ones
+    pub fn check(settings: &Settings) -> Result<(), String> {
+        let theme = &settings.theme;
+        for (name, colors) in &theme.themes {
+            // both bundled themes have every color, so either one shows a bad value
+            Self::from_value(colors.clone(), true)
+                .map_err(|error| format!("invalid theme {name:?}: {error}"))?;
+        }
+        let profiles = settings.profiles.iter().filter_map(|p| p.theme.as_ref());
+        let picks = std::iter::once(theme.clone()).chain(profiles.map(|p| theme.with_profile(p)));
+        for pick in picks {
+            for (name, dark) in [(&pick.dark, true), (&pick.light, false)] {
+                if let Some(name) = name {
+                    Self::named(theme, name, dark)?;
+                }
             }
         }
+        Ok(())
     }
 
     /// set active theme from settings mode and system appearance
@@ -167,7 +213,6 @@ fn rgba_color(r: u8, g: u8, b: u8) -> Hsla {
 #[cfg(test)]
 mod tests {
     use gpui::Rgba;
-    use serde_json_lenient::Value;
 
     use super::*;
 
@@ -226,9 +271,7 @@ mod tests {
     }
 
     #[test]
-    fn bundled_themes_are_commented_and_parse() {
-        assert!(DEFAULT_DARK_THEME.contains("//"));
-        assert!(DEFAULT_LIGHT_THEME.contains("//"));
+    fn bundled_themes_parse() {
         assert_eq!(Theme::default(), Theme::bundled(true));
         assert_ne!(Theme::bundled(true), Theme::bundled(false));
         for dark in [true, false] {
@@ -274,61 +317,109 @@ mod tests {
         }
     }
 
+    fn theme_settings(json: &str) -> ThemeSettings {
+        Settings::parse(&format!(r#"{{"theme": {json}}}"#))
+            .unwrap()
+            .theme
+    }
+
     #[test]
-    fn load_reads_custom_theme_files() {
+    fn load_picks_named_themes_and_theme_files() {
         use crate::settings::tests::{temp_dir, with_config_home};
 
-        let settings = |dark: Option<&Path>, light: Option<&Path>| ThemeSettings {
-            mode: ThemeMode::System,
-            dark: dark.map(PathBuf::from),
-            light: light.map(PathBuf::from),
-        };
         let dir = temp_dir("theme_load");
         let config = dir.join("kuterm");
         std::fs::create_dir_all(config.join("themes")).unwrap();
         with_config_home(&dir, || {
-            let none = settings(None, None);
+            let none = theme_settings(r#"{"dark": null, "light": null}"#);
             assert_eq!(Theme::load(&none, true), Theme::bundled(true));
             assert_eq!(Theme::load(&none, false), Theme::bundled(false));
 
+            // a named theme fills missing colors from the bundled theme of the mode it is used for
+            let named = theme_settings(
+                r##"{"dark": "red", "light": "red", "themes": {"red": {"border": "#010203"}}}"##,
+            );
+            for dark in [true, false] {
+                let mut expected = Theme::bundled(dark);
+                expected.border = rgb(0x010203).into();
+                assert_eq!(Theme::load(&named, dark), expected);
+            }
+
             // relative paths start from the config folder
             std::fs::write(
-                config.join("themes/dark.jsonc"),
-                r##"{"border": "#010203"}"##,
+                config.join("themes/mine.jsonc"),
+                r##"{"border": "#040506"}"##,
             )
             .unwrap();
-            let custom = settings(Some(Path::new("themes/dark.jsonc")), None);
-            let mut expected = Theme::bundled(true);
-            expected.border = rgb(0x010203).into();
-            assert_eq!(Theme::load(&custom, true), expected);
-            assert_eq!(Theme::load(&custom, false), Theme::bundled(false));
+            let file = theme_settings(r#"{"dark": "themes/mine.jsonc"}"#);
+            assert_eq!(Theme::load(&file, true).border, rgb(0x040506).into());
 
-            // absolute paths are used as is
+            // absolute paths are used as is, a json extension alone makes it a file too
             let abs = dir.join("abs.jsonc");
             std::fs::write(&abs, r##"{"text": "#0a0b0c"}"##).unwrap();
-            let custom = settings(None, Some(&abs));
-            assert_eq!(Theme::load(&custom, false).text, rgb(0x0a0b0c).into());
+            let file = theme_settings(&format!(r#"{{"light": {:?}}}"#, abs.display().to_string()));
+            assert_eq!(Theme::load(&file, false).text, rgb(0x0a0b0c).into());
+            std::fs::write(config.join("plain.json"), r##"{"text": "#0d0e0f"}"##).unwrap();
+            let file = theme_settings(r#"{"light": "plain.json"}"#);
+            assert_eq!(Theme::load(&file, false).text, rgb(0x0d0e0f).into());
 
-            // missing files are created from the bundled theme of their mode
-            let custom = settings(
-                Some(Path::new("new_dark.jsonc")),
-                Some(Path::new("new_light.jsonc")),
+            // unknown names, missing files and broken ones fall back to bundled, nothing is created
+            let broken = theme_settings(
+                r#"{"dark": "nope", "light": "gone.jsonc", "themes": {"bad": {"cursor": 1}}}"#,
             );
-            assert_eq!(Theme::load(&custom, true), Theme::bundled(true));
-            let dark = std::fs::read_to_string(config.join("new_dark.jsonc")).unwrap();
-            let light = std::fs::read_to_string(config.join("new_light.jsonc")).unwrap();
-            assert_eq!(dark, DEFAULT_DARK_THEME);
-            assert_eq!(light, DEFAULT_LIGHT_THEME);
+            assert_eq!(Theme::load(&broken, true), Theme::bundled(true));
+            assert_eq!(Theme::load(&broken, false), Theme::bundled(false));
+            assert!(!config.join("gone.jsonc").exists());
+            let broken = theme_settings(r#"{"dark": "bad", "themes": {"bad": {"cursor": 1}}}"#);
+            assert_eq!(Theme::load(&broken, true), Theme::bundled(true));
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
-            // invalid files and directories fall back to bundled, files untouched
-            std::fs::write(config.join("broken.jsonc"), "{ broken").unwrap();
-            let custom = settings(Some(Path::new("broken.jsonc")), Some(Path::new("themes")));
-            assert_eq!(Theme::load(&custom, true), Theme::bundled(true));
-            assert_eq!(Theme::load(&custom, false), Theme::bundled(false));
+    #[test]
+    fn check_finds_bad_themes_of_settings_and_profiles() {
+        use crate::settings::tests::{temp_dir, with_config_home};
+
+        let dir = temp_dir("theme_check");
+        let config = dir.join("kuterm");
+        std::fs::create_dir_all(&config).unwrap();
+        with_config_home(&dir, || {
+            let parse = |theme: &str, profile_light: &str| {
+                Settings::parse(&format!(
+                    r#"{{
+                        "theme": {theme},
+                        "profiles": [{{"name": "p", "command": "system",
+                                      "theme": {{"mode": "light", "light": {profile_light:?}}}}}],
+                    }}"#
+                ))
+                .unwrap()
+            };
+            let settings = parse(r#"{"dark": "d.jsonc", "light": null}"#, "p.jsonc");
             assert_eq!(
-                std::fs::read_to_string(config.join("broken.jsonc")).unwrap(),
-                "{ broken"
+                Theme::files(&settings),
+                [config.join("d.jsonc"), config.join("p.jsonc")]
             );
+            // missing files are errors naming them
+            let error = Theme::check(&settings).unwrap_err();
+            assert!(error.contains("d.jsonc"), "{error}");
+            std::fs::write(config.join("d.jsonc"), "{}").unwrap();
+            std::fs::write(config.join("p.jsonc"), r#"{"cursor": "nope"}"#).unwrap();
+            let error = Theme::check(&settings).unwrap_err();
+            assert!(error.contains("p.jsonc"), "{error}");
+            std::fs::write(config.join("p.jsonc"), "{}").unwrap();
+            assert_eq!(Theme::check(&settings), Ok(()));
+
+            // names given in profiles come from the themes block
+            let settings = parse(r#"{"themes": {"x": {}}}"#, "x");
+            assert_eq!(Theme::check(&settings), Ok(()));
+            assert!(Theme::files(&settings).is_empty());
+            let error = Theme::check(&parse("{}", "x")).unwrap_err();
+            assert!(error.contains("unknown theme \"x\""), "{error}");
+
+            // a broken theme is found even when nothing uses it
+            let settings = parse(r#"{"themes": {"unused": {"cursor": 1}}}"#, "light");
+            let error = Theme::check(&settings).unwrap_err();
+            assert!(error.contains("unused"), "{error}");
         });
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -338,7 +429,7 @@ mod tests {
         // color replies (osc 4/10/11/12) round the theme hsla back to 8 bit rgb, which must
         // give the exact hex from the theme file
         for dark in [true, false] {
-            let value: Value = serde_json_lenient::from_str(Theme::bundled_json(dark)).unwrap();
+            let value = Theme::bundled_value(dark);
             let theme = Theme::bundled(dark);
             let c = |v: f32| (v * 255.).round() as u8;
             let hex = |h: Hsla| {
@@ -379,14 +470,14 @@ mod close_dialog_theme {
 
     use gpui::rgb;
 
-    use crate::theme::{DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, Theme};
+    use crate::theme::Theme;
 
     const KEYS: [&str; 2] = ["danger_button", "danger_button_text"];
 
     #[test]
     fn both_bundled_themes_define_danger_colors() {
-        for (name, json) in [("dark", DEFAULT_DARK_THEME), ("light", DEFAULT_LIGHT_THEME)] {
-            let raw: serde_json_lenient::Value = serde_json_lenient::from_str(json).unwrap();
+        for (name, dark) in [("dark", true), ("light", false)] {
+            let raw = Theme::bundled_value(dark);
             for key in KEYS {
                 assert!(raw[key].is_string(), "{name} theme misses {key}");
             }
@@ -395,8 +486,8 @@ mod close_dialog_theme {
 
     #[test]
     fn bundled_danger_colors_parse_into_theme() {
-        for (dark, json) in [(true, DEFAULT_DARK_THEME), (false, DEFAULT_LIGHT_THEME)] {
-            let raw: serde_json_lenient::Value = serde_json_lenient::from_str(json).unwrap();
+        for dark in [true, false] {
+            let raw = Theme::bundled_value(dark);
             let theme = Theme::bundled(dark);
             for (key, got) in [
                 ("danger_button", theme.danger_button),

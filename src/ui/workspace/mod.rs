@@ -10,7 +10,7 @@ mod tab_title;
 use std::{
     path::PathBuf,
     sync::Arc,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 use futures::{
@@ -29,7 +29,7 @@ use tab_title::TitleInputs;
 use crate::{
     cli::Cli,
     settings::{
-        Command, CommandAction, Commands, Keybindings, Pins, Profile, Settings, TabIconSettings,
+        Command, CommandAction, Commands, Config, ConfigFiles, Profile, Settings, TabIconSettings,
         TabIcons, TabTitleBlock,
     },
     terminal::{Event, Terminal, TerminalBuilder, foreground_process},
@@ -80,6 +80,11 @@ const QUIT_DIALOG_MAX_NAMES: usize = 3;
 // a fresh shell prints startup output before its prompt, so typed input waits for a short
 // quiet gap. writing sooner lets the tty echo the input before the shell reads it
 const SHELL_READY_SETTLE: Duration = Duration::from_millis(50);
+// how often config files are checked for changes, polling needs no watcher per platform
+// and sees files outside the config folder and editors that replace files on save
+const CONFIG_POLL: Duration = Duration::from_millis(250);
+// editors save in steps, like truncate then write, so a change is read once it settles
+const CONFIG_SETTLE: Duration = Duration::from_millis(100);
 
 // tab title blocks, window title blocks, icon settings, program icons, active tab, per tab inputs
 type TitleSnapshot = (
@@ -328,8 +333,21 @@ pub struct Workspace {
     /// true asks for titles right away, false lets output driven refreshes wait for the gap
     refresh_titles: UnboundedSender<bool>,
     _title_task: Task<()>,
+    /// reloads the config when one of its files changes
+    _config_watch: Task<()>,
     /// set once quitting is decided, so closing the window asks nothing more
     quitting: bool,
+}
+
+// modified time and size of each file, none for missing ones
+fn file_stamps(paths: &[PathBuf]) -> Vec<Option<(SystemTime, u64)>> {
+    paths
+        .iter()
+        .map(|path| {
+            let meta = std::fs::metadata(path).ok()?;
+            Some((meta.modified().ok()?, meta.len()))
+        })
+        .collect()
 }
 
 impl Workspace {
@@ -414,6 +432,32 @@ impl Workspace {
                 while refresh_rx.try_recv().is_ok() {}
             }
         });
+        let config_watch = cx.spawn_in(window, async move |this, cx| {
+            let mut last = None;
+            loop {
+                let Ok(paths) = this.update(cx, |this, cx| this.watched_files(cx)) else {
+                    break;
+                };
+                // file stats may block on network folders
+                let stamps = cx
+                    .background_executor()
+                    .spawn(async move { (file_stamps(&paths), paths) })
+                    .await;
+                if last.as_ref().is_some_and(|last| *last != stamps) {
+                    cx.background_executor().timer(CONFIG_SETTLE).await;
+                    let Ok(()) =
+                        this.update_in(cx, |this, window, cx| this.reload_config(window, cx))
+                    else {
+                        break;
+                    };
+                    // the reload may watch other files, so stamps start over
+                    last = None;
+                    continue;
+                }
+                last = Some(stamps);
+                cx.background_executor().timer(CONFIG_POLL).await;
+            }
+        });
         let mut this = Self {
             layout: LayoutNode::Leaf(Pane {
                 id: 0,
@@ -435,6 +479,7 @@ impl Workspace {
             next_notification_id: 0,
             refresh_titles,
             _title_task: title_task,
+            _config_watch: config_watch,
             quitting: false,
         };
         // the window manager's close button goes through here, false keeps the window open
@@ -449,6 +494,12 @@ impl Workspace {
         })
         .detach();
         this.add_tab(window, cx);
+        // config problems from launch, printed before any window could show them
+        if cx.has_global::<ConfigFiles>() {
+            for problem in std::mem::take(&mut cx.global_mut::<ConfigFiles>().problems) {
+                this.show_error(problem, cx);
+            }
+        }
         this
     }
 
@@ -530,7 +581,7 @@ impl Workspace {
         };
         let terminal = cx.new(|cx| {
             let mut terminal = builder.subscribe(cx);
-            terminal.apply_theme(window.appearance());
+            terminal.apply_theme(window.appearance(), &Settings::get(cx).theme);
             terminal
         });
         let view = cx.new(|cx| TerminalView::new(terminal.clone(), window, cx));
@@ -1075,37 +1126,66 @@ impl Workspace {
         Theme::apply(window.appearance(), cx);
         for tab in self.layout.panes().into_iter().flat_map(|pane| &pane.tabs) {
             let terminal = tab.view.read(cx).terminal().clone();
-            terminal.update(cx, |terminal, _| terminal.apply_theme(window.appearance()));
+            terminal.update(cx, |terminal, cx| {
+                terminal.apply_theme(window.appearance(), &Settings::get(cx).theme)
+            });
         }
         // terminal views may be cached, force redraw everything with new colors
         window.refresh();
     }
 
-    fn reload_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let mut settings = Settings::load();
-        Cli::get().apply(&mut settings);
-        settings.use_installed_fonts(&cx.text_system().all_font_names());
-        cx.set_global(settings);
-        // theme mode and theme files are picked in settings
-        self.reload_themes(window, cx);
-        self.refresh_titles();
+    /// config files and theme files in use, empty when the config was not loaded from files
+    fn watched_files(&self, cx: &App) -> Vec<PathBuf> {
+        let Some(files) = cx.try_global::<ConfigFiles>() else {
+            return Vec::new();
+        };
+        let themes = Theme::files(Settings::get(cx));
+        files.paths.iter().cloned().chain(themes).collect()
     }
 
-    fn reload_keybindings(&mut self, cx: &mut Context<Self>) {
+    /// read the config and theme files again and apply them, a broken file keeps the
+    /// running config and shows what is wrong
+    fn reload_config(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let load = Config::load();
+        // errors from an earlier try are fixed or shown again below
+        self.notifications
+            .retain(|notification| !notification.error);
+        for warning in load.warnings {
+            eprintln!("{warning}");
+            self.show_error(warning, cx);
+        }
+        cx.set_global(ConfigFiles {
+            paths: load.files,
+            problems: Vec::new(),
+        });
+        let checked = load.config.and_then(|mut config| {
+            Cli::get().apply(&mut config.settings);
+            Theme::check(&config.settings)?;
+            Ok(config)
+        });
+        let config = match checked {
+            Ok(config) => config,
+            Err(error) => {
+                eprintln!("{error}");
+                self.show_error(format!("{error}, keeping the last good config"), cx);
+                return;
+            }
+        };
+        let mut settings = config.settings;
+        settings.use_installed_fonts(&cx.text_system().all_font_names());
+        cx.set_global(settings);
+        cx.set_global(config.tab_icons);
+        cx.set_global(config.commands);
         cx.clear_key_bindings();
-        cx.bind_keys(Keybindings::load().bindings());
+        cx.bind_keys(config.keybindings.bindings());
         // text fields keep their editing keys, they are not part of the user keybindings
         cx.bind_keys(crate::ui::text_input::bindings());
         // menus show the keys bound to their actions, so they are rebuilt with the new keys
         cx.set_menus(app_menus());
-    }
-
-    fn reload_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        cx.set_global(TabIcons::load());
-        cx.set_global(Commands::load());
-        cx.set_global(Pins::load());
-        self.reload_keybindings(cx);
-        self.reload_settings(window, cx);
+        // theme mode and theme files are picked in settings
+        self.reload_themes(window, cx);
+        self.refresh_titles();
+        self.show_notification("config reloaded", None, cx);
     }
 
     /// run command actions in order against the active tab, or the last background tab
@@ -1123,22 +1203,7 @@ impl Workspace {
                 .unwrap_or_else(|| (self.focused, self.focused_pane().active));
             match action {
                 CommandAction::About => self.open_about(&OpenAbout, window, cx),
-                CommandAction::ReloadSettings => {
-                    self.reload_settings(window, cx);
-                    self.show_notification("settings reloaded", None, cx);
-                }
-                CommandAction::ReloadThemes => {
-                    self.reload_themes(window, cx);
-                    self.show_notification("themes reloaded", None, cx);
-                }
-                CommandAction::ReloadKeybindings => {
-                    self.reload_keybindings(cx);
-                    self.show_notification("keybindings reloaded", None, cx);
-                }
-                CommandAction::ReloadAll => {
-                    self.reload_all(window, cx);
-                    self.show_notification("all configs reloaded", None, cx);
-                }
+                CommandAction::ReloadConfig => self.reload_config(window, cx),
                 CommandAction::NewTab => {
                     self.add_tab(window, cx);
                     target = None;
@@ -1603,7 +1668,10 @@ mod tests {
     };
 
     use super::*;
-    use crate::{settings::Keybindings, terminal::Terminal};
+    use crate::{
+        settings::{Keybindings, Pins},
+        terminal::Terminal,
+    };
 
     /// open a workspace with `tabs` tabs and user keybindings `keys`, the last tab is active
     fn open_with<'a>(
@@ -3031,82 +3099,179 @@ mod tests {
         assert_eq!(current(&ws, cx), 0);
     }
 
+    fn error_texts(ws: &Entity<Workspace>, cx: &mut VisualTestContext) -> Vec<String> {
+        ws.read_with(cx, |ws, _| {
+            ws.notifications
+                .iter()
+                .filter(|notification| notification.error)
+                .map(|notification| notification.text.clone())
+                .collect()
+        })
+    }
+
     #[gpui::test]
-    fn reload_commands_read_config_files(cx: &mut TestAppContext) {
+    fn reload_config_applies_every_section_and_keeps_the_last_good_one(cx: &mut TestAppContext) {
         let dir = crate::settings::tests::temp_dir("workspace_reload");
+        let config = dir.join("kuterm");
+        std::fs::create_dir_all(config.join("themes")).unwrap();
+        crate::settings::tests::with_config_home(&dir, || {
+            let (ws, cx) = open(cx, 1);
+            let reload = |cx: &mut VisualTestContext| {
+                ws.update_in(cx, |ws, window, cx| ws.reload_config(window, cx));
+                cx.run_until_parked();
+            };
+            let write = |name: &str, json: &str| std::fs::write(config.join(name), json).unwrap();
+            let border = |cx: &mut VisualTestContext| cx.update(|_, cx| Theme::get(cx).border);
+            let palette_enabled = |cx: &mut VisualTestContext| {
+                cx.update(|_, cx| Settings::get(cx).command_palette.enable)
+            };
+
+            write(
+                "settings.jsonc",
+                r#"{
+                    "keybindings": {"command_palette": "ctrl-shift-k"},
+                    "commands": [{"name": "only", "actions": ["new_tab"]}],
+                    "theme": {"mode": "dark", "dark": "themes/mine.jsonc"},
+                }"#,
+            );
+            write("themes/mine.jsonc", r##"{"border": "#010203"}"##);
+            reload(cx);
+            assert_eq!(border(cx), gpui::rgb(0x010203).into());
+            type_keys(cx, "ctrl-shift-p");
+            assert!(!palette_open(&ws, cx));
+            type_keys(cx, "ctrl-shift-k");
+            assert_eq!(palette_names(&ws, cx), ["only"]);
+            type_keys(cx, "escape");
+
+            // theme files are read again too
+            write("themes/mine.jsonc", r##"{"border": "#040506"}"##);
+            reload(cx);
+            assert_eq!(border(cx), gpui::rgb(0x040506).into());
+            assert!(error_texts(&ws, cx).is_empty());
+
+            // a broken settings file keeps everything as it was and tells what is wrong
+            write(
+                "settings.jsonc",
+                r#"{"command_palette": {"enable": false}, "tab_width": "wide"}"#,
+            );
+            reload(cx);
+            assert!(palette_enabled(cx));
+            assert_eq!(border(cx), gpui::rgb(0x040506).into());
+            let errors = error_texts(&ws, cx);
+            assert_eq!(errors.len(), 1, "{errors:?}");
+            assert!(errors[0].contains("settings.jsonc"), "{errors:?}");
+            assert!(errors[0].contains("wide"), "{errors:?}");
+
+            // so does a broken theme file, the old error is replaced
+            write(
+                "settings.jsonc",
+                r#"{"command_palette": {"enable": false},
+                    "theme": {"mode": "dark", "dark": "themes/mine.jsonc"}}"#,
+            );
+            write("themes/mine.jsonc", r#"{"border": "nope"}"#);
+            reload(cx);
+            assert!(palette_enabled(cx));
+            let errors = error_texts(&ws, cx);
+            assert_eq!(errors.len(), 1, "{errors:?}");
+            assert!(errors[0].contains("mine.jsonc"), "{errors:?}");
+
+            // fixed files apply and clear the error
+            write("themes/mine.jsonc", r##"{"border": "#070809"}"##);
+            reload(cx);
+            assert!(!palette_enabled(cx));
+            assert_eq!(border(cx), gpui::rgb(0x070809).into());
+            assert!(error_texts(&ws, cx).is_empty());
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[gpui::test]
+    fn reload_config_action_reloads(cx: &mut TestAppContext) {
+        let dir = crate::settings::tests::temp_dir("workspace_reload_action");
         let config = dir.join("kuterm");
         std::fs::create_dir_all(&config).unwrap();
         crate::settings::tests::with_config_home(&dir, || {
             let (ws, cx) = open(cx, 1);
-            let run = |cx: &mut VisualTestContext, action: &str| {
+            for (width, action) in [(101, "reload_config"), (102, "reload_config")] {
+                std::fs::write(
+                    config.join("settings.jsonc"),
+                    format!(r#"{{"tab_width": {width}}}"#),
+                )
+                .unwrap();
                 let json = format!(r#"{{"commands": [{{"name": "x", "actions": ["{action}"]}}]}}"#);
                 let command = Commands::parse(&json).unwrap().commands.remove(0);
                 ws.update_in(cx, |ws, window, cx| ws.run_command(&command, window, cx));
                 cx.run_until_parked();
-            };
-
-            std::fs::write(
-                config.join("keybindings.jsonc"),
-                r#"{"command_palette": "ctrl-shift-k"}"#,
-            )
-            .unwrap();
-            run(cx, "reload_keybindings");
-            type_keys(cx, "ctrl-shift-p");
-            assert!(!palette_open(&ws, cx));
-            type_keys(cx, "ctrl-shift-k");
-            assert!(palette_open(&ws, cx));
-            type_keys(cx, "escape");
-
-            std::fs::write(
-                config.join("settings.jsonc"),
-                r#"{"command_palette": {"enable": false}, "theme": {"mode": "light", "light": null}}"#,
-            )
-            .unwrap();
-            run(cx, "reload_settings");
-            assert!(!cx.update(|_, cx| Settings::get(cx).command_palette.enable));
-            assert_eq!(
-                cx.update(|_, cx| Theme::get(cx).clone()),
-                Theme::bundled(false)
-            );
-            type_keys(cx, "ctrl-shift-k");
-            assert!(!palette_open(&ws, cx));
-
-            std::fs::write(
-                config.join("settings.jsonc"),
-                r#"{"theme": {"mode": "dark", "dark": "themes/mine.jsonc"}}"#,
-            )
-            .unwrap();
-            std::fs::create_dir_all(config.join("themes")).unwrap();
-            std::fs::write(
-                config.join("themes/mine.jsonc"),
-                r##"{"border": "#010203"}"##,
-            )
-            .unwrap();
-            run(cx, "reload_settings");
-            let border = cx.update(|_, cx| Theme::get(cx).border);
-            assert_eq!(border, gpui::rgb(0x010203).into());
-            std::fs::write(
-                config.join("themes/mine.jsonc"),
-                r##"{"border": "#040506"}"##,
-            )
-            .unwrap();
-            run(cx, "reload_themes");
-            let border = cx.update(|_, cx| Theme::get(cx).border);
-            assert_eq!(border, gpui::rgb(0x040506).into());
-
-            std::fs::write(config.join("settings.jsonc"), "{}").unwrap();
-            std::fs::write(config.join("keybindings.jsonc"), "{}").unwrap();
-            std::fs::write(
-                config.join("commands.jsonc"),
-                r#"{"commands": [{"name": "only", "actions": ["new_tab"]}]}"#,
-            )
-            .unwrap();
-            run(cx, "reload_all");
-            assert!(cx.update(|_, cx| Settings::get(cx).command_palette.enable));
-            type_keys(cx, "ctrl-shift-p");
-            assert_eq!(palette_names(&ws, cx), ["only"]);
+                assert_eq!(
+                    cx.update(|_, cx| Settings::get(cx).tab_width),
+                    width,
+                    "{action}"
+                );
+            }
         });
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[gpui::test]
+    fn saved_config_files_are_reloaded(cx: &mut TestAppContext) {
+        let dir = crate::settings::tests::temp_dir("workspace_watch");
+        let config = dir.join("kuterm");
+        std::fs::create_dir_all(&config).unwrap();
+        crate::settings::tests::with_config_home(&dir, || {
+            let (ws, cx) = open(cx, 1);
+            let tick = |cx: &mut VisualTestContext| {
+                // a poll sees the change, then it settles, then it is read
+                for _ in 0..3 {
+                    cx.executor().advance_clock(CONFIG_POLL);
+                    cx.run_until_parked();
+                }
+            };
+            let tab_width =
+                |cx: &mut VisualTestContext| cx.update(|_, cx| Settings::get(cx).tab_width);
+            let settings = config.join("settings.jsonc");
+            std::fs::write(&settings, r#"{"tab_width": 123}"#).unwrap();
+            // nothing is watched until the config came from files
+            tick(cx);
+            assert_ne!(tab_width(cx), 123);
+
+            cx.update(|_, cx| {
+                cx.set_global(ConfigFiles {
+                    paths: vec![settings.clone()],
+                    problems: Vec::new(),
+                })
+            });
+            tick(cx);
+            assert_eq!(tab_width(cx), 123);
+
+            std::fs::write(&settings, r#"{"tab_width": 1234}"#).unwrap();
+            tick(cx);
+            assert_eq!(tab_width(cx), 1234);
+
+            // an import that shows up later is noticed, it is watched while missing
+            std::fs::write(&settings, r#"{"import": ["later.jsonc"], "tab_width": 77}"#).unwrap();
+            tick(cx);
+            assert_eq!(tab_width(cx), 77);
+            assert_eq!(error_texts(&ws, cx).len(), 1);
+            std::fs::write(config.join("later.jsonc"), r#"{"ui_font_size": 13}"#).unwrap();
+            tick(cx);
+            assert_eq!(cx.update(|_, cx| Settings::get(cx).ui_font_size), 13.);
+            assert!(error_texts(&ws, cx).is_empty());
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[gpui::test]
+    fn launch_problems_are_shown_in_the_window(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            cx.set_global(ConfigFiles {
+                paths: Vec::new(),
+                problems: vec!["invalid settings in x.jsonc".into()],
+            })
+        });
+        let (ws, cx) = open(cx, 1);
+        assert_eq!(error_texts(&ws, cx), ["invalid settings in x.jsonc"]);
+        // shown once, not again for a later window
+        assert!(cx.update(|_, cx| cx.global::<ConfigFiles>().problems.is_empty()));
     }
 
     fn recent_test_commands(cx: &mut VisualTestContext) {
@@ -3331,12 +3496,17 @@ mod tests {
 
     #[gpui::test]
     fn palette_actions_report_in_notifications(cx: &mut TestAppContext) {
-        let (ws, cx) = open(cx, 1);
-        run_actions(&ws, cx, r#""reload_keybindings", "copy""#);
-        assert_eq!(
-            notifications(&ws, cx),
-            ["keybindings reloaded", "nothing selected to copy"]
-        );
+        let dir = crate::settings::tests::temp_dir("workspace_report");
+        // reloading reads the config folder, so it is a temp one
+        crate::settings::tests::with_config_home(&dir, || {
+            let (ws, cx) = open(cx, 1);
+            run_actions(&ws, cx, r#""reload_config", "copy""#);
+            assert_eq!(
+                notifications(&ws, cx),
+                ["config reloaded", "nothing selected to copy"]
+            );
+        });
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[gpui::test]

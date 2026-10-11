@@ -117,7 +117,7 @@ def test_tab_title_blocks_are_drawn(app_factory):
     """tab_title blocks are drawn in the tab, separate from the window title"""
     theme = unique_theme(0x70)
     colors = as_rgb(theme)
-    app = titled(app_factory, [{"text": "window"}], files={"themes/dark.jsonc": theme},
+    app = titled(app_factory, [{"text": "window"}], themes={"dark": theme},
                  settings={"hide_bar_for_one_tab": False, "tab_icon": {"dynamic": False, "default": ""},
                            "tab_title": [{"text": "WWWWWWWWWW"}]})
     app.wait_title("window")

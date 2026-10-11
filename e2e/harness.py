@@ -62,7 +62,7 @@ def as_rgb(theme: dict) -> dict:
 
 
 def bundled_theme(dark: bool) -> dict:
-    return as_rgb(jsonc(ASSETS / ("default_theme_dark.jsonc" if dark else "default_theme_light.jsonc")))
+    return as_rgb(bundled_settings()["theme"]["themes"]["dark" if dark else "light"])
 
 
 def bundled_settings() -> dict:
@@ -327,8 +327,9 @@ class App:
     settings: dict written as settings.jsonc (the app merges it over defaults), or a raw string.
     script: sh script run by the default profile, it ends with a long sleep so tabs stay open.
     without script and without profiles in settings, an interactive bash --norc with PS1="$ " runs.
-    commands, keybindings, tab_icons: dicts or raw strings written to their config files.
-    files: extra files inside the config folder, like {"themes/dark.jsonc": {...}}.
+    commands, keybindings, tab_icons: dicts put into their sections of settings, commands as {"commands": [...]}.
+    themes: theme colors by name, put into "theme" -> "themes" of settings, like {"dark": {...}}.
+    files: extra files inside the config folder, like {"local.jsonc": {...}}.
     args: command line options.
     on_shot: called with (app, caption, png path) for every screenshot taken for the report.
     """
@@ -341,6 +342,7 @@ class App:
         keybindings=None,
         commands=None,
         tab_icons=None,
+        themes: dict | None = None,
         files: dict | None = None,
         args: list | None = None,
         env: dict | None = None,
@@ -373,12 +375,16 @@ class App:
                 script_path.write_text(SCRIPT_PREAMBLE + script + "\nexec sleep 100000\n")
                 command = {"with_arguments": {"program": "/bin/sh", "args": [str(script_path)]}}
             self.settings["profiles"] = [{"name": "test", "command": command}]
+        if themes and isinstance(self.settings, dict):
+            # a copy, callers often share one settings dict between tests
+            self.settings["theme"] = {**self.settings.get("theme", {}), "themes": themes}
+        for name, content in (("keybindings", keybindings), ("commands", commands), ("tab_icons", tab_icons)):
+            if content is not None:
+                self.settings[name] = content["commands"] if name == "commands" else content
         if self.settings is not None:
             self.write("settings.jsonc", self.settings)
-        for rel, content in (("keybindings.jsonc", keybindings), ("commands.jsonc", commands),
-                             ("tab_icons.jsonc", tab_icons), *(files or {}).items()):
-            if content is not None:
-                self.write(rel, content)
+        for rel, content in (files or {}).items():
+            self.write(rel, content)
         if start:
             self.start()
 

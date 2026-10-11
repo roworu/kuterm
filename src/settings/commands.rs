@@ -1,24 +1,18 @@
-//! command palette commands, read from a jsonc file next to settings
-
-use std::path::PathBuf;
+//! command palette commands, the "commands" section of settings
 
 use gpui::{App, Global};
 use serde::Deserialize;
+use serde_json_lenient::Value;
 
-use super::{config_dir, load_file, parse_over};
-
-/// commented commands file written on first launch
-pub const DEFAULT_COMMANDS: &str = include_str!("../../assets/default_commands.jsonc");
+use super::config;
 
 /// one step of a command
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum CommandAction {
     About,
-    ReloadSettings,
-    ReloadThemes,
-    ReloadKeybindings,
-    ReloadAll,
+    /// read settings, the files they import and theme files again
+    ReloadConfig,
     NewTab,
     /// open a tab with the profile of this name
     NewTabWithProfile(String),
@@ -116,19 +110,14 @@ impl Default for Commands {
 impl Global for Commands {}
 
 impl Commands {
-    /// `commands.jsonc` in the config dir
-    pub fn path() -> Option<PathBuf> {
-        Some(config_dir()?.join("commands.jsonc"))
-    }
-
-    /// parse commands over the bundled ones, a user list replaces the bundled one whole
+    /// parse settings with a "commands" section, a user list replaces the bundled one whole
     pub fn parse(json: &str) -> serde_json_lenient::Result<Self> {
-        parse_over(DEFAULT_COMMANDS, json)
+        Self::from_full(&config::combine(serde_json_lenient::from_str(json)?))
     }
 
-    /// load commands from their file, using defaults when it is missing or invalid
-    pub fn load() -> Self {
-        load_file(Self::path(), DEFAULT_COMMANDS, "commands", Self::parse)
+    /// commands from settings already merged over the bundled ones
+    pub fn from_full(full: &Value) -> serde_json_lenient::Result<Self> {
+        Self::deserialize(full)
     }
 
     /// commands loaded at startup or on the last reload
@@ -140,13 +129,12 @@ impl Commands {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::settings::tests::{temp_dir, with_config_home};
+    use crate::settings::DEFAULT_SETTINGS;
 
     #[test]
-    fn bundled_commands_are_commented_and_parse() {
-        assert!(DEFAULT_COMMANDS.contains("//"));
+    fn bundled_commands_parse() {
         assert_eq!(
-            Commands::parse(DEFAULT_COMMANDS).unwrap(),
+            Commands::parse(DEFAULT_SETTINGS).unwrap(),
             Commands::default()
         );
         assert!(!Commands::default().commands.is_empty());
@@ -156,8 +144,7 @@ mod tests {
     fn parses_every_action() {
         let commands = Commands::parse(
             r#"{"commands": [{"name": "all", "actions": [
-                "about", "reload_settings", "reload_themes", "reload_keybindings",
-                "reload_all", "new_tab", {"new_tab_with_profile": "dev"},
+                "about", "reload_config", "new_tab", {"new_tab_with_profile": "dev"},
                 "new_background_tab", {"new_background_tab_with_profile": "dev"}, "close_tab",
                 "close_tabs_to_right", "close_tabs_to_left",
                 "split_left", "split_right", "split_up", "split_down",
@@ -177,10 +164,7 @@ mod tests {
                 pinned: false,
                 actions: vec![
                     CommandAction::About,
-                    CommandAction::ReloadSettings,
-                    CommandAction::ReloadThemes,
-                    CommandAction::ReloadKeybindings,
-                    CommandAction::ReloadAll,
+                    CommandAction::ReloadConfig,
                     CommandAction::NewTab,
                     CommandAction::NewTabWithProfile("dev".into()),
                     CommandAction::NewBackgroundTab,
@@ -262,24 +246,5 @@ mod tests {
         ] {
             assert!(Commands::parse(json).is_err(), "{json} should be invalid");
         }
-    }
-
-    #[test]
-    fn load_creates_keeps_and_falls_back() {
-        let dir = temp_dir("commands_load");
-        with_config_home(&dir, || {
-            let path = Commands::path().unwrap();
-            assert_eq!(path, dir.join("kuterm/commands.jsonc"));
-            assert_eq!(Commands::load(), Commands::default());
-            assert_eq!(std::fs::read_to_string(&path).unwrap(), DEFAULT_COMMANDS);
-
-            let json = r#"{"commands": [{"name": "only", "actions": ["new_tab"]}]}"#;
-            std::fs::write(&path, json).unwrap();
-            assert_eq!(Commands::load().commands.len(), 1);
-
-            std::fs::write(&path, "{ broken").unwrap();
-            assert_eq!(Commands::load(), Commands::default());
-        });
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }
