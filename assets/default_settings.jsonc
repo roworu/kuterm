@@ -111,6 +111,8 @@
     // macos only: option key works as meta, so option-b sends esc b like alt-b does on linux.
     // false keeps option typing special characters like ∫
     "option_as_meta": false,
+    // copy selected text into the clipboard as soon as the mouse button is released
+    "select_to_copy": false,
     "scrollbar": {
       // when to show it:
       //   "on"      - always

@@ -385,6 +385,9 @@ impl TerminalView {
 
     /// finish the drag, the selection stays until the next click or input
     pub fn mouse_up(&mut self, event: &MouseUpEvent, cx: &mut Context<Self>) {
+        if self.selecting && Settings::get(cx).terminal.select_to_copy {
+            self.copy_selection(cx);
+        }
         let was_local = self.selecting || self.dragging_scrollbar;
         self.selecting = false;
         self.dragging_scrollbar = false;
@@ -400,6 +403,10 @@ impl TerminalView {
     }
 
     fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
+        self.copy_selection(cx);
+    }
+
+    fn copy_selection(&mut self, cx: &mut Context<Self>) {
         if let Some(text) = self.terminal.read(cx).selection_text() {
             cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
             cx.emit(ClipboardEvent::Copied(text));
@@ -601,6 +608,51 @@ mod tests {
             cx.update(|_, cx| Settings::get(cx).terminal.font_size),
             settings_size
         );
+    }
+
+    /// release the left button after a drag over the whole screen, returns the clipboard text
+    fn drag_and_release(view: &Entity<TerminalView>, cx: &mut VisualTestContext) -> Option<String> {
+        view.update(cx, |view, cx| {
+            view.terminal
+                .update(cx, |term, _| term.input(b"echo picked\r".to_vec()))
+        });
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while !view.update(cx, |view, cx| {
+            view.terminal.update(cx, |term, _| {
+                term.sync();
+                term.select_all();
+                term.selection_text()
+                    .is_some_and(|text| text.contains("picked"))
+            })
+        }) {
+            assert!(Instant::now() < deadline, "shell never echoed");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        cx.write_to_clipboard(ClipboardItem::new_string("before".into()));
+        view.update(cx, |view, cx| {
+            view.selecting = true;
+            view.mouse_up(
+                &MouseUpEvent {
+                    button: gpui::MouseButton::Left,
+                    ..MouseUpEvent::default()
+                },
+                cx,
+            );
+        });
+        cx.read_from_clipboard().and_then(|item| item.text())
+    }
+
+    #[gpui::test]
+    fn select_to_copy_copies_on_release(cx: &mut TestAppContext) {
+        let (view, cx) = focused_view(r#"{"terminal": {"select_to_copy": true}}"#, cx);
+        let copied = drag_and_release(&view, cx);
+        assert!(copied.is_some_and(|text| text.contains("picked")));
+    }
+
+    #[gpui::test]
+    fn release_does_not_copy_without_select_to_copy(cx: &mut TestAppContext) {
+        let (view, cx) = focused_view(r#"{"terminal": {"select_to_copy": false}}"#, cx);
+        assert_eq!(drag_and_release(&view, cx).as_deref(), Some("before"));
     }
 
     #[test]

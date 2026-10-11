@@ -100,6 +100,8 @@ pub struct TerminalSettings {
     pub max_history_length: usize,
     /// option key sends esc prefixed keys like alt does on linux, macos only
     pub option_as_meta: bool,
+    /// copy the selection into the clipboard when the mouse button is released
+    pub select_to_copy: bool,
     pub scrollbar: ScrollbarSettings,
     pub smooth_scroll: SmoothScrollSettings,
 }
