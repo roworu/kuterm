@@ -220,6 +220,7 @@ pub(crate) mod tests {
         let deadline = Instant::now() + Duration::from_secs(5);
         let mut pid = child.0.id();
         for _ in 0..depth {
+            let parent = process_info(pid).map(|info| (info.name, info.args));
             pid = loop {
                 if let Some(&next) = children(pid).first() {
                     break next;
@@ -227,8 +228,10 @@ pub(crate) mod tests {
                 assert!(Instant::now() < deadline, "{script} never started");
                 std::thread::sleep(Duration::from_millis(20));
             };
-            // fork returns before exec, so wait for the command line to show up
-            while process_info(pid).is_none_or(|info| info.name.is_empty()) {
+            // before exec the forked child still shows the parent's command line
+            while process_info(pid).is_none_or(|info| {
+                info.name.is_empty() || parent.as_ref() == Some(&(info.name, info.args))
+            }) {
                 assert!(Instant::now() < deadline, "{script} never exec'd");
                 std::thread::sleep(Duration::from_millis(20));
             }
