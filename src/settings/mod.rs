@@ -20,9 +20,9 @@ pub(crate) use config::defaults as bundled_settings;
 pub use config::{Config, ConfigFiles};
 pub use keybindings::Keybindings;
 pub use options::{
-    ConfirmQuit, CursorBlink, CursorShape, Decorations, LineHeight, NewTabButton, ScrollEasing,
-    ScrollbarEnable, ScrollbarPlacement, Shell, StartupMode, TabIconPosition, TabTitleAlign,
-    TabTitleBlock, ThemeMode,
+    ConfirmQuit, CursorBlink, CursorShape, Decorations, FontSlant, LineHeight, NewTabButton,
+    ScrollEasing, ScrollbarEnable, ScrollbarPlacement, Shell, StartupMode, TabIconPosition,
+    TabTitleAlign, TabTitleBlock, ThemeMode,
 };
 pub use pins::Pins;
 pub use tab_icons::TabIcons;
@@ -146,8 +146,23 @@ pub struct TabIconSettings {
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct TerminalSettings {
-    pub font_family: String,
-    pub font_size: f32,
+    pub font: FontSettings,
+    /// opentype features like "-calt" or "ss01", checked when parsed
+    pub font_features: Vec<String>,
+    /// families tried in order for glyphs the font lacks, before the system fallback
+    pub font_fallbacks: Vec<String>,
+    /// pixels added to the measured cell width
+    pub cell_width: f32,
+    /// pixels glyphs are moved by inside their cell
+    pub glyph_offset: GlyphOffset,
+    /// bold text in colors 0-7 uses colors 8-15
+    pub bold_is_bright: bool,
+    /// wcag contrast ratio text keeps against its background, 1 turns it off
+    pub minimum_contrast: f32,
+    /// alpha of faint text that has no dim theme color
+    pub dim_opacity: f32,
+    /// draw box drawing, block and powerline glyphs as shapes that fill the cell
+    pub builtin_box_drawing: bool,
     pub line_height: LineHeight,
     pub cursor_shape: CursorShape,
     pub cursor_blink: CursorBlink,
@@ -164,6 +179,41 @@ pub struct TerminalSettings {
     pub right_click_copy: bool,
     pub scrollbar: ScrollbarSettings,
     pub smooth_scroll: SmoothScrollSettings,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct FontSettings {
+    pub family: String,
+    pub size: f32,
+    pub bold: BoldFont,
+    pub italic: ItalicFont,
+    pub bold_italic: BoldItalicFont,
+}
+
+/// face for bold text, regular family when none
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct BoldFont {
+    pub family: Option<String>,
+    pub weight: f32,
+}
+
+/// face for italic text, regular family when none
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct ItalicFont {
+    pub family: Option<String>,
+    pub style: FontSlant,
+}
+
+/// face for bold italic text, regular family with bold weight and italic style when none
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct BoldItalicFont {
+    pub family: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+pub struct GlyphOffset {
+    pub x: f32,
+    pub y: f32,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -218,6 +268,13 @@ impl Global for Settings {}
 
 // smaller fonts break the terminal grid, bigger ones stop growing
 const FONT_SIZE_RANGE: (f32, f32) = (6., 72.);
+// css font weights, the font picks its nearest face
+const FONT_WEIGHT_RANGE: (f32, f32) = (100., 900.);
+// a few pixels fix a font, more breaks the grid
+const CELL_ADJUST_RANGE: (f32, f32) = (-10., 10.);
+// 1 is no contrast at all, 21 is black on white
+const MINIMUM_CONTRAST_RANGE: (f32, f32) = (1., 21.);
+const DIM_OPACITY_RANGE: (f32, f32) = (0., 1.);
 // lines below 1 overlap, above 3 waste the screen
 const LINE_HEIGHT_RANGE: (f32, f32) = (1., 3.);
 // thinner bars are hard to grab, wider ones eat the grid
@@ -312,8 +369,45 @@ impl Settings {
         settings.ui_font_size = limit("ui_font_size", settings.ui_font_size, FONT_SIZE_RANGE)
             .unwrap_or(defaults.ui_font_size);
         let terminal = &mut settings.terminal;
-        terminal.font_size = limit("terminal.font_size", terminal.font_size, FONT_SIZE_RANGE)
-            .unwrap_or(defaults.terminal.font_size);
+        let font = &mut terminal.font;
+        font.size = limit("terminal.font.size", font.size, FONT_SIZE_RANGE)
+            .unwrap_or(defaults.terminal.font.size);
+        font.bold.weight = limit(
+            "terminal.font.bold.weight",
+            font.bold.weight,
+            FONT_WEIGHT_RANGE,
+        )
+        .unwrap_or(defaults.terminal.font.bold.weight);
+        terminal.font_features.retain(|feature| {
+            let valid = parse_font_feature(feature).is_some();
+            if !valid {
+                eprintln!("terminal.font_features {feature:?} is not a feature like \"-calt\", \"ss01\" or \"cv01=2\", skipped");
+            }
+            valid
+        });
+        terminal.cell_width = limit(
+            "terminal.cell_width",
+            terminal.cell_width,
+            CELL_ADJUST_RANGE,
+        )
+        .unwrap_or(defaults.terminal.cell_width);
+        let offset = &mut terminal.glyph_offset;
+        offset.x = limit("terminal.glyph_offset.x", offset.x, CELL_ADJUST_RANGE)
+            .unwrap_or(defaults.terminal.glyph_offset.x);
+        offset.y = limit("terminal.glyph_offset.y", offset.y, CELL_ADJUST_RANGE)
+            .unwrap_or(defaults.terminal.glyph_offset.y);
+        terminal.minimum_contrast = limit(
+            "terminal.minimum_contrast",
+            terminal.minimum_contrast,
+            MINIMUM_CONTRAST_RANGE,
+        )
+        .unwrap_or(defaults.terminal.minimum_contrast);
+        terminal.dim_opacity = limit(
+            "terminal.dim_opacity",
+            terminal.dim_opacity,
+            DIM_OPACITY_RANGE,
+        )
+        .unwrap_or(defaults.terminal.dim_opacity);
         if let LineHeight::Custom(value) = terminal.line_height {
             terminal.line_height = limit("terminal.line_height", value, LINE_HEIGHT_RANGE)
                 .map_or(defaults.terminal.line_height, LineHeight::Custom);
@@ -406,9 +500,9 @@ impl Settings {
                 defaults.ui_font_family,
             ),
             (
-                "terminal.font_family",
-                &mut self.terminal.font_family,
-                defaults.terminal.font_family,
+                "terminal.font.family",
+                &mut self.terminal.font.family,
+                defaults.terminal.font.family,
             ),
         ] {
             if !installed.contains(family) {
@@ -416,6 +510,26 @@ impl Settings {
                 *family = default;
             }
         }
+        let font = &mut self.terminal.font;
+        for (name, family) in [
+            ("terminal.font.bold.family", &mut font.bold.family),
+            ("terminal.font.italic.family", &mut font.italic.family),
+            (
+                "terminal.font.bold_italic.family",
+                &mut font.bold_italic.family,
+            ),
+        ] {
+            if let Some(missing) = family.take_if(|family| !installed.contains(family)) {
+                eprintln!("{name} {missing:?} is not installed, using the regular family");
+            }
+        }
+        self.terminal.font_fallbacks.retain(|family| {
+            let found = installed.contains(family);
+            if !found {
+                eprintln!("terminal.font_fallbacks {family:?} is not installed, skipped");
+            }
+            found
+        });
     }
 
     /// profile opened by the new tab action
@@ -435,6 +549,19 @@ impl Settings {
     pub fn get(cx: &App) -> &Self {
         cx.global::<Self>()
     }
+}
+
+/// opentype tag and value of a feature like "-calt", "+calt", "ss01" or "cv01=2"
+pub fn parse_font_feature(feature: &str) -> Option<(String, u32)> {
+    let (tag, value) = if let Some(tag) = feature.strip_prefix('-') {
+        (tag, 0)
+    } else if let Some((tag, value)) = feature.split_once('=') {
+        (tag, value.parse().ok()?)
+    } else {
+        (feature.strip_prefix('+').unwrap_or(feature), 1)
+    };
+    // opentype tags are exactly four printable ascii chars
+    (tag.len() == 4 && tag.bytes().all(|b| b.is_ascii_graphic())).then(|| (tag.to_string(), value))
 }
 
 // user values override defaults key by key, so a partial file keeps the other defaults.
@@ -543,10 +670,10 @@ pub(crate) mod tests {
             }
         );
         assert_eq!(
-            settings.terminal.font_family,
+            settings.terminal.font.family,
             "JetBrainsMonoNL Nerd Font Mono"
         );
-        assert_eq!(settings.terminal.font_size, 16.0);
+        assert_eq!(settings.terminal.font.size, 16.0);
         assert_eq!(settings.terminal.line_height.value(), 2.);
         assert_eq!(settings.terminal.cursor_shape, CursorShape::Bar);
     }
@@ -570,7 +697,7 @@ pub(crate) mod tests {
             settings.terminal.cursor_blink,
             defaults.terminal.cursor_blink
         );
-        assert_eq!(settings.terminal.font_size, defaults.terminal.font_size);
+        assert_eq!(settings.terminal.font.size, defaults.terminal.font.size);
         assert_eq!(settings.ui_font_size, defaults.ui_font_size);
     }
 
@@ -589,7 +716,7 @@ pub(crate) mod tests {
         let settings =
             Settings::parse(r#"{"foo": 1, "terminal": {"bar": true, "font_size": 14}}"#).unwrap();
         let mut expected = Settings::default();
-        expected.terminal.font_size = 14.;
+        expected.terminal.font.size = 14.;
         assert_eq!(settings, expected);
     }
 
@@ -726,14 +853,14 @@ pub(crate) mod tests {
         let settings = Settings::parse(&font_json(field, value)).unwrap();
         match field {
             "ui_font_size" => settings.ui_font_size,
-            _ => settings.terminal.font_size,
+            _ => settings.terminal.font.size,
         }
     }
 
     #[test]
     fn font_size_below_min_uses_default() {
         let defaults = Settings::default();
-        for field in ["ui_font_size", "terminal.font_size"] {
+        for field in ["ui_font_size", "terminal.font.size"] {
             for value in [
                 "0", "0.0", "-0", "-0.0", "1", "0.5", "1e-30", "5", "-1", "-6", "-16", "-72",
                 "-100", "-1e30", "-3.4e38",
@@ -741,7 +868,7 @@ pub(crate) mod tests {
                 let got = parse_font(field, value);
                 let default = match field {
                     "ui_font_size" => defaults.ui_font_size,
-                    _ => defaults.terminal.font_size,
+                    _ => defaults.terminal.font.size,
                 };
                 // exactly the default, not -0.0 or a clamp to 6
                 assert_eq!(
@@ -755,7 +882,7 @@ pub(crate) mod tests {
 
     #[test]
     fn font_size_above_max_is_capped() {
-        for field in ["ui_font_size", "terminal.font_size"] {
+        for field in ["ui_font_size", "terminal.font.size"] {
             for value in [
                 "72.5", "73", "80", "100", "200", "1000", "1e6", "1e30", "3.4e38", "1e39", "1e300",
             ] {
@@ -1123,10 +1250,137 @@ pub(crate) mod tests {
             defaults.ui_font_family.clone(),
         ]);
         assert_eq!(settings.ui_font_family, defaults.ui_font_family);
-        assert_eq!(settings.terminal.font_family, "DejaVu Sans Mono");
+        assert_eq!(settings.terminal.font.family, "DejaVu Sans Mono");
 
         settings.use_installed_fonts(&[]);
-        assert_eq!(settings.terminal.font_family, defaults.terminal.font_family);
+        assert_eq!(settings.terminal.font.family, defaults.terminal.font.family);
+    }
+
+    #[test]
+    fn flat_font_keys_move_into_font() {
+        let settings =
+            Settings::parse(r#"{"terminal": {"font_family": "Agent Mono", "font_size": 15}}"#)
+                .unwrap();
+        assert_eq!(settings.terminal.font.family, "Agent Mono");
+        assert_eq!(settings.terminal.font.size, 15.);
+
+        // the new keys win over the old ones
+        let settings = Settings::parse(
+            r#"{"terminal": {"font_size": 15, "font": {"size": 17, "bold": {"weight": 600}}}}"#,
+        )
+        .unwrap();
+        assert_eq!(settings.terminal.font.size, 17.);
+        assert_eq!(settings.terminal.font.bold.weight, 600.);
+    }
+
+    #[test]
+    fn parses_font_styles() {
+        let settings = Settings::parse(
+            r#"{"terminal": {"font": {
+                "bold": {"family": "Agent Bold", "weight": 800},
+                "italic": {"family": null, "style": "oblique"},
+                "bold_italic": {"family": "Agent Bold Italic"}
+            }}}"#,
+        )
+        .unwrap();
+        let font = &settings.terminal.font;
+        assert_eq!(font.bold.family.as_deref(), Some("Agent Bold"));
+        assert_eq!(font.bold.weight, 800.);
+        assert_eq!(font.italic.family, None);
+        assert_eq!(font.italic.style, FontSlant::Oblique);
+        assert_eq!(
+            font.bold_italic.family.as_deref(),
+            Some("Agent Bold Italic")
+        );
+        assert!(Settings::parse(r#"{"terminal": {"font": {"italic": {"style": "x"}}}}"#).is_err());
+    }
+
+    #[test]
+    fn font_and_color_rule_limits() {
+        let defaults = Settings::default().terminal;
+        let terminal = |json: &str| {
+            Settings::parse(&format!(r#"{{"terminal": {json}}}"#))
+                .unwrap()
+                .terminal
+        };
+        let bold = |weight: &str| {
+            terminal(&format!(
+                r#"{{"font": {{"bold": {{"weight": {weight}}}}}}}"#
+            ))
+            .font
+            .bold
+            .weight
+        };
+        assert_eq!(bold("99"), defaults.font.bold.weight);
+        assert_eq!(bold("100"), 100.);
+        assert_eq!(bold("950"), 900.);
+
+        let cell = |value: &str| terminal(&format!(r#"{{"cell_width": {value}}}"#)).cell_width;
+        assert_eq!(cell("-11"), defaults.cell_width);
+        assert_eq!(cell("-10"), -10.);
+        assert_eq!(cell("3.5"), 3.5);
+        assert_eq!(cell("11"), 10.);
+
+        let offset = terminal(r#"{"glyph_offset": {"x": -20, "y": 20}}"#).glyph_offset;
+        assert_eq!(offset.x, defaults.glyph_offset.x);
+        assert_eq!(offset.y, 10.);
+
+        let contrast =
+            |value: &str| terminal(&format!(r#"{{"minimum_contrast": {value}}}"#)).minimum_contrast;
+        assert_eq!(contrast("0.5"), defaults.minimum_contrast);
+        assert_eq!(contrast("4.5"), 4.5);
+        assert_eq!(contrast("30"), 21.);
+
+        let dim = |value: &str| terminal(&format!(r#"{{"dim_opacity": {value}}}"#)).dim_opacity;
+        assert_eq!(dim("-0.1"), defaults.dim_opacity);
+        assert_eq!(dim("0.4"), 0.4);
+        assert_eq!(dim("2"), 1.);
+    }
+
+    #[test]
+    fn font_features_are_checked() {
+        assert_eq!(parse_font_feature("-calt"), Some(("calt".into(), 0)));
+        assert_eq!(parse_font_feature("+liga"), Some(("liga".into(), 1)));
+        assert_eq!(parse_font_feature("ss01"), Some(("ss01".into(), 1)));
+        assert_eq!(parse_font_feature("cv01=2"), Some(("cv01".into(), 2)));
+        for bad in [
+            "",
+            "-",
+            "cal",
+            "ligatures",
+            "cv01=x",
+            "cv01=-1",
+            "ss 1",
+            "-+calt",
+        ] {
+            assert_eq!(parse_font_feature(bad), None, "{bad:?}");
+        }
+        let settings = Settings::parse(
+            r#"{"terminal": {"font_features": ["-calt", "bad feature", "ss01", "cv01=2"]}}"#,
+        )
+        .unwrap();
+        assert_eq!(settings.terminal.font_features, ["-calt", "ss01", "cv01=2"]);
+    }
+
+    #[test]
+    fn missing_style_families_and_fallbacks_are_dropped() {
+        let mut settings = Settings::parse(
+            r#"{"terminal": {
+                "font": {"bold": {"family": "Agent Bold"}, "italic": {"family": "Agent Gone"}},
+                "font_fallbacks": ["Agent Gone", "Agent Emoji"]
+            }}"#,
+        )
+        .unwrap();
+        let installed = [
+            Settings::default().terminal.font.family,
+            "Agent Bold".to_string(),
+            "Agent Emoji".to_string(),
+        ];
+        settings.use_installed_fonts(&installed);
+        let terminal = &settings.terminal;
+        assert_eq!(terminal.font.bold.family.as_deref(), Some("Agent Bold"));
+        assert_eq!(terminal.font.italic.family, None);
+        assert_eq!(terminal.font_fallbacks, ["Agent Emoji"]);
     }
 
     #[test]
@@ -1206,7 +1460,7 @@ mod fonts_history_settings {
         let mut s = with_fonts("Agent Ui Font", "Agent Mono");
         s.use_installed_fonts(&names(&["Other", "Agent Ui Font", "Agent Mono"]));
         assert_eq!(s.ui_font_family, "Agent Ui Font");
-        assert_eq!(s.terminal.font_family, "Agent Mono");
+        assert_eq!(s.terminal.font.family, "Agent Mono");
     }
 
     #[test]
@@ -1215,7 +1469,7 @@ mod fonts_history_settings {
         let mut s = with_fonts("Agent Missing Ui", "Agent Mono");
         s.use_installed_fonts(&names(&["Agent Mono"]));
         assert_eq!(s.ui_font_family, d.ui_font_family);
-        assert_eq!(s.terminal.font_family, "Agent Mono");
+        assert_eq!(s.terminal.font.family, "Agent Mono");
     }
 
     #[test]
@@ -1224,7 +1478,7 @@ mod fonts_history_settings {
         let mut s = with_fonts("Agent Ui Font", "Agent Missing Mono");
         s.use_installed_fonts(&names(&["Agent Ui Font"]));
         assert_eq!(s.ui_font_family, "Agent Ui Font");
-        assert_eq!(s.terminal.font_family, d.terminal.font_family);
+        assert_eq!(s.terminal.font.family, d.terminal.font.family);
     }
 
     #[test]
@@ -1233,7 +1487,7 @@ mod fonts_history_settings {
         let mut s = with_fonts("Agent A", "Agent B");
         s.use_installed_fonts(&[]);
         assert_eq!(s.ui_font_family, d.ui_font_family);
-        assert_eq!(s.terminal.font_family, d.terminal.font_family);
+        assert_eq!(s.terminal.font.family, d.terminal.font.family);
     }
 
     #[test]
@@ -1242,7 +1496,7 @@ mod fonts_history_settings {
         let mut s = with_fonts("", "");
         s.use_installed_fonts(&names(&["Agent Mono"]));
         assert_eq!(s.ui_font_family, d.ui_font_family);
-        assert_eq!(s.terminal.font_family, d.terminal.font_family);
+        assert_eq!(s.terminal.font.family, d.terminal.font.family);
     }
 
     #[test]
@@ -1251,7 +1505,7 @@ mod fonts_history_settings {
         let before = s.clone();
         s.use_installed_fonts(&[]);
         s.ui_font_family = before.ui_font_family.clone();
-        s.terminal.font_family = before.terminal.font_family.clone();
+        s.terminal.font.family = before.terminal.font.family.clone();
         assert_eq!(s, before);
     }
 
@@ -1259,7 +1513,7 @@ mod fonts_history_settings {
     fn defaults_untouched_when_installed() {
         let d = Settings::default();
         let mut s = Settings::default();
-        s.use_installed_fonts(&[d.ui_font_family.clone(), d.terminal.font_family.clone()]);
+        s.use_installed_fonts(&[d.ui_font_family.clone(), d.terminal.font.family.clone()]);
         assert_eq!(s, d);
     }
 

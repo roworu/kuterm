@@ -72,7 +72,7 @@ pub(super) fn apply_startup_mode(window: &mut Window, cx: &App) {
 fn grid_window_size(cx: &App) -> Size<Pixels> {
     let settings = Settings::get(cx);
     let window = &settings.window;
-    let cell = cell_size(px(settings.terminal.font_size), cx);
+    let cell = cell_size(px(settings.terminal.font.size), cx);
     let scrollbar = &settings.terminal.scrollbar;
     let scrollbar_width = match scrollbar.enable {
         ScrollbarEnable::Off => 0.,

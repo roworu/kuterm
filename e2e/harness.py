@@ -737,8 +737,10 @@ class App:
         return value
 
     def font_size(self) -> float:
-        default = bundled_settings()["terminal"]["font_size"]
-        size = float(self._get("terminal", "font_size", default=default))
+        default = bundled_settings()["terminal"]["font"]["size"]
+        # the old flat key still works, the new one wins
+        flat = self._get("terminal", "font_size", default=default)
+        size = float(self._get("terminal", "font", "size", default=flat))
         return default if size < 6 else min(size, 72.0)
 
     def ui_font_size(self) -> float:
@@ -752,7 +754,10 @@ class App:
         return round(round(2 * self.ui_font_size()) * self.scale)
 
     def _cell_width(self) -> float:
-        return self.font_size() * JB_ADVANCE
+        default = bundled_settings()["terminal"]["cell_width"]
+        adjust = float(self._get("terminal", "cell_width", default=default))
+        adjust = default if adjust < -10 else min(adjust, 10.0)
+        return max(self.font_size() * JB_ADVANCE + adjust, 1.0)
 
     def cell_width(self) -> float:
         return self._cell_width() * self.scale

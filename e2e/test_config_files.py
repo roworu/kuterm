@@ -77,7 +77,7 @@ def test_valid_settings_file_is_not_rewritten(app_factory):
 def test_out_of_range_font_size_is_limited(app_factory, value, expected):
     """font sizes below the limit use the default, above it are capped, with a message"""
     app = app_factory({"terminal": {"font_size": value}})
-    app.wait(lambda: "terminal.font_size" in app.output(), msg="limit message")
+    app.wait(lambda: "terminal.font.size" in app.output(), msg="limit message")
     probe = App({"terminal": {"font_size": expected}} if expected != "default" else {}, start=False)
     assert app.pty_size() == probe.expected_pty(900, 600)
     probe.cleanup()

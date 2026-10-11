@@ -65,6 +65,25 @@ impl From<CursorShape> for AlacCursorShape {
     }
 }
 
+/// slant of italic text
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum FontSlant {
+    Normal,
+    Italic,
+    Oblique,
+}
+
+impl From<FontSlant> for gpui::FontStyle {
+    fn from(slant: FontSlant) -> Self {
+        match slant {
+            FontSlant::Normal => gpui::FontStyle::Normal,
+            FontSlant::Italic => gpui::FontStyle::Italic,
+            FontSlant::Oblique => gpui::FontStyle::Oblique,
+        }
+    }
+}
+
 /// when the cursor blinks
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]

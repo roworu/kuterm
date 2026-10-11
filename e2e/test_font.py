@@ -1,4 +1,5 @@
-"""real glyph rendering and metrics: font_family, font_size, line_height, ui_font_family, ui_font_size"""
+"""real glyph rendering and metrics: font, line_height, cell_width, glyph_offset, color rules,
+builtin box drawing, ui_font_family, ui_font_size"""
 
 import time
 
@@ -41,6 +42,98 @@ def test_font_size_sets_cell_size(app_factory, size):
     """terminal.font_size scales the cells"""
     app = app_factory({"theme": {"mode": "dark"}, "terminal": {"font_size": size}}, script=SAMPLE)
     check_cells(app)
+
+
+@pytest.mark.parametrize("size", [12, 30])
+def test_font_block_size_sets_cell_size(app_factory, size):
+    """terminal.font.size scales the cells like the old flat font_size key"""
+    app = app_factory({"theme": {"mode": "dark"}, "terminal": {"font": {"size": size}}}, script=SAMPLE)
+    check_cells(app)
+
+
+@pytest.mark.parametrize("cell_width", [-3, 4])
+def test_cell_width_changes_columns(app_factory, cell_width):
+    """terminal.cell_width widens or narrows every cell, the shell sees the new column count"""
+    app = app_factory({"theme": {"mode": "dark"}, "terminal": {"cell_width": cell_width}})
+    assert app.pty_size() == app.expected_pty(900, 600)
+    app.snap(f"cell_width {cell_width}")
+
+
+def test_glyph_offset_moves_text_not_backgrounds(app_factory):
+    """terminal.glyph_offset moves glyphs inside their cells, backgrounds stay on the grid"""
+    boxes = []
+    for offset in [{"x": 0, "y": 0}, {"x": 4, "y": 6}]:
+        app = app_factory({"theme": {"mode": "dark"}, "terminal": {"font": {"size": 24}, "glyph_offset": offset}},
+                          script=SAMPLE)
+        check_cells(app)
+        x0, y0, x1, y1 = app.cell_rect(0, 2, 7)
+        boxes.append(ink_bbox(app.shot()[y0:y1, x0:x1], DARK["terminal_background"]))
+        app.snap(f"glyph_offset {offset}")
+        app.close()
+    (ax, ay, _, _), (bx, by, _, _) = boxes
+    assert abs((bx - ax) - 4 * app.scale) <= 1, boxes
+    assert abs((by - ay) - 6 * app.scale) <= 1, boxes
+
+
+# full blocks on two rows, then a row of box lines
+BLOCKS = (
+    "printf '\\033[31m\\342\\226\\210\\342\\226\\210\\342\\226\\210\\342\\226\\210\\n"
+    "\\342\\226\\210\\342\\226\\210\\342\\226\\210\\342\\226\\210\\033[0m\\n'\n"
+    "printf '\\342\\224\\214\\342\\224\\200\\342\\224\\254\\342\\224\\220 \\356\\202\\260\\n'\n"
+)
+
+
+@pytest.mark.parametrize("line_height", ["standard", {"custom": 2.5}])
+def test_builtin_box_drawing_fills_whole_cells(app_factory, line_height):
+    """full blocks fill their cells exactly at any line height, so rows join without gaps"""
+    app = app_factory({"theme": {"mode": "dark"}, "terminal": {"line_height": line_height}}, script=BLOCKS)
+    app.wait(lambda: close_to(app.cells_color(0, 0, 4), RED, 3), msg="blocks")
+    img = app.shot()
+    x0, y0, x1, y1 = app.cell_rect(0, 0, 4, 2)
+    red = (abs(img.astype(int) - RED).max(axis=-1) <= 3)
+    ys, xs = red.nonzero()
+    assert abs(xs.min() - x0) <= 1 and abs(xs.max() + 1 - x1) <= 1, (xs.min(), xs.max(), x0, x1)
+    assert abs(ys.min() - y0) <= 1 and abs(ys.max() + 1 - y1) <= 1, (ys.min(), ys.max(), y0, y1)
+    # no gap between the two rows
+    assert red[y0:y1, (x0 + x1) // 2].all()
+    app.snap(f"builtin box drawing, line_height {line_height}")
+
+
+def test_builtin_box_drawing_off_uses_the_font(app_factory):
+    """with builtin_box_drawing off the font glyph leaves a gap between rows at a tall line height"""
+    app = app_factory({"theme": {"mode": "dark"},
+                       "terminal": {"line_height": {"custom": 2.5}, "builtin_box_drawing": False}}, script=BLOCKS)
+    app.wait(lambda: ink_bbox(app.shot()[: app.line_height(), :200], DARK["terminal_background"]) is not None,
+             msg="blocks")
+    time.sleep(0.5)
+    img = app.shot()
+    x0, y0, x1, y1 = app.cell_rect(0, 0, 4, 2)
+    red = (abs(img.astype(int) - RED).max(axis=-1) <= 3)
+    assert not red[y0:y1, (x0 + x1) // 2].all()
+    app.snap("font box drawing, line_height 2.5")
+
+
+def test_bold_is_bright(app_factory):
+    """terminal.bold_is_bright draws bold text in normal colors with the bright color"""
+    script = "printf '\\033[1;31m\\342\\226\\210\\342\\226\\210\\342\\226\\210\\342\\226\\210\\033[0m\\n'\n"
+    for bright, want in [(False, RED), (True, DARK["ansi"][9])]:
+        app = app_factory({"theme": {"mode": "dark"}, "terminal": {"bold_is_bright": bright}}, script=script)
+        app.wait(lambda: close_to(app.cells_color(0, 0, 4), want, 3), msg=f"bold_is_bright {bright}")
+        app.snap(f"bold_is_bright {bright}")
+        app.close()
+
+
+def test_minimum_contrast_lifts_invisible_text(app_factory):
+    """terminal.minimum_contrast moves red text on a red background away from it"""
+    script = "printf '\\033[31;41m\\342\\226\\210\\342\\226\\210\\342\\226\\210\\342\\226\\210\\033[0m\\n'\n"
+    for minimum in [1, 4.5]:
+        app = app_factory({"theme": {"mode": "dark"}, "terminal": {"minimum_contrast": minimum}}, script=script)
+        app.wait(lambda: app.cells_color(0, 0, 4) != tuple(DARK["terminal_background"]), msg="blocks")
+        time.sleep(0.5)
+        color = app.cells_color(0, 0, 4)
+        assert close_to(color, RED, 3) == (minimum == 1), color
+        app.snap(f"minimum_contrast {minimum}")
+        app.close()
 
 
 @pytest.mark.parametrize("line_height", ["standard", "comfortable", {"custom": 1}, {"custom": 2.5}])

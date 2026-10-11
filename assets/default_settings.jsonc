@@ -196,11 +196,47 @@
   },
 
   "terminal": {
-    // terminal font, bundled "JetBrainsMonoNL Nerd Font Mono" is always available
-    "font_family": "JetBrainsMonoNL Nerd Font Mono",
-    // terminal font size in pixels
-    // font sizes go from 6 to 72
-    "font_size": 20,
+    // the old "font_family" and "font_size" keys still work and set "font.family" and "font.size"
+    "font": {
+      // bundled "JetBrainsMonoNL Nerd Font Mono" is always available
+      "family": "JetBrainsMonoNL Nerd Font Mono",
+      // font size in pixels, from 6 to 72
+      "size": 20,
+      // faces for styled text. a "family" of null uses the regular family with the matching
+      // weight or style, a family that is not installed is skipped
+      // weight goes from 100 to 900, 700 is bold
+      "bold": { "family": null, "weight": 700 },
+      // style: "italic", "oblique" or "normal" to draw italic text upright
+      "italic": { "family": null, "style": "italic" },
+      // null uses the regular family with the bold weight and the italic style
+      "bold_italic": { "family": null },
+    },
+    // opentype font features: "ss01" or "+ss01" turns one on, "-calt" turns one off,
+    // "cv01=2" picks a variant. the list replaces this one, so keep "-calt" to keep
+    // ligatures off, they draw several cells as one glyph
+    "font_features": ["-calt"],
+    // fonts tried in order for characters the font lacks, before the system fallback, like
+    //   ["Noto Sans CJK JP", "Noto Color Emoji"]
+    // fonts that are not installed are skipped
+    "font_fallbacks": [],
+    // pixels added to the measured cell width, negative values make cells narrower.
+    // from -10 to 10
+    "cell_width": 0,
+    // pixels to move glyphs inside their cell, for fonts that sit too high or too low.
+    // positive values move right and down, from -10 to 10
+    "glyph_offset": { "x": 0, "y": 0 },
+    // bold text in the 8 normal ansi colors uses their bright versions
+    "bold_is_bright": false,
+    // minimum contrast ratio between text and its background, from 1 (off) to 21.
+    // text below it is moved toward black or white until it passes, 4.5 is the wcag
+    // level for normal text
+    "minimum_contrast": 1,
+    // opacity of faint (dim) text whose color has no dim version in the theme, from 0 to 1
+    "dim_opacity": 0.7,
+    // draw box drawing lines (─│┌╔), blocks (▀█░) and powerline arrows () as shapes
+    // that fill the cell exactly, so they connect at any "line_height".
+    // false draws them with the font
+    "builtin_box_drawing": true,
     // line height as a multiple of font size:
     //   "standard"          - 1.3
     //   "comfortable"       - 1.618
@@ -518,7 +554,7 @@
 
   // values for one os only, merged over everything else on that os:
   //   "linux", "macos", "freebsd", ...
-  // like { "linux": { "terminal": { "font_size": 14 } } }
+  // like { "linux": { "terminal": { "font": { "size": 14 } } } }
   "os": {
     "macos": {
       // macos apps use cmd keys, the shell never gets them, so ctrl-w, ctrl-t, ctrl-c... keep

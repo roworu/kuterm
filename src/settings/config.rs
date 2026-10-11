@@ -61,6 +61,7 @@ pub(crate) fn combine(mut user: Value) -> Value {
     let mut full = defaults();
     // done on each side alone, so a bundled macos key never wins over a user key
     apply_os(&mut user);
+    move_flat_font_keys(&mut user);
     merge(&mut full, user);
     full
 }
@@ -68,6 +69,25 @@ pub(crate) fn combine(mut user: Value) -> Value {
 /// `value` as the `name` section of settings
 pub(crate) fn section(name: &str, value: Value) -> Value {
     Value::Object(Map::from_iter([(name.to_string(), value)]))
+}
+
+// old configs set "terminal.font_family" and "font_size", they now live in "terminal.font".
+// a key already set in "font" wins
+fn move_flat_font_keys(user: &mut Value) {
+    let Some(terminal) = user.get_mut("terminal").and_then(Value::as_object_mut) else {
+        return;
+    };
+    for (old, new) in [("font_family", "family"), ("font_size", "size")] {
+        let Some(value) = terminal.remove(old) else {
+            continue;
+        };
+        let font = terminal
+            .entry("font")
+            .or_insert_with(|| Value::Object(Map::new()));
+        if let Some(font) = font.as_object_mut() {
+            font.entry(new).or_insert(value);
+        }
+    }
 }
 
 // "os" holds blocks for single systems, only the one for this system is used

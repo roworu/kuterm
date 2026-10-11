@@ -11,6 +11,8 @@ pub(super) struct CursorLayout {
     pub(super) color: Hsla,
     pub(super) focused: bool,
     pub(super) text: ShapedLine,
+    /// glyph offset from settings, so the glyph under a block matches the grid
+    pub(super) text_offset: Point<Pixels>,
 }
 
 impl CursorLayout {
@@ -22,7 +24,7 @@ impl CursorLayout {
                 window.paint_quad(fill(bounds, color));
                 self.text
                     .paint(
-                        bounds.origin,
+                        bounds.origin + self.text_offset,
                         bounds.size.height,
                         TextAlign::Left,
                         None,

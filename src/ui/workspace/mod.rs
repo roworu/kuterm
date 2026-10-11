@@ -2907,7 +2907,7 @@ mod tests {
     #[gpui::test]
     fn font_size_actions_change_only_the_active_tab(cx: &mut TestAppContext) {
         let (ws, cx) = open(cx, 2);
-        let settings_size = cx.update(|_, cx| Settings::get(cx).terminal.font_size);
+        let settings_size = cx.update(|_, cx| Settings::get(cx).terminal.font.size);
         let sizes = |cx: &mut VisualTestContext| -> Vec<f32> {
             ws.update(cx, |ws, cx| {
                 ws.focused_pane()
@@ -2923,7 +2923,7 @@ mod tests {
         run_actions(&ws, cx, r#""decrease_font_size""#);
         assert_eq!(sizes(cx), vec![settings_size, settings_size + 1.]);
         assert_eq!(
-            cx.update(|_, cx| Settings::get(cx).terminal.font_size),
+            cx.update(|_, cx| Settings::get(cx).terminal.font.size),
             settings_size
         );
 

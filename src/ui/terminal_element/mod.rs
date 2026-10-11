@@ -1,5 +1,6 @@
 //! custom gpui element that paints terminal grid
 
+mod box_drawing;
 mod cursor;
 mod grid;
 mod input_handler;
@@ -8,26 +9,55 @@ mod scrollbar;
 use alacritty_terminal::{term::TermMode, vte::ansi::CursorShape};
 use gpui::{
     App, Bounds, ContentMask, CursorStyle, DispatchPhase, Element, ElementId, Entity, FocusHandle,
-    Font, FontFeatures, GlobalElementId, Hitbox, HitboxBehavior, InspectorElementId, IntoElement,
-    LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Size, Style,
-    TextRun, Window, fill, point, px, relative, size,
+    Font, FontFallbacks, FontFeatures, FontWeight, GlobalElementId, Hitbox, HitboxBehavior,
+    InspectorElementId, IntoElement, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent,
+    MouseUpEvent, Pixels, Point, Size, Style, TextRun, Window, fill, point, px, relative, size,
 };
 
 use crate::{
-    settings::{ScrollbarEnable, ScrollbarPlacement, Settings},
+    settings::{
+        ScrollbarEnable, ScrollbarPlacement, Settings, TerminalSettings, parse_font_feature,
+    },
     terminal::{Terminal, TerminalBounds},
     ui::terminal_view::TerminalView,
 };
 use cursor::CursorLayout;
-use grid::{BatchedTextRun, LayoutRect, layout_grid};
+use grid::{BatchedTextRun, BoxGlyph, GridStyle, LayoutRect, TerminalFonts, layout_grid};
 use input_handler::TerminalInputHandler;
 use scrollbar::ScrollbarLayout;
 
-/// terminal font with ligatures off, they would break the grid
-fn terminal_font(family: &str) -> Font {
+/// regular terminal font with the features and fallbacks from settings
+fn terminal_font(settings: &TerminalSettings) -> Font {
+    let features: Vec<_> = settings
+        .font_features
+        .iter()
+        .filter_map(|feature| parse_font_feature(feature))
+        .collect();
     Font {
-        features: FontFeatures::disable_ligatures(),
-        ..gpui::font(family.to_owned())
+        features: FontFeatures(features.into()),
+        fallbacks: (!settings.font_fallbacks.is_empty())
+            .then(|| FontFallbacks::from_fonts(settings.font_fallbacks.clone())),
+        ..gpui::font(settings.font.family.clone())
+    }
+}
+
+/// faces for each style, a style without own family uses the regular one
+fn terminal_fonts(settings: &TerminalSettings) -> TerminalFonts {
+    let regular = terminal_font(settings);
+    let font = &settings.font;
+    let face = |family: &Option<String>, weight: FontWeight, style: gpui::FontStyle| Font {
+        family: family.clone().map_or(regular.family.clone(), Into::into),
+        weight,
+        style,
+        ..regular.clone()
+    };
+    let bold = FontWeight(font.bold.weight);
+    let italic = font.italic.style.into();
+    TerminalFonts {
+        bold: face(&font.bold.family, bold, gpui::FontStyle::Normal),
+        italic: face(&font.italic.family, FontWeight::NORMAL, italic),
+        bold_italic: face(&font.bold_italic.family, bold, italic),
+        regular,
     }
 }
 
@@ -35,10 +65,10 @@ fn terminal_font(family: &str) -> Font {
 pub fn cell_size(font_size: Pixels, cx: &App) -> Size<Pixels> {
     let settings = &Settings::get(cx).terminal;
     let text_system = cx.text_system();
-    let font_id = text_system.resolve_font(&terminal_font(&settings.font_family));
+    let font_id = text_system.resolve_font(&terminal_font(settings));
     let cell_width = text_system.advance(font_id, font_size, 'm').unwrap().width;
     size(
-        cell_width,
+        (cell_width + px(settings.cell_width)).max(px(1.)),
         (font_size * settings.line_height.value()).round(),
     )
 }
@@ -48,6 +78,9 @@ pub struct LayoutState {
     hitbox: Hitbox,
     rects: Vec<LayoutRect>,
     batched_text_runs: Vec<BatchedTextRun>,
+    box_glyphs: Vec<BoxGlyph>,
+    /// moves text inside its cells, backgrounds and builtin glyphs stay
+    glyph_offset: Point<Pixels>,
     cursor: Option<CursorLayout>,
     scrollbar: Option<(ScrollbarLayout, Hitbox)>,
     dimensions: TerminalBounds,
@@ -182,7 +215,15 @@ impl Element for TerminalElement {
     ) -> Self::PrepaintState {
         let window_settings = Settings::get(cx).window.clone();
         let settings = &Settings::get(cx).terminal;
-        let font = terminal_font(&settings.font_family);
+        let fonts = terminal_fonts(settings);
+        let glyph_offset = point(px(settings.glyph_offset.x), px(settings.glyph_offset.y));
+        let style = GridStyle {
+            fonts: &fonts,
+            bold_is_bright: settings.bold_is_bright,
+            minimum_contrast: settings.minimum_contrast,
+            dim_opacity: settings.dim_opacity,
+            builtin_box_drawing: settings.builtin_box_drawing,
+        };
         let font_size = px(self.terminal_view.read(cx).font_size(cx));
         let cell = cell_size(font_size, cx);
         let (cell_width, line_height) = (cell.width, cell.height);
@@ -235,11 +276,11 @@ impl Element for TerminalElement {
         let terminal = self.terminal.read(cx);
         let theme = terminal.theme(cx);
         let content = &terminal.last_content;
-        let (rects, batched_text_runs) = layout_grid(
+        let (rects, batched_text_runs, box_glyphs) = layout_grid(
             &content.cells,
             content.display_offset,
             content.selection,
-            &font,
+            &style,
             theme,
         );
 
@@ -253,7 +294,7 @@ impl Element for TerminalElement {
                 font_size,
                 &[TextRun {
                     len: content.cursor_char.len_utf8(),
-                    font: font.clone(),
+                    font: fonts.regular.clone(),
                     color: theme.terminal_background,
                     background_color: None,
                     underline: None,
@@ -279,6 +320,7 @@ impl Element for TerminalElement {
                 color: theme.cursor,
                 focused: self.focused,
                 text,
+                text_offset: glyph_offset,
             }
         });
 
@@ -309,6 +351,8 @@ impl Element for TerminalElement {
             hitbox,
             rects,
             batched_text_runs,
+            box_glyphs,
+            glyph_offset,
             cursor,
             scrollbar,
             dimensions,
@@ -358,7 +402,16 @@ impl Element for TerminalElement {
                 rect.paint(origin, &layout.dimensions, window);
             }
             for run in &mut layout.batched_text_runs {
-                run.paint(origin, &layout.dimensions, layout.font_size, window, cx);
+                run.paint(
+                    origin + layout.glyph_offset,
+                    &layout.dimensions,
+                    layout.font_size,
+                    window,
+                    cx,
+                );
+            }
+            for glyph in &layout.box_glyphs {
+                glyph.paint(origin, &layout.dimensions, window);
             }
             // layout is kept while hidden, the input handler still needs its bounds for ime
             if let Some(cursor) = &layout.cursor

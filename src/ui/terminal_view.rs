@@ -119,7 +119,7 @@ impl TerminalView {
     /// terminal font size of this view
     pub fn font_size(&self, cx: &App) -> f32 {
         self.font_size
-            .unwrap_or(Settings::get(cx).terminal.font_size)
+            .unwrap_or(Settings::get(cx).terminal.font.size)
     }
 
     /// change font size of this view only, none goes back to settings
@@ -609,7 +609,7 @@ mod tests {
     #[gpui::test]
     fn ctrl_wheel_changes_font_size_of_the_view(cx: &mut TestAppContext) {
         let (view, cx) = focused_view("{}", cx);
-        let settings_size = cx.update(|_, cx| Settings::get(cx).terminal.font_size);
+        let settings_size = cx.update(|_, cx| Settings::get(cx).terminal.font.size);
         let wheel = |y: f32, control: bool| ScrollWheelEvent {
             delta: ScrollDelta::Lines(gpui::point(0., y)),
             modifiers: Modifiers {
@@ -636,7 +636,7 @@ mod tests {
         });
         assert_eq!(font_size(cx), settings_size - 1.);
         assert_eq!(
-            cx.update(|_, cx| Settings::get(cx).terminal.font_size),
+            cx.update(|_, cx| Settings::get(cx).terminal.font.size),
             settings_size
         );
     }
