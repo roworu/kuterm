@@ -102,6 +102,8 @@ pub struct TerminalSettings {
     pub option_as_meta: bool,
     /// copy the selection into the clipboard when the mouse button is released
     pub select_to_copy: bool,
+    /// right click copies the selection into the clipboard
+    pub right_click_copy: bool,
     pub scrollbar: ScrollbarSettings,
     pub smooth_scroll: SmoothScrollSettings,
 }

@@ -113,6 +113,8 @@
     "option_as_meta": false,
     // copy selected text into the clipboard as soon as the mouse button is released
     "select_to_copy": false,
+    // right click copies selected text into the clipboard
+    "right_click_copy": true,
     "scrollbar": {
       // when to show it:
       //   "on"      - always

@@ -323,7 +323,8 @@ impl TerminalView {
     }
 
     /// a press goes to the program when it asked for the mouse, otherwise a left click starts a
-    /// selection: single click, double selects words, triple lines, shift extends
+    /// selection: single click, double selects words, triple lines, shift extends. a right click
+    /// copies the selection
     pub fn mouse_down(&mut self, event: &MouseDownEvent, cx: &mut Context<Self>) {
         if let Some(button) = MouseButton::from_gpui(event.button)
             && self.report_mouse(
@@ -334,6 +335,10 @@ impl TerminalView {
                 cx,
             )
         {
+            return;
+        }
+        if event.button == gpui::MouseButton::Right && Settings::get(cx).terminal.right_click_copy {
+            self.copy_selection(cx);
             return;
         }
         if event.button != gpui::MouseButton::Left {
@@ -610,8 +615,8 @@ mod tests {
         );
     }
 
-    /// release the left button after a drag over the whole screen, returns the clipboard text
-    fn drag_and_release(view: &Entity<TerminalView>, cx: &mut VisualTestContext) -> Option<String> {
+    /// select the whole screen once the shell echoed "picked", and put "before" in the clipboard
+    fn select_echoed(view: &Entity<TerminalView>, cx: &mut VisualTestContext) {
         view.update(cx, |view, cx| {
             view.terminal
                 .update(cx, |term, _| term.input(b"echo picked\r".to_vec()))
@@ -629,6 +634,11 @@ mod tests {
             std::thread::sleep(Duration::from_millis(50));
         }
         cx.write_to_clipboard(ClipboardItem::new_string("before".into()));
+    }
+
+    /// release the left button after a drag over the whole screen, returns the clipboard text
+    fn drag_and_release(view: &Entity<TerminalView>, cx: &mut VisualTestContext) -> Option<String> {
+        select_echoed(view, cx);
         view.update(cx, |view, cx| {
             view.selecting = true;
             view.mouse_up(
@@ -653,6 +663,37 @@ mod tests {
     fn release_does_not_copy_without_select_to_copy(cx: &mut TestAppContext) {
         let (view, cx) = focused_view(r#"{"terminal": {"select_to_copy": false}}"#, cx);
         assert_eq!(drag_and_release(&view, cx).as_deref(), Some("before"));
+    }
+
+    /// select the whole screen once the shell echoed, then right click, returns the clipboard text
+    fn select_and_right_click(
+        view: &Entity<TerminalView>,
+        cx: &mut VisualTestContext,
+    ) -> Option<String> {
+        select_echoed(view, cx);
+        view.update(cx, |view, cx| {
+            view.mouse_down(
+                &MouseDownEvent {
+                    button: gpui::MouseButton::Right,
+                    ..MouseDownEvent::default()
+                },
+                cx,
+            )
+        });
+        cx.read_from_clipboard().and_then(|item| item.text())
+    }
+
+    #[gpui::test]
+    fn right_click_copies_the_selection(cx: &mut TestAppContext) {
+        let (view, cx) = focused_view(r#"{"terminal": {"right_click_copy": true}}"#, cx);
+        let copied = select_and_right_click(&view, cx);
+        assert!(copied.is_some_and(|text| text.contains("picked")));
+    }
+
+    #[gpui::test]
+    fn right_click_does_not_copy_without_right_click_copy(cx: &mut TestAppContext) {
+        let (view, cx) = focused_view(r#"{"terminal": {"right_click_copy": false}}"#, cx);
+        assert_eq!(select_and_right_click(&view, cx).as_deref(), Some("before"));
     }
 
     #[test]
