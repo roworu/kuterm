@@ -6,6 +6,8 @@ mod ui;
 
 use std::{borrow::Cow, sync::Arc};
 
+use futures::{StreamExt, channel::mpsc::unbounded};
+
 use gpui::{App, AppContext, Bounds, TitlebarOptions, WindowBounds, WindowOptions, px, size};
 use gpui_platform::application;
 
@@ -13,7 +15,13 @@ use crate::{
     cli::{Cli, USAGE},
     settings::{Commands, Keybindings, Pins, Settings, TabIcons},
     theme::Theme,
-    ui::{text_input, workspace::Workspace},
+    ui::{
+        text_input,
+        workspace::{
+            Hide, HideOthers, NewTab, Quit, ShowAll, Workspace, app_menus, dock_menu, open_urls,
+            with_workspace,
+        },
+    },
 };
 
 /// bundled regular face, also used to measure tab icons
@@ -51,6 +59,22 @@ fn init(cx: &mut App) {
     Theme::apply(cx.window_appearance(), cx);
     cx.bind_keys(Keybindings::load().bindings());
     cx.bind_keys(text_input::bindings());
+    // app wide, they work with no window focused
+    cx.on_action(|_: &Hide, cx| cx.hide());
+    cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
+    cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
+    // the workspace handles these itself, these only run when no window is active, like
+    // when it is minimized or the dock menu is used
+    cx.on_action(|_: &Quit, cx| {
+        with_workspace(cx, |workspace, window, cx| {
+            workspace.request_quit(window, cx)
+        })
+    });
+    cx.on_action(|_: &NewTab, cx| {
+        with_workspace(cx, |workspace, window, cx| workspace.add_tab(window, cx))
+    });
+    cx.set_menus(app_menus());
+    cx.set_dock_menu(dock_menu());
 }
 
 fn main() {
@@ -65,9 +89,22 @@ fn main() {
             std::process::exit(2);
         }
     }
-    application().run(|cx: &mut App| {
+    let app = application();
+    // folders dropped on the dock icon or opened with "open -a kuterm", they may come before
+    // the window exists, so they wait in a channel
+    let (urls_tx, mut urls_rx) = unbounded::<Vec<String>>();
+    app.on_open_urls(move |urls| {
+        urls_tx.unbounded_send(urls).ok();
+    });
+    app.run(move |cx: &mut App| {
         init(cx);
         cx.on_window_closed(|cx, _| cx.quit()).detach();
+        cx.spawn(async move |cx| {
+            while let Some(urls) = urls_rx.next().await {
+                cx.update(|cx| open_urls(&urls, cx));
+            }
+        })
+        .detach();
 
         let bounds = Bounds::centered(None, size(px(900.), px(600.)), cx);
         cx.open_window(

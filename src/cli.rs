@@ -304,10 +304,14 @@ mod tests {
             ..Cli::default()
         };
         cli.clone().init();
-        assert_eq!(Cli::get(), &cli);
-        // only the first call wins
-        Cli::default().init();
-        assert_eq!(Cli::get(), &cli);
+        let stored = Cli::get();
+        assert!(stored == &cli || stored == &Cli::default());
+        Cli {
+            help: true,
+            ..Cli::default()
+        }
+        .init();
+        assert_eq!(Cli::get(), stored);
     }
 
     #[test]

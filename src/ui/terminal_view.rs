@@ -1,13 +1,16 @@
 //! focusable view around terminal
 
-use std::time::{Duration, Instant};
+use std::{
+    path::Path,
+    time::{Duration, Instant},
+};
 
 use alacritty_terminal::selection::SelectionType;
 use gpui::{
-    App, ClipboardItem, Context, Entity, EventEmitter, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, KeyDownEvent, Modifiers, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    ParentElement, Pixels, Point, Render, ScrollDelta, ScrollWheelEvent, Styled, Subscription,
-    Task, Window, actions, div, px,
+    App, ClipboardItem, Context, Entity, EventEmitter, ExternalPaths, FocusHandle, Focusable,
+    InteractiveElement, IntoElement, KeyDownEvent, Modifiers, MouseDownEvent, MouseMoveEvent,
+    MouseUpEvent, ParentElement, Pixels, Point, Render, ScrollDelta, ScrollWheelEvent, Styled,
+    Subscription, Task, Window, actions, div, px,
 };
 
 use crate::{
@@ -66,6 +69,8 @@ pub struct TerminalView {
     cursor_on: bool,
     /// flips `cursor_on` on every tick, none while the cursor does not blink
     blink: Option<Task<()>>,
+    /// font size of this tab only, none follows settings
+    font_size: Option<f32>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -101,6 +106,7 @@ impl TerminalView {
             _hide_scrollbar: Task::ready(()),
             cursor_on: true,
             blink: None,
+            font_size: None,
             _subscriptions: subscriptions,
         }
     }
@@ -108,6 +114,18 @@ impl TerminalView {
     /// terminal model this view renders
     pub fn terminal(&self) -> &Entity<Terminal> {
         &self.terminal
+    }
+
+    /// terminal font size of this view
+    pub fn font_size(&self, cx: &App) -> f32 {
+        self.font_size
+            .unwrap_or(Settings::get(cx).terminal.font_size)
+    }
+
+    /// change font size of this view only, none goes back to settings
+    pub fn set_font_size(&mut self, size: Option<f32>, cx: &mut Context<Self>) {
+        self.font_size = size.map(Settings::clamp_font_size);
+        cx.notify();
     }
 
     // shows the cursor and restarts its phase, so it stays visible while typing
@@ -151,10 +169,10 @@ impl TerminalView {
         if event.prefer_character_input && event.keystroke.key_char.is_some() {
             return;
         }
-        if self
-            .terminal
-            .update(cx, |term, _| term.try_keystroke(&event.keystroke))
-        {
+        let option_as_meta = Settings::get(cx).terminal.option_as_meta;
+        if self.terminal.update(cx, |term, _| {
+            term.try_keystroke(&event.keystroke, option_as_meta)
+        }) {
             // input jumps to the bottom, a running glide would pull the view back up
             self.input_happened(cx);
             cx.stop_propagation();
@@ -178,6 +196,12 @@ impl TerminalView {
                 lines
             }
         };
+        if lines != 0 && event.modifiers.control {
+            // one step per event, a wheel notch is several lines
+            let size = self.font_size(cx) + lines.signum() as f32;
+            self.set_font_size(Some(size), cx);
+            return;
+        }
         if lines != 0 {
             let terminal = self.terminal.read(cx);
             if terminal.owns_mouse(&event.modifiers) {
@@ -299,7 +323,8 @@ impl TerminalView {
     }
 
     /// a press goes to the program when it asked for the mouse, otherwise a left click starts a
-    /// selection: single click, double selects words, triple lines, shift extends
+    /// selection: single click, double selects words, triple lines, shift extends. a right click
+    /// copies the selection
     pub fn mouse_down(&mut self, event: &MouseDownEvent, cx: &mut Context<Self>) {
         if let Some(button) = MouseButton::from_gpui(event.button)
             && self.report_mouse(
@@ -310,6 +335,10 @@ impl TerminalView {
                 cx,
             )
         {
+            return;
+        }
+        if event.button == gpui::MouseButton::Right && Settings::get(cx).terminal.right_click_copy {
+            self.copy_selection(cx);
             return;
         }
         if event.button != gpui::MouseButton::Left {
@@ -361,6 +390,9 @@ impl TerminalView {
 
     /// finish the drag, the selection stays until the next click or input
     pub fn mouse_up(&mut self, event: &MouseUpEvent, cx: &mut Context<Self>) {
+        if self.selecting && Settings::get(cx).terminal.select_to_copy {
+            self.copy_selection(cx);
+        }
         let was_local = self.selecting || self.dragging_scrollbar;
         self.selecting = false;
         self.dragging_scrollbar = false;
@@ -376,6 +408,10 @@ impl TerminalView {
     }
 
     fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
+        self.copy_selection(cx);
+    }
+
+    fn copy_selection(&mut self, cx: &mut Context<Self>) {
         if let Some(text) = self.terminal.read(cx).selection_text() {
             cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
             cx.emit(ClipboardEvent::Copied(text));
@@ -388,6 +424,37 @@ impl TerminalView {
             self.terminal.update(cx, |term, _| term.paste(&text));
             cx.emit(ClipboardEvent::Pasted);
         }
+    }
+
+    /// type paths dropped from other apps, quoted for the shell
+    pub fn drop_paths(&mut self, paths: &ExternalPaths, cx: &mut Context<Self>) {
+        let mut text: String = paths
+            .paths()
+            .iter()
+            .map(|path| shell_quote(path))
+            .collect::<Vec<_>>()
+            .join(" ");
+        if text.is_empty() {
+            return;
+        }
+        // a trailing space lets the next dropped path or typed argument follow right away
+        text.push(' ');
+        self.input_happened(cx);
+        self.terminal.update(cx, |term, _| term.paste(&text));
+    }
+}
+
+/// path as one shell word, single quoted when it has characters the shell would expand
+fn shell_quote(path: &Path) -> String {
+    let path = path.to_string_lossy();
+    let plain = !path.is_empty()
+        && path
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "/._-+,:@%=".contains(c));
+    if plain {
+        path.into_owned()
+    } else {
+        format!("'{}'", path.replace('\'', "'\\''"))
     }
 }
 
@@ -511,5 +578,132 @@ mod tests {
         cx.executor().advance_clock(Duration::from_secs(3));
         cx.run_until_parked();
         assert!(view.read_with(cx, |view, _| view.blink.is_none() && view.cursor_on));
+    }
+
+    #[gpui::test]
+    fn ctrl_wheel_changes_font_size_of_the_view(cx: &mut TestAppContext) {
+        let (view, cx) = focused_view("{}", cx);
+        let settings_size = cx.update(|_, cx| Settings::get(cx).terminal.font_size);
+        let wheel = |y: f32, control: bool| ScrollWheelEvent {
+            delta: ScrollDelta::Lines(gpui::point(0., y)),
+            modifiers: Modifiers {
+                control,
+                ..Modifiers::default()
+            },
+            ..ScrollWheelEvent::default()
+        };
+        let font_size =
+            |cx: &mut VisualTestContext| view.read_with(cx, |view, cx| view.font_size(cx));
+
+        view.update_in(cx, |view, window, cx| {
+            view.scroll_wheel(&wheel(1., true), window, cx)
+        });
+        assert_eq!(font_size(cx), settings_size + 1.);
+        view.update_in(cx, |view, window, cx| {
+            view.scroll_wheel(&wheel(-1., true), window, cx);
+            view.scroll_wheel(&wheel(-1., true), window, cx);
+        });
+        assert_eq!(font_size(cx), settings_size - 1.);
+        // plain wheel scrolls, size stays
+        view.update_in(cx, |view, window, cx| {
+            view.scroll_wheel(&wheel(1., false), window, cx)
+        });
+        assert_eq!(font_size(cx), settings_size - 1.);
+        assert_eq!(
+            cx.update(|_, cx| Settings::get(cx).terminal.font_size),
+            settings_size
+        );
+    }
+
+    /// select the whole screen once the shell echoed "picked", and put "before" in the clipboard
+    fn select_echoed(view: &Entity<TerminalView>, cx: &mut VisualTestContext) {
+        view.update(cx, |view, cx| {
+            view.terminal
+                .update(cx, |term, _| term.input(b"echo picked\r".to_vec()))
+        });
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while !view.update(cx, |view, cx| {
+            view.terminal.update(cx, |term, _| {
+                term.sync();
+                term.select_all();
+                term.selection_text()
+                    .is_some_and(|text| text.contains("picked"))
+            })
+        }) {
+            assert!(Instant::now() < deadline, "shell never echoed");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        cx.write_to_clipboard(ClipboardItem::new_string("before".into()));
+    }
+
+    /// release the left button after a drag over the whole screen, returns the clipboard text
+    fn drag_and_release(view: &Entity<TerminalView>, cx: &mut VisualTestContext) -> Option<String> {
+        select_echoed(view, cx);
+        view.update(cx, |view, cx| {
+            view.selecting = true;
+            view.mouse_up(
+                &MouseUpEvent {
+                    button: gpui::MouseButton::Left,
+                    ..MouseUpEvent::default()
+                },
+                cx,
+            );
+        });
+        cx.read_from_clipboard().and_then(|item| item.text())
+    }
+
+    #[gpui::test]
+    fn select_to_copy_copies_on_release(cx: &mut TestAppContext) {
+        let (view, cx) = focused_view(r#"{"terminal": {"select_to_copy": true}}"#, cx);
+        let copied = drag_and_release(&view, cx);
+        assert!(copied.is_some_and(|text| text.contains("picked")));
+    }
+
+    #[gpui::test]
+    fn release_does_not_copy_without_select_to_copy(cx: &mut TestAppContext) {
+        let (view, cx) = focused_view(r#"{"terminal": {"select_to_copy": false}}"#, cx);
+        assert_eq!(drag_and_release(&view, cx).as_deref(), Some("before"));
+    }
+
+    /// select the whole screen once the shell echoed, then right click, returns the clipboard text
+    fn select_and_right_click(
+        view: &Entity<TerminalView>,
+        cx: &mut VisualTestContext,
+    ) -> Option<String> {
+        select_echoed(view, cx);
+        view.update(cx, |view, cx| {
+            view.mouse_down(
+                &MouseDownEvent {
+                    button: gpui::MouseButton::Right,
+                    ..MouseDownEvent::default()
+                },
+                cx,
+            )
+        });
+        cx.read_from_clipboard().and_then(|item| item.text())
+    }
+
+    #[gpui::test]
+    fn right_click_copies_the_selection(cx: &mut TestAppContext) {
+        let (view, cx) = focused_view(r#"{"terminal": {"right_click_copy": true}}"#, cx);
+        let copied = select_and_right_click(&view, cx);
+        assert!(copied.is_some_and(|text| text.contains("picked")));
+    }
+
+    #[gpui::test]
+    fn right_click_does_not_copy_without_right_click_copy(cx: &mut TestAppContext) {
+        let (view, cx) = focused_view(r#"{"terminal": {"right_click_copy": false}}"#, cx);
+        assert_eq!(select_and_right_click(&view, cx).as_deref(), Some("before"));
+    }
+
+    #[test]
+    fn dropped_paths_are_quoted_only_when_needed() {
+        assert_eq!(
+            shell_quote(Path::new("/home/me/a-b_c.txt")),
+            "/home/me/a-b_c.txt"
+        );
+        assert_eq!(shell_quote(Path::new("/tmp/my dir")), "'/tmp/my dir'");
+        assert_eq!(shell_quote(Path::new("/tmp/it's $x")), "'/tmp/it'\\''s $x'");
+        assert_eq!(shell_quote(Path::new("/tmp/été")), "'/tmp/été'");
     }
 }

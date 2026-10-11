@@ -98,6 +98,12 @@ pub struct TerminalSettings {
     /// milliseconds the blinking cursor stays shown, then hidden
     pub cursor_blink_interval: f32,
     pub max_history_length: usize,
+    /// option key sends esc prefixed keys like alt does on linux, macos only
+    pub option_as_meta: bool,
+    /// copy the selection into the clipboard when the mouse button is released
+    pub select_to_copy: bool,
+    /// right click copies the selection into the clipboard
+    pub right_click_copy: bool,
     pub scrollbar: ScrollbarSettings,
     pub smooth_scroll: SmoothScrollSettings,
 }
@@ -344,6 +350,11 @@ impl Settings {
     /// load settings from the settings file, using defaults when it is missing or invalid
     pub fn load() -> Self {
         load_file(Self::path(), DEFAULT_SETTINGS, "settings", Self::parse)
+    }
+
+    /// keep a font size inside the allowed range
+    pub fn clamp_font_size(size: f32) -> f32 {
+        size.clamp(FONT_SIZE_RANGE.0, FONT_SIZE_RANGE.1)
     }
 
     /// settings loaded at startup

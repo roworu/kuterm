@@ -1,5 +1,6 @@
 //! root view: owns tabs and handles new tab / close tab.
 
+mod app_menu;
 mod end_truncated;
 mod notifications;
 mod tab_bar;
@@ -7,6 +8,7 @@ mod tab_icon;
 mod tab_title;
 
 use std::{
+    path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -20,6 +22,7 @@ use gpui::{
     ManagedView, Pixels, Point, ScrollHandle, Subscription, Task, Window, actions, prelude::*,
 };
 
+pub use app_menu::{app_menus, dock_menu, open_urls};
 use notifications::Notification;
 use tab_title::TitleInputs;
 
@@ -44,7 +47,14 @@ actions!(
         CloseTab,
         NextTab,
         ToggleCommandPalette,
-        ToggleFullscreen
+        ToggleFullscreen,
+        OpenAbout,
+        Quit,
+        Hide,
+        HideOthers,
+        ShowAll,
+        Minimize,
+        Zoom
     ]
 );
 
@@ -52,6 +62,11 @@ actions!(
 #[derive(Clone, PartialEq, Action)]
 #[action(namespace = workspace, no_json)]
 pub struct ActivateTab(pub usize);
+
+/// run one command palette action, for menu items and keys with no action of their own
+#[derive(Clone, PartialEq, Action)]
+#[action(namespace = workspace, no_json)]
+pub struct RunAction(pub CommandAction);
 
 // programs, folders and command output change without events, so titles are polled
 const TITLE_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
@@ -483,8 +498,16 @@ impl Workspace {
         cx.notify();
     }
 
-    fn add_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// open a tab with the default profile and switch to it
+    pub fn add_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let profile = Settings::get(cx).default_profile().clone();
+        self.add_profile_tab(self.focused, &profile, true, window, cx);
+    }
+
+    /// open a tab with the default profile in `folder`
+    pub fn open_folder(&mut self, folder: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        let mut profile = Settings::get(cx).default_profile().clone();
+        profile.working_directory = Some(folder);
         self.add_profile_tab(self.focused, &profile, true, window, cx);
     }
 
@@ -917,7 +940,7 @@ impl Workspace {
     }
 
     /// quit, asking first when programs still run in some tabs
-    fn request_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn request_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.confirm_close.is_some() {
             return;
         }
@@ -1073,6 +1096,8 @@ impl Workspace {
         cx.bind_keys(Keybindings::load().bindings());
         // text fields keep their editing keys, they are not part of the user keybindings
         cx.bind_keys(crate::ui::text_input::bindings());
+        // menus show the keys bound to their actions, so they are rebuilt with the new keys
+        cx.set_menus(app_menus());
     }
 
     fn reload_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1097,11 +1122,7 @@ impl Workspace {
                 .filter(|(pane, ix)| self.pane(*pane).is_some_and(|pane| *ix < pane.tabs.len()))
                 .unwrap_or_else(|| (self.focused, self.focused_pane().active));
             match action {
-                CommandAction::About => {
-                    let about = cx.new(About::new);
-                    self.open_overlay(&about, window, cx);
-                    self.about = Some(about);
-                }
+                CommandAction::About => self.open_about(&OpenAbout, window, cx),
                 CommandAction::ReloadSettings => {
                     self.reload_settings(window, cx);
                     self.show_notification("settings reloaded", None, cx);
@@ -1220,6 +1241,16 @@ impl Workspace {
                     .terminal_at(pane, ix, cx)
                     .update(cx, |terminal, _| terminal.scroll_to(0)),
                 CommandAction::Quit => self.request_quit(window, cx),
+                CommandAction::SelectAll => self
+                    .terminal_at(pane, ix, cx)
+                    .update(cx, |terminal, _| terminal.select_all()),
+                CommandAction::Clear => self
+                    .terminal_at(pane, ix, cx)
+                    .update(cx, |terminal, _| terminal.clear()),
+                CommandAction::IncreaseFontSize => self.change_font_size(pane, ix, Some(1.), cx),
+                CommandAction::DecreaseFontSize => self.change_font_size(pane, ix, Some(-1.), cx),
+                CommandAction::ResetFontSize => self.change_font_size(pane, ix, None, cx),
+                CommandAction::OpenSettings => self.open_settings(cx),
                 CommandAction::Type(text) => self.input_to(pane, ix, text.clone().into_bytes(), cx),
                 CommandAction::Notify(text) => self.show_notification(text.clone(), None, cx),
                 CommandAction::NotifyWhenDone(text) => {
@@ -1452,6 +1483,86 @@ impl Workspace {
     ) {
         window.toggle_fullscreen();
     }
+
+    fn open_about(&mut self, _: &OpenAbout, window: &mut Window, cx: &mut Context<Self>) {
+        let about = cx.new(About::new);
+        self.open_overlay(&about, window, cx);
+        self.about = Some(about);
+    }
+
+    fn quit_action(&mut self, _: &Quit, window: &mut Window, cx: &mut Context<Self>) {
+        self.request_quit(window, cx);
+    }
+
+    fn minimize(&mut self, _: &Minimize, window: &mut Window, _: &mut Context<Self>) {
+        window.minimize_window();
+    }
+
+    fn zoom(&mut self, _: &Zoom, window: &mut Window, _: &mut Context<Self>) {
+        window.zoom_window();
+    }
+
+    fn run_action(&mut self, action: &RunAction, window: &mut Window, cx: &mut Context<Self>) {
+        let command = Command {
+            name: String::new(),
+            category: None,
+            pinned: false,
+            actions: vec![action.0.clone()],
+        };
+        self.run_command(&command, window, cx);
+    }
+
+    // none step goes back to the size from settings
+    fn change_font_size(&self, pane: usize, ix: usize, step: Option<f32>, cx: &mut Context<Self>) {
+        self.pane(pane).expect("pane from target").tabs[ix]
+            .view
+            .update(cx, |view, cx| {
+                let size = step.map(|step| view.font_size(cx) + step);
+                view.set_font_size(size, cx);
+            });
+    }
+
+    fn open_settings(&mut self, cx: &mut Context<Self>) {
+        let Some(path) = Settings::path() else {
+            self.show_notification("no config folder to open settings from", None, cx);
+            return;
+        };
+        // macos has no app set for .jsonc files, so it is opened as plain text
+        if cfg!(target_os = "macos") {
+            cx.background_spawn(async move {
+                std::process::Command::new("open")
+                    .arg("-t")
+                    .arg(path)
+                    .status()
+                    .ok();
+            })
+            .detach();
+        } else {
+            cx.open_with_system(&path);
+        }
+    }
+}
+
+/// run `f` on the workspace, bringing its window to the front first. app wide actions use
+/// it, since with the window minimized or the dock menu in use no window is active
+pub fn with_workspace(
+    cx: &mut App,
+    f: impl FnOnce(&mut Workspace, &mut Window, &mut Context<Workspace>),
+) {
+    let Some(handle) = cx
+        .windows()
+        .into_iter()
+        .find_map(|window| window.downcast::<Workspace>())
+    else {
+        return;
+    };
+    cx.activate(true);
+    handle
+        .update(cx, |workspace, window, cx| {
+            window.activate_window();
+            f(workspace, window, cx);
+        })
+        .ok();
 }
 
 /// program names joined for a dialog, cut short after a few
@@ -2696,6 +2807,33 @@ mod tests {
         type_keys(cx, "ctrl-shift-p");
         assert!(!palette_open(&ws, cx));
         assert!(cx.debug_bounds("command-palette").is_none());
+    }
+
+    #[gpui::test]
+    fn font_size_actions_change_only_the_active_tab(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 2);
+        let settings_size = cx.update(|_, cx| Settings::get(cx).terminal.font_size);
+        let sizes = |cx: &mut VisualTestContext| -> Vec<f32> {
+            ws.update(cx, |ws, cx| {
+                ws.focused_pane()
+                    .tabs
+                    .iter()
+                    .map(|tab| tab.view.read(cx).font_size(cx))
+                    .collect()
+            })
+        };
+
+        run_actions(&ws, cx, r#""increase_font_size", "increase_font_size""#);
+        assert_eq!(sizes(cx), vec![settings_size, settings_size + 2.]);
+        run_actions(&ws, cx, r#""decrease_font_size""#);
+        assert_eq!(sizes(cx), vec![settings_size, settings_size + 1.]);
+        assert_eq!(
+            cx.update(|_, cx| Settings::get(cx).terminal.font_size),
+            settings_size
+        );
+
+        run_actions(&ws, cx, r#""reset_font_size""#);
+        assert_eq!(sizes(cx), vec![settings_size, settings_size]);
     }
 
     #[gpui::test]

@@ -24,6 +24,7 @@ use alacritty_terminal::{
     grid::{Dimensions, Scroll},
     sync::FairMutex,
     term::TermMode,
+    vte::ansi::{ClearMode, Handler},
 };
 use gpui::{App, EventEmitter, Keystroke, Task, WindowAppearance};
 
@@ -138,8 +139,8 @@ impl Terminal {
     }
 
     /// map a keystroke to an escape sequence and write it, returns false if unmapped
-    pub fn try_keystroke(&mut self, keystroke: &Keystroke) -> bool {
-        match to_esc_str(keystroke, self.last_content.mode, false) {
+    pub fn try_keystroke(&mut self, keystroke: &Keystroke, option_as_meta: bool) -> bool {
+        match to_esc_str(keystroke, self.last_content.mode, option_as_meta) {
             Some(Cow::Borrowed(esc)) => self.input(esc.as_bytes()),
             Some(Cow::Owned(esc)) => self.input(esc.into_bytes()),
             None => return false,
@@ -155,6 +156,24 @@ impl Terminal {
             text.replace("\r\n", "\r").replace('\n', "\r")
         };
         self.input(text.into_bytes());
+    }
+
+    /// drop scrollback and everything above the cursor line, which moves to the top
+    pub fn clear(&mut self) {
+        let mut term = self.term.lock();
+        // full screen programs own their screen, they redraw it themselves
+        if !term.mode().contains(TermMode::ALT_SCREEN) {
+            // moving the cursor line to the top keeps the prompt and typed text. asking the
+            // shell to redraw with ctrl-l would also reach any program running in it
+            let cursor = term.grid().cursor.point;
+            term.scroll_up(cursor.line.0.max(0) as usize);
+            term.goto(0, cursor.column.0);
+            term.clear_screen(ClearMode::Saved);
+            term.selection = None;
+        }
+        drop(term);
+        self.events.push(InternalEvent::Scroll(Scroll::Bottom));
+        self.dirty.store(true, Ordering::Release);
     }
 
     /// report focus changes to programs that ask for that

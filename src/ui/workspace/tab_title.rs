@@ -49,8 +49,28 @@ fn prompt() -> String {
     let user = USER.get_or_init(user_name);
     let host = std::fs::read_to_string("/proc/sys/kernel/hostname")
         .or_else(|_| std::fs::read_to_string("/etc/hostname"))
+        .ok()
+        .or_else(system_host)
         .unwrap_or_default();
     format!("{user}@{}", host.trim())
+}
+
+// macos has neither hostname file
+#[cfg(target_os = "macos")]
+fn system_host() -> Option<String> {
+    let mut buf = [0u8; 256];
+    if unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) } != 0 {
+        return None;
+    }
+    let name = &buf[..buf.iter().position(|b| *b == 0)?];
+    // "name.local" is shown as "name", like the \h of shell prompts
+    let name = String::from_utf8_lossy(name);
+    Some(name.split('.').next()?.to_string())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn system_host() -> Option<String> {
+    None
 }
 
 // USER is often unset in containers and services, so fall back to other vars and /etc/passwd
