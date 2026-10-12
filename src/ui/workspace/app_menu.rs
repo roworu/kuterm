@@ -1,10 +1,6 @@
 //! menu bar and dock menu, macos shows them, plus folders the system asks to open
 
-use std::{
-    ffi::OsString,
-    os::unix::ffi::OsStringExt,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use gpui::{App, Menu, MenuItem, OsAction, SystemMenuType};
 
@@ -93,14 +89,24 @@ pub fn open_urls(urls: &[String], cx: &mut App) {
 
 // a file opens in its folder
 fn folder_of(url: &str) -> Option<PathBuf> {
-    let path = PathBuf::from(OsString::from_vec(percent_decode(
-        url.strip_prefix("file://")?,
-    )?));
+    let path = path_from_bytes(percent_decode(url.strip_prefix("file://")?)?)?;
     if path.is_dir() {
         Some(path)
     } else {
         path.parent().map(Path::to_path_buf)
     }
+}
+
+#[cfg(unix)]
+fn path_from_bytes(bytes: Vec<u8>) -> Option<PathBuf> {
+    use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+    Some(PathBuf::from(OsString::from_vec(bytes)))
+}
+
+// windows paths are not raw bytes, so only utf-8 ones can come from a url
+#[cfg(not(unix))]
+fn path_from_bytes(bytes: Vec<u8>) -> Option<PathBuf> {
+    String::from_utf8(bytes).ok().map(PathBuf::from)
 }
 
 fn percent_decode(text: &str) -> Option<Vec<u8>> {
