@@ -14,7 +14,9 @@ DARK = bundled_theme(True)
 
 
 def plain(app_factory, **settings) -> App:
-    return app_factory({"theme": {"mode": "dark"}, "window_title": ["number"], **settings})
+    # a blinking cursor repaints on purpose, the idle numbers are for a still one
+    terminal = {"cursor_blink": "off", **settings.pop("terminal", {})}
+    return app_factory({"theme": {"mode": "dark"}, "window_title": ["number"], "terminal": terminal, **settings})
 
 
 def cycle_tabs(app: App, count: int) -> None:
@@ -51,9 +53,22 @@ def test_idle_cpu(app_factory, report_note):
     assert usage < 0.05
 
 
+def test_idle_cpu_after_cursor_stops_blinking(app_factory, report_note):
+    """a blinking cursor stops after cursor_blink_timeout, then the window goes idle"""
+    app = plain(app_factory, terminal={"cursor_blink": "on", "cursor_blink_interval": 500,
+                                       "cursor_blink_timeout": 1})
+    app.key("ctrl+shift+t")
+    app.wait_title("2")
+    time.sleep(3)
+    usage = app.cpu_usage(5)
+    report_note("idle cpu after the cursor stopped blinking", f"{usage * 100:.1f} % of one core")
+    assert usage < 0.05
+
+
 def test_idle_cpu_while_unfocused_with_notification(app_factory, report_note):
     """a notification and a hidden window do not keep the cpu busy"""
-    app = app_factory({"theme": {"mode": "dark"}, "notifications": {"timeout": 0}},
+    app = app_factory({"theme": {"mode": "dark"}, "notifications": {"timeout": 0},
+                       "terminal": {"cursor_blink": "off"}},
                       commands={"commands": [{"name": "note", "actions": [{"notify": "stays"}]}]})
     app.palette("note")
     time.sleep(3)

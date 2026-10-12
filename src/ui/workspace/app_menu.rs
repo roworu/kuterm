@@ -25,7 +25,7 @@ pub fn app_menus() -> Vec<Menu> {
             MenuItem::action("About kuterm", OpenAbout),
             MenuItem::separator(),
             run("Settings…", CommandAction::OpenSettings),
-            run("Reload All Configs", CommandAction::ReloadAll),
+            run("Reload Config", CommandAction::ReloadConfig),
             MenuItem::separator(),
             MenuItem::os_submenu("Services", SystemMenuType::Services),
             MenuItem::separator(),

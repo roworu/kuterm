@@ -2917,15 +2917,17 @@ dependencies = [
 
 [[package]]
 name = "kuterm"
-version = "0.0.8"
+version = "0.0.9"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
+ "base64",
  "futures",
  "gpui",
  "gpui_platform",
  "image",
  "libc",
+ "polling",
  "serde",
  "serde_json_lenient",
  "skrifa 0.47.0",

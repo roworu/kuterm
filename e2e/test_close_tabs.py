@@ -18,7 +18,7 @@ def side_app(app_factory) -> App:
     """fixed tab width 200 so the tab count can be read from the bar, bundled commands used"""
     app = app_factory(
         {"theme": {"mode": "dark"}, "window_title": TITLE, "tab_width": 200},
-        files={"themes/dark.jsonc": THEME},
+        themes={"dark": THEME},
     )
     app.mouse(450, 500)
     return app

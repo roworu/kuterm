@@ -1,10 +1,11 @@
 """config files at startup and command line options: created defaults, broken files, partial files, cli flags"""
 
 import subprocess
+import time
 
 import pytest
 
-from harness import ASSETS, BIN, BASH, App, bundled_theme, close_to, dominant, session_env
+from harness import ASSETS, BIN, BASH, App, bundled_settings, bundled_theme, close_to, dominant, near, session_env
 
 FEATURE = "config files and command line"
 
@@ -14,12 +15,8 @@ LIGHT = bundled_theme(False)
 # config file name to the bundled asset it is created from
 CREATED = {
     "settings.jsonc": "default_settings.jsonc",
-    "keybindings.jsonc": "default_keybindings.jsonc",
-    "commands.jsonc": "default_commands.jsonc",
-    "tab_icons.jsonc": "default_tab_icons.jsonc",
-    "themes/dark.jsonc": "default_theme_dark.jsonc",
-    "themes/light.jsonc": "default_theme_light.jsonc",
 }
+
 
 
 def background(app: App) -> tuple:
@@ -27,12 +24,13 @@ def background(app: App) -> tuple:
 
 
 def test_missing_config_folder_is_created_with_bundled_files(app_factory):
-    """first launch writes every config file with the bundled defaults"""
+    """first launch writes only settings.jsonc with the bundled defaults"""
     app = app_factory(None)
     for name, asset in CREATED.items():
         path = app.config / name
         app.wait(path.exists, msg=f"{name} to be created")
         assert path.read_text() == (ASSETS / asset).read_text(), name
+    assert [p.name for p in app.config.iterdir()] == ["settings.jsonc"]
 
 
 def test_missing_config_home_uses_home_dot_config(app_factory):
@@ -62,7 +60,9 @@ def test_lenient_syntax_and_partial_settings(app_factory):
     }""" % __import__("json").dumps(BASH)
     app = app_factory(text)
     app.wait(lambda: close_to(background(app), DARK["terminal_background"]), msg="dark background")
-    assert app.pty_size() == app.expected_pty(900, 600)
+    # no remembered size here, the window fits the bundled grid size
+    window = bundled_settings()["window"]
+    assert app.pty_size() == (window["rows"], window["columns"])
 
 
 def test_valid_settings_file_is_not_rewritten(app_factory):
@@ -77,7 +77,7 @@ def test_valid_settings_file_is_not_rewritten(app_factory):
 def test_out_of_range_font_size_is_limited(app_factory, value, expected):
     """font sizes below the limit use the default, above it are capped, with a message"""
     app = app_factory({"terminal": {"font_size": value}})
-    app.wait(lambda: "terminal.font_size" in app.output(), msg="limit message")
+    app.wait(lambda: "terminal.font.size" in app.output(), msg="limit message")
     probe = App({"terminal": {"font_size": expected}} if expected != "default" else {}, start=False)
     assert app.pty_size() == probe.expected_pty(900, 600)
     probe.cleanup()
@@ -143,4 +143,32 @@ def test_recreate_confs_rewrites_defaults(app_factory):
     settings = app.config / "settings.jsonc"
     app.wait(lambda: settings.read_text() == (ASSETS / "default_settings.jsonc").read_text(),
              msg="settings rewritten")
-    assert (app.config / "keybindings.jsonc").read_text() == (ASSETS / "default_keybindings.jsonc").read_text()
+
+
+def test_broken_settings_error_is_shown_in_the_window(app_factory):
+    """an invalid settings file at launch shows its error inside the window too"""
+    app = app_factory('{"theme": {"mode": "dark"}, "tab_width": "wide"}')
+    # defaults run, so the error border has the bundled theme's danger color
+    theme = DARK if close_to(background(app), DARK["terminal_background"]) else LIGHT
+    app.wait(lambda: near(app.shot()[300:, 400:], theme["danger_button"]).sum() > 100, msg="error notification")
+    app.snap("launch error for a broken settings file")
+
+
+def test_old_split_files_are_ignored(app_factory):
+    """keybindings.jsonc from older versions is not read, keys live in settings.jsonc only"""
+    app = app_factory({"theme": {"mode": "dark"}, "window_title": ["number"]},
+                      files={"keybindings.jsonc": {"new_tab": "ctrl-shift-y"}})
+    app.key("ctrl+shift+y")
+    time.sleep(1.5)
+    assert app.title() == "1"
+    app.key("ctrl+shift+t")
+    app.wait_title("2")
+
+
+def test_os_block_overrides_on_this_os(app_factory):
+    """the "os" block of the running system is merged last, other systems are ignored"""
+    app = app_factory({"theme": {"mode": "light"}, "window_title": ["number"], "os": {
+        "linux": {"theme": {"mode": "dark"}}, "macos": {"window_title": ["folder"]}}})
+    app.wait(lambda: close_to(background(app), DARK["terminal_background"]), msg="dark from the linux block")
+    app.key("ctrl+shift+t")
+    app.wait_title("2")

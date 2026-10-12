@@ -18,7 +18,7 @@ def busy_app(app_factory, program: str = "sleep 1000", **settings) -> App:
     """two tabs, the active second one running program in the foreground"""
     app = app_factory({"theme": {"mode": "dark"}, "window_title": ["number", {"text": " "}, "command"],
                        "tab_width": 200, "tab_title": [{"text": "title"}], **settings},
-                      files={"themes/dark.jsonc": THEME})
+                      themes={"dark": THEME})
     app.mouse(450, 580)
     app.wait_title("1 bash")
     app.key("ctrl+shift+t")
@@ -201,7 +201,7 @@ def test_quit_asks_with_running_program(app_factory, how):
 @pytest.mark.parametrize("how", ["palette", "window"])
 def test_idle_quit_asks_nothing(app_factory, how):
     """with only shells in the tabs the app quits at once, ending the shells"""
-    app = app_factory({"theme": {"mode": "dark"}, "window_title": ["number"]}, files={"themes/dark.jsonc": THEME})
+    app = app_factory({"theme": {"mode": "dark"}, "window_title": ["number"]}, themes={"dark": THEME})
     app.run(f"echo $$ > {app.file('shell')}")
     shell = int(app.wait_file("shell"))
     if how == "palette":
@@ -213,9 +213,9 @@ def test_idle_quit_asks_nothing(app_factory, how):
 
 
 @pytest.mark.parametrize("how", ["palette", "window"])
-def test_disabled_warning_quits_at_once(app_factory, how):
-    """close_running_tab_warn false quits a busy app without asking"""
-    app = busy_app(app_factory, program="sleep 1001", close_running_tab_warn=False)
+def test_disabled_confirm_quit_quits_at_once(app_factory, how):
+    """confirm_quit "never" quits a busy app without asking"""
+    app = busy_app(app_factory, program="sleep 1001", confirm_quit="never")
     pid = program_pid("sleep 1001")
     if how == "palette":
         app.palette("app quit")
@@ -223,6 +223,28 @@ def test_disabled_warning_quits_at_once(app_factory, how):
         app.wm_close()
     assert app.exit_code() == 0
     wait_until(lambda: gone(pid), msg="program ended with the app")
+
+
+@pytest.mark.parametrize("how", ["palette", "window"])
+def test_confirm_quit_always_asks_when_idle(app_factory, how):
+    """confirm_quit "always" asks even with only shells running"""
+    app = app_factory({"theme": {"mode": "dark"}, "confirm_quit": "always"}, themes={"dark": THEME})
+    quit_asked(app, how)
+    app.snap(f"asked before quitting ({how}) with nothing running")
+    app.key("Escape")
+    app.wait(lambda: dialog(app) is None, msg="dialog closed")
+    assert app.alive()
+    quit_asked(app, how)
+    app.key("Return")
+    assert app.exit_code() == 0
+
+
+def test_tab_warning_off_still_asks_before_quit(app_factory):
+    """close_running_tab_warn false closes tabs at once, quitting still follows confirm_quit"""
+    app = busy_app(app_factory, program="sleep 1001", close_running_tab_warn=False, confirm_quit="running")
+    quit_asked(app, "palette")
+    app.key("Return")
+    assert app.exit_code() == 0
 
 
 def panel(app: App) -> np.ndarray:
@@ -238,7 +260,7 @@ def test_dialog_names_inactive_tab(app_factory):
     """a middle click on a busy tab that is not active asks about that tab and closes it"""
     app = app_factory({"theme": {"mode": "dark"}, "window_title": ["number", {"text": " "}, "command"],
                        "tab_width": 200, "tab_title": [{"text": "tab "}, "number"]},
-                      files={"themes/dark.jsonc": THEME})
+                      themes={"dark": THEME})
     app.mouse(450, 580)
     app.key("ctrl+shift+t")
     app.wait_title("2 bash")

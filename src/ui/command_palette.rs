@@ -1,4 +1,5 @@
-//! command palette, the about page it opens and the close tab dialog, all float over the terminal
+//! command palette, the about page it opens and the close tab and paste dialogs, all float over
+//! the terminal
 
 use gpui::{
     App, Bounds, Context, DismissEvent, Entity, EntityId, EventEmitter, FocusHandle, Focusable,
@@ -491,26 +492,40 @@ impl ConfirmClose {
     }
 
     fn key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
-        let modifiers = &event.keystroke.modifiers;
-        // answers need a bare key, so a shell shortcut like ctrl+y typed by habit answers nothing.
-        // shift is still allowed on the letters
-        let plain = !modifiers.modified();
-        let letter =
-            !(modifiers.control || modifiers.alt || modifiers.platform || modifiers.function);
-        match event.keystroke.key.as_str() {
-            "enter" if plain && self.close_selected => cx.emit(CloseConfirmed),
-            "enter" if plain => cx.emit(DismissEvent),
-            "y" if letter => cx.emit(CloseConfirmed),
-            "n" if letter => cx.emit(DismissEvent),
-            "escape" if plain => cx.emit(DismissEvent),
-            // "cancel" sits left of "close"
-            "left" | "up" => self.close_selected = false,
-            "right" | "down" => self.close_selected = true,
-            _ => {}
+        match dialog_answer(event, &mut self.close_selected) {
+            Some(true) => cx.emit(CloseConfirmed),
+            Some(false) => cx.emit(DismissEvent),
+            None => {}
         }
         cx.notify();
         // other keys must not reach the terminal behind the dialog
         cx.stop_propagation();
+    }
+}
+
+/// answer a key gives to a yes or no dialog, true for yes. arrows move `yes_selected`, the
+/// button enter presses
+fn dialog_answer(event: &KeyDownEvent, yes_selected: &mut bool) -> Option<bool> {
+    let modifiers = &event.keystroke.modifiers;
+    // answers need a bare key, so a shell shortcut like ctrl+y typed by habit answers nothing.
+    // shift is still allowed on the letters
+    let plain = !modifiers.modified();
+    let letter = !(modifiers.control || modifiers.alt || modifiers.platform || modifiers.function);
+    match event.keystroke.key.as_str() {
+        "enter" if plain => Some(*yes_selected),
+        "y" if letter => Some(true),
+        "n" if letter => Some(false),
+        "escape" if plain => Some(false),
+        // "cancel" sits left of the yes button
+        "left" | "up" => {
+            *yes_selected = false;
+            None
+        }
+        "right" | "down" => {
+            *yes_selected = true;
+            None
+        }
+        _ => None,
     }
 }
 
@@ -585,6 +600,164 @@ impl Render for ConfirmClose {
     }
 }
 
+// lines and chars per line the paste dialog shows of the text
+const PASTE_PREVIEW_LINES: usize = 6;
+const PASTE_PREVIEW_CHARS: usize = 80;
+
+/// emitted when pasting is confirmed
+pub struct PasteConfirmed;
+
+/// asks before pasting text that would run right away or has control characters
+pub struct ConfirmPaste {
+    focus_handle: FocusHandle,
+    /// first lines of the text, control characters made visible
+    preview: Vec<String>,
+    /// lines not in the preview
+    more_lines: usize,
+    /// true while "paste" is the button enter presses, false for "cancel"
+    paste_selected: bool,
+}
+
+impl EventEmitter<DismissEvent> for ConfirmPaste {}
+impl EventEmitter<PasteConfirmed> for ConfirmPaste {}
+
+impl ConfirmPaste {
+    /// dialog previewing `text`, ready to be focused
+    pub fn new(text: &str, cx: &mut Context<Self>) -> Self {
+        let (preview, more_lines) = paste_preview(text);
+        Self {
+            focus_handle: cx.focus_handle(),
+            preview,
+            more_lines,
+            // enter right after the paste key must not paste by habit
+            paste_selected: false,
+        }
+    }
+
+    /// shown lines, exposed for tests
+    #[cfg(test)]
+    pub(crate) fn preview(&self) -> &[String] {
+        &self.preview
+    }
+
+    fn key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
+        match dialog_answer(event, &mut self.paste_selected) {
+            Some(true) => cx.emit(PasteConfirmed),
+            Some(false) => cx.emit(DismissEvent),
+            None => {}
+        }
+        cx.notify();
+        cx.stop_propagation();
+    }
+}
+
+/// first lines of a paste with control characters in caret notation, like ^[ for escape,
+/// and how many lines are left out
+fn paste_preview(text: &str) -> (Vec<String>, usize) {
+    let lines: Vec<&str> = text.lines().collect();
+    let preview = lines
+        .iter()
+        .take(PASTE_PREVIEW_LINES)
+        .map(|line| {
+            let mut shown = String::new();
+            for c in line.chars() {
+                match c {
+                    '\t' => shown.push_str("    "),
+                    c if (c as u32) < 0x20 => {
+                        shown.push('^');
+                        shown.push(char::from(c as u8 + b'@'));
+                    }
+                    '\x7f' => shown.push_str("^?"),
+                    c if c.is_control() => shown.push_str(&format!("<{:02x}>", c as u32)),
+                    c => shown.push(c),
+                }
+            }
+            if shown.chars().count() > PASTE_PREVIEW_CHARS {
+                shown = shown.chars().take(PASTE_PREVIEW_CHARS - 1).collect();
+                shown.push('…');
+            }
+            shown
+        })
+        .collect();
+    (preview, lines.len().saturating_sub(PASTE_PREVIEW_LINES))
+}
+
+impl Focusable for ConfirmPaste {
+    fn focus_handle(&self, _: &App) -> FocusHandle {
+        self.focus_handle.clone()
+    }
+}
+
+impl Render for ConfirmPaste {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = Theme::get(cx);
+        let button = |id: &'static str, label: &'static str, selected: bool| {
+            div()
+                .id(id)
+                .debug_selector(move || id.into())
+                .px_3()
+                .py_1()
+                .rounded_sm()
+                .border_1()
+                .border_color(if selected { theme.text } else { theme.border })
+                .child(label)
+        };
+        panel(theme)
+            .id("confirm-paste")
+            .debug_selector(|| "confirm-paste".into())
+            .track_focus(&self.focus_handle)
+            .key_context("ConfirmPaste")
+            .on_key_down(cx.listener(Self::key_down))
+            .occlude()
+            .on_mouse_down_out(cx.listener(|_, _, _, cx| cx.emit(DismissEvent)))
+            .p_4()
+            .gap_2()
+            .child("paste this text?")
+            .child(div().text_color(theme.text_muted).child(
+                "it has new lines or control characters, the program gets them as typed keys",
+            ))
+            .child(
+                div()
+                    .px_2()
+                    .py_1()
+                    .rounded_sm()
+                    .bg(theme.terminal_background)
+                    .text_color(theme.terminal_foreground)
+                    .whitespace_nowrap()
+                    .overflow_hidden()
+                    .children(self.preview.iter().map(|line| div().child(line.clone())))
+                    .when(self.more_lines > 0, |preview| {
+                        preview.child(
+                            div()
+                                .text_color(theme.text_muted)
+                                .child(format!("… {} more lines", self.more_lines)),
+                        )
+                    }),
+            )
+            .child(
+                div()
+                    .flex()
+                    .justify_end()
+                    .gap_2()
+                    .child(
+                        button("confirm-paste-cancel", "cancel", !self.paste_selected)
+                            .when(!self.paste_selected, |button| {
+                                button.bg(theme.tab_active_background)
+                            })
+                            .hover(|button| button.bg(theme.tab_active_background))
+                            .on_click(cx.listener(|_, _, _, cx| cx.emit(DismissEvent))),
+                    )
+                    .child(
+                        button("confirm-paste-ok", "paste", self.paste_selected)
+                            .bg(theme.danger_button)
+                            .text_color(theme.danger_button_text)
+                            .hover(|button| button.opacity(0.85))
+                            .on_click(cx.listener(|_, _, _, cx| cx.emit(PasteConfirmed))),
+                    ),
+            )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -613,5 +786,16 @@ mod tests {
         // a very long list keeps the minimum thumb height
         let tall = scrollbar_thumb(track, 0., 100_000.).unwrap();
         assert_eq!(tall.size.height, px(SCROLLBAR_MIN_THUMB));
+    }
+
+    #[test]
+    fn paste_preview_shows_control_characters_and_cuts_long_text() {
+        let text = "echo \x1b[31mred\t!\n".to_string() + &"x".repeat(200) + "\n3\n4\n5\n6\n7\n8";
+        let (preview, more) = super::paste_preview(&text);
+        assert_eq!(preview[0], "echo ^[[31mred    !");
+        assert_eq!(preview[1].chars().count(), super::PASTE_PREVIEW_CHARS);
+        assert!(preview[1].ends_with('…'));
+        assert_eq!(preview.len(), super::PASTE_PREVIEW_LINES);
+        assert_eq!(more, 2);
     }
 }

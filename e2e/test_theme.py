@@ -1,4 +1,4 @@
-"""theme colors as painted on screen: bundled dark and light, custom files, broken files, system mode"""
+"""theme colors as painted on screen: bundled dark and light, named themes, theme files, broken ones, system mode"""
 
 import time
 
@@ -42,11 +42,11 @@ def test_bundled_theme(app_factory, mode):
 
 
 @pytest.mark.parametrize("mode", ["dark", "light"])
-def test_custom_theme_file(app_factory, mode):
-    """a full custom theme file paints every color, tab bar included"""
+def test_custom_theme(app_factory, mode):
+    """a full custom theme in settings paints every color, tab bar included"""
     theme = unique_theme(0x30 if mode == "dark" else 0x90)
     app = app_factory({"theme": {"mode": mode}, "hide_bar_for_one_tab": False}, script=PALETTE,
-                      files={f"themes/{mode}.jsonc": theme})
+                      themes={mode: theme})
     colors = as_rgb(theme)
     top = app.bar_height()
     app.wait(lambda: close_to(app.cells_color(45, 0, 3, top=top), colors["ansi"][15], 3), msg="palette")
@@ -61,18 +61,18 @@ def test_custom_theme_file(app_factory, mode):
 
 @pytest.mark.parametrize("mode", ["dark", "light"])
 def test_partial_theme_keeps_bundled_colors(app_factory, mode):
-    """a theme file with a few colors keeps the bundled ones for the rest"""
+    """a theme with a few colors keeps the bundled ones for the rest"""
     app = app_factory({"theme": {"mode": mode}}, script=PALETTE,
-                      files={f"themes/{mode}.jsonc": {"terminal_background": "#102030"}})
+                      themes={mode: {"terminal_background": "#102030"}})
     theme = dict(bundled_theme(mode == "dark"), terminal_background=(0x10, 0x20, 0x30))
     check_palette(app, theme)
 
 
 @pytest.mark.parametrize("mode", ["dark", "light"])
 def test_theme_of_other_mode_is_not_used(app_factory, mode):
-    """the custom file of the other mode does not leak into this one"""
+    """the custom theme of the other mode does not leak into this one"""
     other = "light" if mode == "dark" else "dark"
-    app = app_factory({"theme": {"mode": mode}}, files={f"themes/{other}.jsonc": unique_theme(0x50)})
+    app = app_factory({"theme": {"mode": mode}}, themes={other: unique_theme(0x50)})
     theme = bundled_theme(mode == "dark")
     app.wait(lambda: close_to(dominant(app.shot()), theme["terminal_background"]), msg="bundled background")
 
@@ -86,26 +86,59 @@ def test_null_theme_path_uses_bundled(app_factory, mode):
     assert not (app.config / f"themes/{mode}.jsonc").exists()
 
 
+@pytest.mark.parametrize("mode", ["dark", "light"])
+def test_theme_file(app_factory, mode):
+    """a path instead of a theme name reads that file, relative to the config folder"""
+    theme = unique_theme(0x60)
+    app = app_factory({"theme": {"mode": mode, mode: "mine/theme.jsonc"}}, script=PALETTE,
+                      files={"mine/theme.jsonc": theme})
+    check_palette(app, as_rgb(theme))
+
+
+def test_theme_name_from_themes_folder(app_factory):
+    """a name not in "themes" is looked up as a file in the themes folder"""
+    theme = unique_theme(0x61)
+    app = app_factory({"theme": {"mode": "dark", "dark": "nord-ish"}}, script=PALETTE,
+                      files={"themes/nord-ish.jsonc": theme})
+    check_palette(app, as_rgb(theme))
+
+
 @pytest.mark.parametrize("content", ["{", '{"ansi": ["#fff"]}', '{"cursor": "red"}'])
 def test_broken_theme_file_falls_back_to_bundled(app_factory, content):
     """an invalid theme file prints an error and paints the bundled theme"""
-    app = app_factory({"theme": {"mode": "dark"}}, script=PALETTE, files={"themes/dark.jsonc": content})
+    app = app_factory({"theme": {"mode": "dark", "dark": "mine.jsonc"}}, script=PALETTE,
+                      files={"mine.jsonc": content})
     check_palette(app, bundled_theme(True))
     assert "invalid theme" in app.output()
 
 
-def test_missing_theme_files_are_created(app_factory):
-    """missing theme files are created as copies of the bundled ones"""
-    app = app_factory({"theme": {"mode": "dark", "dark": "t/d.jsonc", "light": "t/l.jsonc"}})
-    app.wait(lambda: (app.config / "t/d.jsonc").exists() and (app.config / "t/l.jsonc").exists(),
-             msg="theme files")
+@pytest.mark.parametrize("colors", [{"ansi": ["#fff"]}, {"cursor": "red"}])
+def test_broken_named_theme_falls_back_to_bundled(app_factory, colors):
+    """an invalid theme in settings prints an error naming it and paints the bundled theme"""
+    app = app_factory({"theme": {"mode": "dark"}}, script=PALETTE, themes={"dark": colors})
+    check_palette(app, bundled_theme(True))
+    assert 'invalid theme "dark"' in app.output()
+
+
+def test_unknown_theme_name_falls_back_to_bundled(app_factory):
+    """a theme name missing from "themes" is reported, the bundled theme is used"""
+    app = app_factory({"theme": {"mode": "dark", "dark": "nope"}}, script=PALETTE)
+    check_palette(app, bundled_theme(True))
+    assert 'unknown theme "nope"' in app.output()
+
+
+def test_missing_theme_file_is_reported_not_created(app_factory):
+    """a missing theme file is an error, kuterm writes no theme files"""
+    app = app_factory({"theme": {"mode": "dark", "dark": "t/d.jsonc"}})
+    app.wait(lambda: "t/d.jsonc" in app.output(), msg="error naming the file")
+    assert not (app.config / "t/d.jsonc").exists()
 
 
 @pytest.mark.parametrize("value,expected", [("#f0f", "#ff00ff"), ("#f0f8", "#ff00ff"),
                                             ("#123456", "#123456"), ("#12345678", "#123456")])
 def test_hex_color_formats(app_factory, value, expected):
     """#rgb, #rgba, #rrggbb and #rrggbbaa colors are accepted"""
-    app = app_factory({"theme": {"mode": "dark"}}, files={"themes/dark.jsonc": {"terminal_background": value}})
+    app = app_factory({"theme": {"mode": "dark"}}, themes={"dark": {"terminal_background": value}})
     # alpha blends with black, so alpha values keep the hue but get darker
     got = dominant(app.shot())
     if len(value) in (5, 9):

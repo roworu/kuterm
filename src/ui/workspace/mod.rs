@@ -3,14 +3,16 @@
 mod app_menu;
 mod end_truncated;
 mod notifications;
+mod session;
 mod tab_bar;
 mod tab_icon;
 mod tab_title;
+mod window;
 
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 use futures::{
@@ -25,18 +27,22 @@ use gpui::{
 pub use app_menu::{app_menus, dock_menu, open_urls};
 use notifications::Notification;
 use tab_title::TitleInputs;
+pub use window::{background_appearance, startup_bounds, window_decorations};
 
 use crate::{
     cli::Cli,
     settings::{
-        Command, CommandAction, Commands, Keybindings, Pins, Profile, Settings, TabIconSettings,
-        TabIcons, TabTitleBlock,
+        Command, CommandAction, Commands, Config, ConfigFiles, ConfirmQuit, Profile, Settings,
+        Shell, TabIconSettings, TabIcons, TabTitleBlock,
     },
-    terminal::{Event, Terminal, TerminalBuilder, foreground_process},
+    terminal::{Event, Terminal, TerminalBuilder, foreground_process, with_shell_integration},
     theme::Theme,
     ui::{
-        command_palette::{About, CloseConfirmed, CloseTarget, CommandPalette, ConfirmClose},
-        terminal_view::{ClipboardEvent, TerminalView},
+        command_palette::{
+            About, CloseConfirmed, CloseTarget, CommandPalette, ConfirmClose, ConfirmPaste,
+            PasteConfirmed,
+        },
+        terminal_view::{ClipboardEvent, TerminalView, copied_text},
     },
 };
 
@@ -80,6 +86,11 @@ const QUIT_DIALOG_MAX_NAMES: usize = 3;
 // a fresh shell prints startup output before its prompt, so typed input waits for a short
 // quiet gap. writing sooner lets the tty echo the input before the shell reads it
 const SHELL_READY_SETTLE: Duration = Duration::from_millis(50);
+// how often config files are checked for changes, polling needs no watcher per platform
+// and sees files outside the config folder and editors that replace files on save
+const CONFIG_POLL: Duration = Duration::from_millis(250);
+// editors save in steps, like truncate then write, so a change is read once it settles
+const CONFIG_SETTLE: Duration = Duration::from_millis(100);
 
 // tab title blocks, window title blocks, icon settings, program icons, active tab, per tab inputs
 type TitleSnapshot = (
@@ -93,6 +104,8 @@ type TitleSnapshot = (
 
 struct Tab {
     view: Entity<TerminalView>,
+    /// name of the profile it was opened with
+    profile: String,
     /// built from `tab_title` blocks, empty until the first refresh
     title: String,
     icon: String,
@@ -104,8 +117,25 @@ struct Tab {
     ready_task: Task<()>,
     /// input a command queued before the shell was ready
     pending_input: Vec<u8>,
+    /// the bell rang while the tab was in the background, cleared when it is shown
+    bell: bool,
+    /// file only this tab uses, like the history its pager shows, removed with the tab
+    temp_file: Option<PathBuf>,
     _subscriptions: [Subscription; 2],
 }
+
+impl Drop for Tab {
+    fn drop(&mut self) {
+        if let Some(path) = &self.temp_file {
+            std::fs::remove_file(path).ok();
+        }
+    }
+}
+
+/// path of the remote control socket while kuterm listens on it
+pub struct RemoteSocket(pub PathBuf);
+
+impl gpui::Global for RemoteSocket {}
 
 /// pane grouping its own tabs and active terminal
 struct Pane {
@@ -165,11 +195,38 @@ impl LayoutNode {
         }
     }
 
+    /// pane id and index of the tab whose view has this id
+    fn find_tab(&self, id: EntityId) -> Option<(usize, usize)> {
+        match self {
+            Self::Leaf(pane) => pane
+                .tabs
+                .iter()
+                .position(|tab| tab.view.entity_id() == id)
+                .map(|ix| (pane.id, ix)),
+            Self::Split { first, second, .. } => first.find_tab(id).or_else(|| second.find_tab(id)),
+            Self::Empty => None,
+        }
+    }
+
     fn contains(&self, id: usize) -> bool {
         match self {
             Self::Leaf(pane) => pane.id == id,
             Self::Split { first, second, .. } => first.contains(id) || second.contains(id),
             Self::Empty => false,
+        }
+    }
+
+    /// pane at the top right corner of the window, where window buttons go
+    fn corner_pane_id(&self) -> Option<usize> {
+        match self {
+            Self::Leaf(pane) => Some(pane.id),
+            Self::Split {
+                axis: SplitAxis::Horizontal,
+                second,
+                ..
+            } => second.corner_pane_id(),
+            Self::Split { first, .. } => first.corner_pane_id(),
+            Self::Empty => None,
         }
     }
 
@@ -264,6 +321,149 @@ impl LayoutNode {
     }
 }
 
+/// place of a pane in the window, as shares of its width and height
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct PaneRect {
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+}
+
+impl LayoutNode {
+    /// every pane with its place, for moving focus between panes by direction
+    fn rects(&self, rect: PaneRect, out: &mut Vec<(usize, PaneRect)>) {
+        match self {
+            Self::Leaf(pane) => out.push((pane.id, rect)),
+            Self::Split {
+                axis,
+                ratio,
+                first,
+                second,
+            } => {
+                let (a, b) = match axis {
+                    SplitAxis::Horizontal => (
+                        PaneRect {
+                            w: rect.w * ratio,
+                            ..rect
+                        },
+                        PaneRect {
+                            x: rect.x + rect.w * ratio,
+                            w: rect.w * (1. - ratio),
+                            ..rect
+                        },
+                    ),
+                    SplitAxis::Vertical => (
+                        PaneRect {
+                            h: rect.h * ratio,
+                            ..rect
+                        },
+                        PaneRect {
+                            y: rect.y + rect.h * ratio,
+                            h: rect.h * (1. - ratio),
+                            ..rect
+                        },
+                    ),
+                };
+                first.rects(a, out);
+                second.rects(b, out);
+            }
+            Self::Empty => {}
+        }
+    }
+
+    /// panes side by side along `axis`, nested splits the other way count as one
+    fn panes_along(&self, axis: SplitAxis) -> usize {
+        match self {
+            Self::Split {
+                axis: own,
+                first,
+                second,
+                ..
+            } if *own == axis => first.panes_along(axis) + second.panes_along(axis),
+            Self::Split { first, second, .. } => {
+                first.panes_along(axis).max(second.panes_along(axis))
+            }
+            Self::Leaf(_) | Self::Empty => 1,
+        }
+    }
+
+    /// size splits so panes in a row or column get the same share
+    fn equalize(&mut self) {
+        if let Self::Split {
+            axis,
+            ratio,
+            first,
+            second,
+        } = self
+        {
+            let (a, b) = (first.panes_along(*axis), second.panes_along(*axis));
+            *ratio = a as f32 / (a + b) as f32;
+            first.equalize();
+            second.equalize();
+        }
+    }
+
+    /// move the divider of the innermost `axis` split around pane `id` by `delta`,
+    /// false when no such split holds it
+    fn move_divider(&mut self, id: usize, axis: SplitAxis, delta: f32) -> bool {
+        let Self::Split {
+            axis: own,
+            ratio,
+            first,
+            second,
+        } = self
+        else {
+            return false;
+        };
+        let inner = if first.contains(id) { first } else { second };
+        if !inner.contains(id) {
+            return false;
+        }
+        if inner.move_divider(id, axis, delta) {
+            return true;
+        }
+        if *own != axis {
+            return false;
+        }
+        *ratio = (*ratio + delta).clamp(MIN_SPLIT_RATIO, 1.0 - MIN_SPLIT_RATIO);
+        true
+    }
+}
+
+/// pane next to `from` on `side`: overlapping it the other way, closest first
+fn neighbor(rects: &[(usize, PaneRect)], from: usize, side: DropSide) -> Option<usize> {
+    // shares of the window, a little slack for float sums of ratios
+    const EPSILON: f32 = 1e-4;
+    let (_, here) = *rects.iter().find(|(id, _)| *id == from)?;
+    rects
+        .iter()
+        .filter(|(id, _)| *id != from)
+        .filter_map(|(id, r)| {
+            let (gap, overlap) = match side {
+                DropSide::Left => (here.x - (r.x + r.w), overlap(here.y, here.h, r.y, r.h)),
+                DropSide::Right => (r.x - (here.x + here.w), overlap(here.y, here.h, r.y, r.h)),
+                DropSide::Top => (here.y - (r.y + r.h), overlap(here.x, here.w, r.x, r.w)),
+                DropSide::Bottom => (r.y - (here.y + here.h), overlap(here.x, here.w, r.x, r.w)),
+            };
+            (gap > -EPSILON && overlap > EPSILON).then_some((*id, gap, overlap))
+        })
+        // nearest, then the one sharing the longest edge
+        .min_by(|a, b| {
+            (a.1, -a.2)
+                .partial_cmp(&(b.1, -b.2))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .map(|(id, _, _)| id)
+}
+
+fn overlap(a: f32, a_len: f32, b: f32, b_len: f32) -> f32 {
+    (a + a_len).min(b + b_len) - a.max(b)
+}
+
+// share of the window one resize step moves a divider
+const RESIZE_STEP: f32 = 0.05;
+
 /// side of `bounds` the pointer at `position` is closest to
 fn drop_side(bounds: Bounds<Pixels>, position: Point<Pixels>) -> DropSide {
     let dx = (position.x - bounds.left()) / bounds.size.width;
@@ -306,6 +506,8 @@ pub struct Workspace {
     layout: LayoutNode,
     /// pane with focus, its active tab is the active tab of the window
     focused: usize,
+    /// pane shown alone over the others, none shows every pane
+    zoomed: Option<usize>,
     next_pane_id: usize,
     /// pane edge a dragged tab would split at, none while no tab drags over a pane
     drop_zone: Option<(usize, DropSide)>,
@@ -319,6 +521,8 @@ pub struct Workspace {
     about: Option<Entity<About>>,
     /// open close tab dialog, none while it is closed
     confirm_close: Option<Entity<ConfirmClose>>,
+    /// open paste dialog, none while it is closed
+    confirm_paste: Option<Entity<ConfirmPaste>>,
     _overlay_subscriptions: Vec<Subscription>,
     /// labels of commands run from the palette, most recent first
     recent_commands: Vec<String>,
@@ -328,13 +532,38 @@ pub struct Workspace {
     /// true asks for titles right away, false lets output driven refreshes wait for the gap
     refresh_titles: UnboundedSender<bool>,
     _title_task: Task<()>,
+    /// reloads the config when one of its files changes
+    _config_watch: Task<()>,
     /// set once quitting is decided, so closing the window asks nothing more
     quitting: bool,
+    /// writes the window size once resizing stops
+    _size_save: Task<()>,
+}
+
+// modified time and size of each file, none for missing ones
+fn file_stamps(paths: &[PathBuf]) -> Vec<Option<(SystemTime, u64)>> {
+    paths
+        .iter()
+        .map(|path| {
+            let meta = std::fs::metadata(path).ok()?;
+            Some((meta.modified().ok()?, meta.len()))
+        })
+        .collect()
 }
 
 impl Workspace {
     /// create workspace with one terminal tab
+    #[cfg(test)]
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        Self::with_start(None, window, cx)
+    }
+
+    /// create a workspace, its first tab in `folder` when given, else last session or a new tab
+    pub fn with_start(
+        folder: Option<PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let (refresh_titles, mut refresh_rx) = unbounded();
         let title_task = cx.spawn_in(window, async move |this, cx| {
             loop {
@@ -414,6 +643,32 @@ impl Workspace {
                 while refresh_rx.try_recv().is_ok() {}
             }
         });
+        let config_watch = cx.spawn_in(window, async move |this, cx| {
+            let mut last = None;
+            loop {
+                let Ok(paths) = this.update(cx, |this, cx| this.watched_files(cx)) else {
+                    break;
+                };
+                // file stats may block on network folders
+                let stamps = cx
+                    .background_executor()
+                    .spawn(async move { (file_stamps(&paths), paths) })
+                    .await;
+                if last.as_ref().is_some_and(|last| *last != stamps) {
+                    cx.background_executor().timer(CONFIG_SETTLE).await;
+                    let Ok(()) =
+                        this.update_in(cx, |this, window, cx| this.reload_config(window, cx))
+                    else {
+                        break;
+                    };
+                    // the reload may watch other files, so stamps start over
+                    last = None;
+                    continue;
+                }
+                last = Some(stamps);
+                cx.background_executor().timer(CONFIG_POLL).await;
+            }
+        });
         let mut this = Self {
             layout: LayoutNode::Leaf(Pane {
                 id: 0,
@@ -422,6 +677,7 @@ impl Workspace {
                 tab_scroll: ScrollHandle::new(),
             }),
             focused: 0,
+            zoomed: None,
             next_pane_id: 1,
             drop_zone: None,
             window_title: String::new(),
@@ -429,13 +685,16 @@ impl Workspace {
             palette: None,
             about: None,
             confirm_close: None,
+            confirm_paste: None,
             _overlay_subscriptions: Vec::new(),
             recent_commands: Vec::new(),
             notifications: Vec::new(),
             next_notification_id: 0,
             refresh_titles,
             _title_task: title_task,
+            _config_watch: config_watch,
             quitting: false,
+            _size_save: Task::ready(()),
         };
         // the window manager's close button goes through here, false keeps the window open
         let workspace = cx.weak_entity();
@@ -448,7 +707,27 @@ impl Workspace {
             this.reload_themes(window, cx);
         })
         .detach();
-        this.add_tab(window, cx);
+        cx.observe_window_bounds(window, |this: &mut Self, window, cx| {
+            this.window_resized(window, cx);
+        })
+        .detach();
+        window::apply_startup_mode(window, cx);
+        if let Some(folder) = folder {
+            this.open_folder(folder, window, cx);
+        } else {
+            // only the first window brings the last session back, a window being built
+            // is not listed yet
+            let alone = cx.windows().is_empty();
+            if !(alone && this.open_session(window, cx)) {
+                this.add_tab(window, cx);
+            }
+        }
+        // config problems from launch, printed before any window could show them
+        if cx.has_global::<ConfigFiles>() {
+            for problem in std::mem::take(&mut cx.global_mut::<ConfigFiles>().problems) {
+                this.show_error(problem, cx);
+            }
+        }
         this
     }
 
@@ -467,13 +746,8 @@ impl Workspace {
 
     /// pane and tab index of the tab with this view id
     fn find_id(&self, id: EntityId) -> Option<(usize, usize)> {
-        self.layout.panes().into_iter().find_map(|pane| {
-            let ix = pane
-                .tabs
-                .iter()
-                .position(|tab| tab.view.entity_id() == id)?;
-            Some((pane.id, ix))
-        })
+        // runs on every output wakeup, so it walks the tree without collecting panes
+        self.layout.find_tab(id)
     }
 
     fn find_view(&self, view: &Entity<TerminalView>) -> Option<(usize, usize)> {
@@ -488,6 +762,10 @@ impl Workspace {
 
     /// give focus to a pane, focusing its active tab
     fn focus_pane(&mut self, pane_id: usize, window: &mut Window, cx: &mut Context<Self>) {
+        // a zoomed pane hides the others, so going to one of them ends the zoom
+        if self.zoomed.is_some_and(|zoomed| zoomed != pane_id) {
+            self.zoomed = None;
+        }
         self.focused = pane_id;
         if let Some(pane) = self.pane(pane_id)
             && let Some(tab) = pane.tabs.get(pane.active)
@@ -498,9 +776,35 @@ impl Workspace {
         cx.notify();
     }
 
-    /// open a tab with the default profile and switch to it
+    /// focus a pane the mouse moved over, only while a terminal has focus, so open overlays
+    /// like the palette keep it
+    pub(super) fn hover_pane(
+        &mut self,
+        pane_id: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let pane = self.focused_pane();
+        let in_terminal = pane
+            .tabs
+            .get(pane.active)
+            .is_some_and(|tab| tab.view.focus_handle(cx).is_focused(window));
+        if pane_id != self.focused && in_terminal {
+            self.focus_pane(pane_id, window, cx);
+        }
+    }
+
+    /// open a tab with the default profile and switch to it, in the folder the shell of the
+    /// active tab reported when the profile names none
     pub fn add_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let profile = Settings::get(cx).default_profile().clone();
+        let mut profile = Settings::get(cx).default_profile().clone();
+        if profile.working_directory.is_none() {
+            let pane = self.focused_pane();
+            profile.working_directory = pane.tabs.get(pane.active).and_then(|tab| {
+                let terminal = tab.view.read(cx).terminal().read(cx);
+                terminal.reported_cwd().map(Path::to_path_buf)
+            });
+        }
         self.add_profile_tab(self.focused, &profile, true, window, cx);
     }
 
@@ -521,7 +825,21 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let window_id = window.window_handle().window_id().as_u64();
-        let builder = match TerminalBuilder::new(&Settings::get(cx).terminal, profile, window_id) {
+        let settings = Settings::get(cx);
+        let mut profile = if settings.shell_integration.inject {
+            with_shell_integration(profile)
+        } else {
+            profile.clone()
+        };
+        // so `kuterm msg` run in the tab reaches this kuterm
+        if let Some(socket) = cx.try_global::<RemoteSocket>() {
+            profile
+                .env
+                .entry("KUTERM_SOCKET".into())
+                .or_insert_with(|| socket.0.to_string_lossy().into_owned());
+        }
+        let profile = &profile;
+        let builder = match TerminalBuilder::new(&settings.terminal, profile, window_id) {
             Ok(builder) => builder,
             Err(error) => {
                 eprintln!("failed to spawn terminal: {error:#}");
@@ -530,9 +848,24 @@ impl Workspace {
         };
         let terminal = cx.new(|cx| {
             let mut terminal = builder.subscribe(cx);
-            terminal.apply_theme(window.appearance());
+            let settings = Settings::get(cx);
+            terminal.apply_theme(window.appearance(), &settings.theme);
+            terminal.configure_graphics(settings.graphics.enable, settings.graphics.max_memory_mb);
             terminal
         });
+        self.attach_terminal(pane_id, terminal, profile, activate, window, cx);
+    }
+
+    /// show `terminal` in a new tab of pane `pane_id`, switching to it when `activate`
+    fn attach_terminal(
+        &mut self,
+        pane_id: usize,
+        terminal: Entity<Terminal>,
+        profile: &Profile,
+        activate: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let view = cx.new(|cx| TerminalView::new(terminal.clone(), window, cx));
 
         let subscription = cx.subscribe_in(&terminal, window, {
@@ -551,19 +884,36 @@ impl Workspace {
                     this.schedule_ready(&view, window, cx);
                     this.refresh_titles_later();
                 }
+                Event::Bell => this.ring_bell(&view, window, cx),
+                Event::ClipboardAsk { id, text } => {
+                    this.ask_clipboard(&view, *id, text.clone(), cx)
+                }
+                Event::CommandFinished { duration, exit } => {
+                    this.command_finished(&view, *duration, *exit, window, cx)
+                }
+                Event::Notify { title, body } => {
+                    this.program_notification(&view, title, body, window, cx)
+                }
             }
         });
-        let clipboard_subscription =
-            cx.subscribe(&view, |this, _, event: &ClipboardEvent, cx| match event {
+        let clipboard_subscription = cx.subscribe_in(
+            &view,
+            window,
+            |this, view, event: &ClipboardEvent, window, cx| match event {
                 ClipboardEvent::Copied(text) => this.notify_copied(text, cx),
                 ClipboardEvent::Pasted => this.notify_pasted(cx),
-            });
+                ClipboardEvent::ConfirmPaste(text) => {
+                    this.open_confirm_paste(view.clone(), text.clone(), window, cx)
+                }
+            },
+        );
 
         let Some(pane) = self.pane_mut(pane_id) else {
             return;
         };
         pane.tabs.push(Tab {
             view,
+            profile: profile.name.clone(),
             title: String::new(),
             icon: profile
                 .icon
@@ -573,6 +923,8 @@ impl Workspace {
             ready: false,
             ready_task: Task::ready(()),
             pending_input: Vec::new(),
+            bell: false,
+            temp_file: None,
             _subscriptions: [subscription, clipboard_subscription],
         });
         let ix = pane.tabs.len() - 1;
@@ -580,6 +932,30 @@ impl Workspace {
             self.activate_tab(pane_id, ix, window, cx);
         } else {
             self.refresh_titles();
+            cx.notify();
+        }
+    }
+
+    /// sound, window urgency and tab mark for a bell rung in the tab of `view`
+    fn ring_bell(
+        &mut self,
+        view: &Entity<TerminalView>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let bell = &Settings::get(cx).bell;
+        if bell.audio {
+            window.play_system_bell();
+        }
+        if bell.urgent && !window.is_window_active() {
+            window.request_attention();
+        }
+        if bell.tab_indicator
+            && let Some((pane_id, ix)) = self.find_view(view)
+            && let Some(pane) = self.pane_mut(pane_id)
+            && pane.active != ix
+        {
+            pane.tabs[ix].bell = true;
             cx.notify();
         }
     }
@@ -618,13 +994,22 @@ impl Workspace {
         terminal.update(cx, |terminal, _| terminal.input(input));
     }
 
-    /// terminal of the tab at `ix` in pane `pane_id`
-    fn terminal_at(&self, pane_id: usize, ix: usize, cx: &App) -> Entity<Terminal> {
+    /// view of the tab at `ix` in pane `pane_id`
+    fn view_at(&self, pane_id: usize, ix: usize) -> Entity<TerminalView> {
         self.pane(pane_id).expect("pane from caller").tabs[ix]
             .view
-            .read(cx)
-            .terminal()
             .clone()
+    }
+
+    /// last tab of the focused pane, where background tabs are added
+    fn last_tab_of_focused(&self) -> Option<(usize, usize)> {
+        let count = self.focused_pane().tabs.len();
+        Some((self.focused, count.saturating_sub(1)))
+    }
+
+    /// terminal of the tab at `ix` in pane `pane_id`
+    fn terminal_at(&self, pane_id: usize, ix: usize, cx: &App) -> Entity<Terminal> {
+        self.view_at(pane_id, ix).read(cx).terminal().clone()
     }
 
     /// write input to the tab at `ix` in pane `pane_id`, holding it back until a fresh shell is ready
@@ -655,6 +1040,7 @@ impl Workspace {
                 return;
             };
             pane.active = ix;
+            pane.tabs[ix].bell = false;
             pane.tab_scroll.scroll_to_item(ix);
             pane.tabs[ix].view.clone()
         };
@@ -760,9 +1146,15 @@ impl Workspace {
         let Some((tab, empty)) = self.take_tab(src_pane, src_ix) else {
             return;
         };
+        self.zoomed = None;
         if empty && src_pane == target {
             // the pane stays, so it needs a shell to show in place of the moved tab
-            let profile = Settings::get(cx).default_profile().clone();
+            let mut profile = Settings::get(cx).default_profile().clone();
+            if Settings::get(cx).panes.split_inherits_cwd
+                && let Some(cwd) = tab_cwd(&tab, cx)
+            {
+                profile.working_directory = Some(cwd);
+            }
             self.add_profile_tab(src_pane, &profile, false, window, cx);
         } else if empty {
             self.layout.remove_leaf(src_pane);
@@ -814,6 +1206,123 @@ impl Workspace {
         self.focus_pane(dst_pane, window, cx);
     }
 
+    /// focus the pane next to the focused one on `side`
+    fn focus_pane_toward(&mut self, side: DropSide, window: &mut Window, cx: &mut Context<Self>) {
+        let mut rects = Vec::new();
+        let whole = PaneRect {
+            x: 0.,
+            y: 0.,
+            w: 1.,
+            h: 1.,
+        };
+        self.layout.rects(whole, &mut rects);
+        if let Some(id) = neighbor(&rects, self.focused, side) {
+            self.focus_pane(id, window, cx);
+        }
+    }
+
+    /// move the divider next to the focused pane toward `side`
+    fn resize_pane(&mut self, side: DropSide, cx: &mut Context<Self>) {
+        let (axis, delta) = match side {
+            DropSide::Left => (SplitAxis::Horizontal, -RESIZE_STEP),
+            DropSide::Right => (SplitAxis::Horizontal, RESIZE_STEP),
+            DropSide::Top => (SplitAxis::Vertical, -RESIZE_STEP),
+            DropSide::Bottom => (SplitAxis::Vertical, RESIZE_STEP),
+        };
+        if self.layout.move_divider(self.focused, axis, delta) {
+            cx.notify();
+        }
+    }
+
+    /// close every tab of the focused pane, asking once when programs still run in them
+    fn request_close_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let count = self.focused_pane().tabs.len();
+        self.request_close_range(self.focused, 0..count, window, cx);
+    }
+
+    /// every tab with its title and folder, for remote control
+    pub fn tab_infos(&self, window_id: u64, cx: &App) -> Vec<crate::remote::TabInfo> {
+        self.layout
+            .panes()
+            .into_iter()
+            .flat_map(|pane| {
+                (0..pane.tabs.len()).map(move |ix| crate::remote::TabInfo {
+                    window: window_id,
+                    pane: pane.id,
+                    number: ix + 1,
+                    title: self.tab_title(pane.id, ix, cx),
+                    active: pane.id == self.focused && ix == pane.active,
+                    cwd: tab_cwd(&pane.tabs[ix], cx),
+                })
+            })
+            .collect()
+    }
+
+    /// open a tab with the named profile, or the default one, in `cwd` when given
+    pub fn open_tab(
+        &mut self,
+        profile: Option<&str>,
+        cwd: Option<PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let settings = Settings::get(cx);
+        let mut profile = match profile {
+            Some(name) => settings
+                .profile(name)
+                .cloned()
+                .ok_or_else(|| format!("no profile named {name:?}"))?,
+            None => settings.default_profile().clone(),
+        };
+        if cwd.is_some() {
+            profile.working_directory = cwd;
+        }
+        self.add_profile_tab(self.focused, &profile, true, window, cx);
+        Ok(())
+    }
+
+    /// type `text` into the active tab
+    pub fn send_text(&mut self, text: &str, cx: &mut Context<Self>) {
+        let (pane, ix) = (self.focused, self.focused_pane().active);
+        self.input_to(pane, ix, text.as_bytes().to_vec(), cx);
+    }
+
+    /// write `text` to a temp file and open it with `scrollback_pager` in a new tab
+    fn open_scrollback(&mut self, text: String, window: &mut Window, cx: &mut Context<Self>) {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let number = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "kuterm-scrollback-{}-{number}.txt",
+            std::process::id()
+        ));
+        if let Err(error) = std::fs::write(&path, text) {
+            self.show_error(format!("failed to write {}: {error}", path.display()), cx);
+            return;
+        }
+        let settings = Settings::get(cx);
+        let mut profile = settings.default_profile().clone();
+        let (program, args) = settings
+            .scrollback_pager
+            .split_first()
+            .expect("settings keep a pager program");
+        profile.command = Shell::WithArguments {
+            program: program.clone(),
+            args: args
+                .iter()
+                .cloned()
+                .chain([path.to_string_lossy().into_owned()])
+                .collect(),
+        };
+        self.add_profile_tab(self.focused, &profile, true, window, cx);
+        // removed with its tab
+        if let Some(tab) = self
+            .pane_mut(self.focused)
+            .and_then(|pane| pane.tabs.last_mut())
+        {
+            tab.temp_file = Some(path);
+        }
+    }
+
     /// set the ratio of the split at `path`
     fn resize_split(&mut self, path: &[bool], ratio: f32, cx: &mut Context<Self>) {
         let Some(LayoutNode::Split { ratio: split, .. }) = layout_at_mut(&mut self.layout, path)
@@ -833,8 +1342,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let settings = Settings::get(cx);
-        let Some(profile) = settings.profiles.iter().find(|p| p.name == name).cloned() else {
+        let Some(profile) = Settings::get(cx).profile(name).cloned() else {
             self.show_notification(format!("no profile named {name:?}"), None, cx);
             return false;
         };
@@ -875,15 +1383,8 @@ impl Workspace {
             ix + 1,
             self.tab_title(pane_id, ix, cx)
         );
-        let view = self.pane(pane_id).expect("pane from caller").tabs[ix]
-            .view
-            .clone();
-        self.open_confirm(
-            message,
-            CloseTarget::Tabs(vec![view.entity_id()]),
-            window,
-            cx,
-        );
+        let id = self.view_at(pane_id, ix).entity_id();
+        self.open_confirm(message, CloseTarget::Tabs(vec![id]), window, cx);
     }
 
     /// close every tab on one side of `ix` in `pane_id`, asking once when programs still run in them
@@ -895,21 +1396,25 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.confirm_close.is_some() {
-            return;
-        }
         let count = self.pane(pane_id).expect("pane from caller").tabs.len();
         let range = if right { ix + 1..count } else { 0..ix };
-        if range.is_empty() {
+        self.request_close_range(pane_id, range, window, cx);
+    }
+
+    /// close the tabs in `range` of `pane_id`, asking once when programs still run in them
+    fn request_close_range(
+        &mut self,
+        pane_id: usize,
+        range: std::ops::Range<usize>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.confirm_close.is_some() || range.is_empty() {
             return;
         }
         let ids: Vec<EntityId> = range
             .clone()
-            .map(|ix| {
-                self.pane(pane_id).expect("pane from caller").tabs[ix]
-                    .view
-                    .entity_id()
-            })
+            .map(|ix| self.view_at(pane_id, ix).entity_id())
             .collect();
         let names: Vec<String> = if Settings::get(cx).close_running_tab_warn {
             range
@@ -920,14 +1425,14 @@ impl Workspace {
         };
         if names.is_empty() {
             self.close_tabs(&ids, window, cx);
-            return;
+        } else {
+            self.open_confirm(
+                side_close_message(&names),
+                CloseTarget::Tabs(ids),
+                window,
+                cx,
+            );
         }
-        self.open_confirm(
-            side_close_message(&names),
-            CloseTarget::Tabs(ids),
-            window,
-            cx,
-        );
     }
 
     /// close the tabs with these views, skipping any that are already gone
@@ -955,12 +1460,17 @@ impl Workspace {
             return true;
         }
         // a second close while asked keeps the dialog up
-        self.confirm_close.is_none() && !self.ask_before_quit(window, cx)
+        let close = self.confirm_close.is_none() && !self.ask_before_quit(window, cx);
+        if close {
+            self.save_session(cx);
+        }
+        close
     }
 
-    /// open the quit dialog when the warning is on and programs run, true when it opened
+    /// open the quit dialog when `confirm_quit` asks for it, true when it opened
     fn ask_before_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        if !Settings::get(cx).close_running_tab_warn {
+        let confirm = Settings::get(cx).confirm_quit;
+        if confirm == ConfirmQuit::Never {
             return false;
         }
         let names: Vec<String> = self
@@ -970,7 +1480,7 @@ impl Workspace {
             .flat_map(|pane| (0..pane.tabs.len()).map(move |ix| (pane.id, ix)))
             .filter_map(|(pane_id, ix)| self.running_program(pane_id, ix, cx))
             .collect();
-        if names.is_empty() {
+        if names.is_empty() && confirm != ConfirmQuit::Always {
             return false;
         }
         self.open_confirm(quit_message(&names), CloseTarget::Window, window, cx);
@@ -1001,7 +1511,31 @@ impl Workspace {
         self.confirm_close = Some(confirm);
     }
 
+    /// ask before pasting `text` into the tab of `view`
+    fn open_confirm_paste(
+        &mut self,
+        view: Entity<TerminalView>,
+        text: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let dialog = cx.new(|cx| ConfirmPaste::new(&text, cx));
+        self.open_overlay(&dialog, window, cx);
+        self._overlay_subscriptions.push(cx.subscribe_in(
+            &dialog,
+            window,
+            move |this, _, _: &PasteConfirmed, window, cx| {
+                this.close_overlay(window, cx);
+                view.update(cx, |view, cx| view.force_paste(&text, cx));
+            },
+        ));
+        self.confirm_paste = Some(dialog);
+    }
+
     fn quit(&mut self, cx: &mut Context<Self>) {
+        if !self.quitting {
+            self.save_session(cx);
+        }
         self.quitting = true;
         cx.quit();
     }
@@ -1035,7 +1569,13 @@ impl Workspace {
             let at = before.iter().position(|id| *id == pane_id);
             self.layout.remove_leaf(pane_id);
             if self.layout.first_pane_id().is_none() {
-                self.quit(cx);
+                // other windows stay, only the last one quits
+                if cx.windows().len() > 1 {
+                    self.quitting = true;
+                    window.remove_window();
+                } else {
+                    self.quit(cx);
+                }
                 return;
             }
             if self.focused == pane_id {
@@ -1075,37 +1615,76 @@ impl Workspace {
         Theme::apply(window.appearance(), cx);
         for tab in self.layout.panes().into_iter().flat_map(|pane| &pane.tabs) {
             let terminal = tab.view.read(cx).terminal().clone();
-            terminal.update(cx, |terminal, _| terminal.apply_theme(window.appearance()));
+            terminal.update(cx, |terminal, cx| {
+                terminal.apply_theme(window.appearance(), &Settings::get(cx).theme)
+            });
         }
         // terminal views may be cached, force redraw everything with new colors
         window.refresh();
     }
 
-    fn reload_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let mut settings = Settings::load();
-        Cli::get().apply(&mut settings);
-        settings.use_installed_fonts(&cx.text_system().all_font_names());
-        cx.set_global(settings);
-        // theme mode and theme files are picked in settings
-        self.reload_themes(window, cx);
-        self.refresh_titles();
+    /// config files and theme files in use, empty when the config was not loaded from files
+    fn watched_files(&self, cx: &App) -> Vec<PathBuf> {
+        let Some(files) = cx.try_global::<ConfigFiles>() else {
+            return Vec::new();
+        };
+        let themes = Theme::files(Settings::get(cx));
+        files.paths.iter().cloned().chain(themes).collect()
     }
 
-    fn reload_keybindings(&mut self, cx: &mut Context<Self>) {
+    /// read the config and theme files again and apply them, a broken file keeps the
+    /// running config and shows what is wrong
+    fn reload_config(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let load = Config::load();
+        // errors from an earlier try are fixed or shown again below
+        self.notifications
+            .retain(|notification| !notification.error);
+        for warning in load.warnings {
+            eprintln!("{warning}");
+            self.show_error(warning, cx);
+        }
+        cx.set_global(ConfigFiles {
+            paths: load.files,
+            problems: Vec::new(),
+        });
+        let checked = load.config.and_then(|mut config| {
+            Cli::get().apply(&mut config.settings);
+            Theme::check(&config.settings)?;
+            Ok(config)
+        });
+        let config = match checked {
+            Ok(config) => config,
+            Err(error) => {
+                eprintln!("{error}");
+                self.show_error(format!("{error}, keeping the last good config"), cx);
+                return;
+            }
+        };
+        let mut settings = config.settings;
+        settings.use_installed_fonts(&cx.text_system().all_font_names());
+        cx.set_cursor_hide_mode(settings.terminal.cursor_hide_mode());
+        for tab in self.layout.panes().into_iter().flat_map(|pane| &pane.tabs) {
+            let terminal = tab.view.read(cx).terminal().clone();
+            terminal.update(cx, |terminal, _| {
+                terminal.apply_settings(&settings.terminal);
+                terminal
+                    .configure_graphics(settings.graphics.enable, settings.graphics.max_memory_mb);
+            });
+        }
+        cx.set_global(settings);
+        cx.set_global(config.tab_icons);
+        cx.set_global(config.commands);
         cx.clear_key_bindings();
-        cx.bind_keys(Keybindings::load().bindings());
+        cx.bind_keys(config.keybindings.bindings());
         // text fields keep their editing keys, they are not part of the user keybindings
         cx.bind_keys(crate::ui::text_input::bindings());
         // menus show the keys bound to their actions, so they are rebuilt with the new keys
         cx.set_menus(app_menus());
-    }
-
-    fn reload_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        cx.set_global(TabIcons::load());
-        cx.set_global(Commands::load());
-        cx.set_global(Pins::load());
-        self.reload_keybindings(cx);
-        self.reload_settings(window, cx);
+        self.apply_window_settings(window, cx);
+        // theme mode and theme files are picked in settings
+        self.reload_themes(window, cx);
+        self.refresh_titles();
+        self.show_notification("config reloaded", None, cx);
     }
 
     /// run command actions in order against the active tab, or the last background tab
@@ -1123,22 +1702,7 @@ impl Workspace {
                 .unwrap_or_else(|| (self.focused, self.focused_pane().active));
             match action {
                 CommandAction::About => self.open_about(&OpenAbout, window, cx),
-                CommandAction::ReloadSettings => {
-                    self.reload_settings(window, cx);
-                    self.show_notification("settings reloaded", None, cx);
-                }
-                CommandAction::ReloadThemes => {
-                    self.reload_themes(window, cx);
-                    self.show_notification("themes reloaded", None, cx);
-                }
-                CommandAction::ReloadKeybindings => {
-                    self.reload_keybindings(cx);
-                    self.show_notification("keybindings reloaded", None, cx);
-                }
-                CommandAction::ReloadAll => {
-                    self.reload_all(window, cx);
-                    self.show_notification("all configs reloaded", None, cx);
-                }
+                CommandAction::ReloadConfig => self.reload_config(window, cx),
                 CommandAction::NewTab => {
                     self.add_tab(window, cx);
                     target = None;
@@ -1151,17 +1715,11 @@ impl Workspace {
                 CommandAction::NewBackgroundTab => {
                     let profile = Settings::get(cx).default_profile().clone();
                     self.add_profile_tab(self.focused, &profile, false, window, cx);
-                    let pane = self.focused;
-                    target = self
-                        .pane(pane)
-                        .map(|p| (pane, p.tabs.len().saturating_sub(1)));
+                    target = self.last_tab_of_focused();
                 }
                 CommandAction::NewBackgroundTabWithProfile(name) => {
                     if self.add_named_profile_tab(self.focused, name, false, window, cx) {
-                        let pane = self.focused;
-                        target = self
-                            .pane(pane)
-                            .map(|p| (pane, p.tabs.len().saturating_sub(1)));
+                        target = self.last_tab_of_focused();
                     }
                 }
                 CommandAction::CloseTab => {
@@ -1189,6 +1747,31 @@ impl Workspace {
                     self.split_with_tab(pane, ix, pane, side, window, cx);
                     target = None;
                 }
+                CommandAction::ClosePane => {
+                    self.request_close_pane(window, cx);
+                    target = None;
+                }
+                CommandAction::FocusPaneLeft => self.focus_pane_toward(DropSide::Left, window, cx),
+                CommandAction::FocusPaneRight => {
+                    self.focus_pane_toward(DropSide::Right, window, cx)
+                }
+                CommandAction::FocusPaneUp => self.focus_pane_toward(DropSide::Top, window, cx),
+                CommandAction::FocusPaneDown => {
+                    self.focus_pane_toward(DropSide::Bottom, window, cx)
+                }
+                CommandAction::ResizePaneLeft => self.resize_pane(DropSide::Left, cx),
+                CommandAction::ResizePaneRight => self.resize_pane(DropSide::Right, cx),
+                CommandAction::ResizePaneUp => self.resize_pane(DropSide::Top, cx),
+                CommandAction::ResizePaneDown => self.resize_pane(DropSide::Bottom, cx),
+                CommandAction::ZoomPane => {
+                    let single = self.layout.pane_ids().len() == 1;
+                    self.zoomed = match self.zoomed {
+                        Some(_) => None,
+                        None if single => None,
+                        None => Some(self.focused),
+                    };
+                }
+                CommandAction::EqualizePanes => self.layout.equalize(),
                 CommandAction::NextTab => {
                     self.next_tab(&NextTab, window, cx);
                     target = None;
@@ -1210,7 +1793,7 @@ impl Workspace {
                 }
                 CommandAction::PickTab => self.open_tab_picker(window, cx),
                 CommandAction::Copy => {
-                    let selection = self.terminal_at(pane, ix, cx).read(cx).selection_text();
+                    let selection = copied_text(self.terminal_at(pane, ix, cx).read(cx), cx);
                     match selection {
                         Some(text) => {
                             cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
@@ -1221,10 +1804,53 @@ impl Workspace {
                 }
                 CommandAction::Paste => {
                     if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-                        self.terminal_at(pane, ix, cx)
-                            .update(cx, |terminal, _| terminal.paste(&text));
-                        self.notify_pasted(cx);
+                        self.view_at(pane, ix)
+                            .update(cx, |view, cx| view.paste_text(text, cx));
                     }
+                }
+                CommandAction::Search => self
+                    .view_at(pane, ix)
+                    .update(cx, |view, cx| view.open_search(window, cx)),
+                CommandAction::Hints => self
+                    .view_at(pane, ix)
+                    .update(cx, |view, cx| view.show_hints(cx)),
+                CommandAction::ViMode => self
+                    .view_at(pane, ix)
+                    .update(cx, |view, cx| view.toggle_vi_mode(cx)),
+                CommandAction::JumpToPrevPrompt | CommandAction::JumpToNextPrompt => {
+                    let up = *action == CommandAction::JumpToPrevPrompt;
+                    self.terminal_at(pane, ix, cx)
+                        .update(cx, |terminal, _| terminal.jump_to_prompt(up));
+                }
+                CommandAction::SelectLastOutput => {
+                    let found = self
+                        .terminal_at(pane, ix, cx)
+                        .update(cx, |terminal, _| terminal.select_last_output());
+                    if !found {
+                        self.show_notification(
+                            "no command output, needs shell integration",
+                            None,
+                            cx,
+                        );
+                    }
+                }
+                CommandAction::CopyLastOutput => {
+                    match self.terminal_at(pane, ix, cx).read(cx).last_output_text() {
+                        Some(text) => {
+                            cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
+                            self.notify_copied(&text, cx);
+                        }
+                        None => self.show_notification(
+                            "no command output, needs shell integration",
+                            None,
+                            cx,
+                        ),
+                    }
+                }
+                CommandAction::OpenScrollback => {
+                    let text = self.terminal_at(pane, ix, cx).read(cx).scrollback_ansi();
+                    self.open_scrollback(text, window, cx);
+                    target = None;
                 }
                 CommandAction::ScrollUp(lines) => self
                     .terminal_at(pane, ix, cx)
@@ -1252,12 +1878,14 @@ impl Workspace {
                 CommandAction::ResetFontSize => self.change_font_size(pane, ix, None, cx),
                 CommandAction::OpenSettings => self.open_settings(cx),
                 CommandAction::Type(text) => self.input_to(pane, ix, text.clone().into_bytes(), cx),
+                CommandAction::SendText(text) => {
+                    let bytes = text.clone().into_bytes();
+                    self.terminal_at(pane, ix, cx)
+                        .update(cx, |terminal, _| terminal.input(bytes));
+                }
                 CommandAction::Notify(text) => self.show_notification(text.clone(), None, cx),
                 CommandAction::NotifyWhenDone(text) => {
-                    let view = self.pane(pane).expect("pane from target").tabs[ix]
-                        .view
-                        .clone();
-                    self.notify_when_done(view, text.clone(), cx);
+                    self.notify_when_done(self.view_at(pane, ix), text.clone(), cx);
                 }
             }
         }
@@ -1292,6 +1920,7 @@ impl Workspace {
         self.palette = None;
         self.about = None;
         self.confirm_close = None;
+        self.confirm_paste = None;
         self._overlay_subscriptions.clear();
         if let Some(pane) = self.pane(self.focused)
             && let Some(tab) = pane.tabs.get(pane.active)
@@ -1514,12 +2143,10 @@ impl Workspace {
 
     // none step goes back to the size from settings
     fn change_font_size(&self, pane: usize, ix: usize, step: Option<f32>, cx: &mut Context<Self>) {
-        self.pane(pane).expect("pane from target").tabs[ix]
-            .view
-            .update(cx, |view, cx| {
-                let size = step.map(|step| view.font_size(cx) + step);
-                view.set_font_size(size, cx);
-            });
+        self.view_at(pane, ix).update(cx, |view, cx| {
+            let size = step.map(|step| view.font_size(cx) + step);
+            view.set_font_size(size, cx);
+        });
     }
 
     fn open_settings(&mut self, cx: &mut Context<Self>) {
@@ -1549,10 +2176,15 @@ pub fn with_workspace(
     cx: &mut App,
     f: impl FnOnce(&mut Workspace, &mut Window, &mut Context<Workspace>),
 ) {
+    // the window in front, else any
     let Some(handle) = cx
-        .windows()
-        .into_iter()
-        .find_map(|window| window.downcast::<Workspace>())
+        .active_window()
+        .and_then(|window| window.downcast::<Workspace>())
+        .or_else(|| {
+            cx.windows()
+                .into_iter()
+                .find_map(|window| window.downcast::<Workspace>())
+        })
     else {
         return;
     };
@@ -1563,6 +2195,15 @@ pub fn with_workspace(
             f(workspace, window, cx);
         })
         .ok();
+}
+
+/// folder the shell of `tab` is in, the one it reported first, none when it can't be told
+fn tab_cwd(tab: &Tab, cx: &App) -> Option<PathBuf> {
+    let terminal = tab.view.read(cx).terminal().read(cx);
+    if let Some(cwd) = terminal.reported_cwd() {
+        return Some(cwd.to_path_buf());
+    }
+    crate::terminal::process_info(terminal.shell_pid)?.cwd
 }
 
 /// program names joined for a dialog, cut short after a few
@@ -1587,6 +2228,7 @@ fn side_close_message(names: &[String]) -> String {
 fn quit_message(names: &[String]) -> String {
     let list = name_list(names);
     match names.len() {
+        0 => "quit kuterm?".to_owned(),
         1 => format!("1 tab is still running a program: {list}"),
         count => format!("{count} tabs are still running programs: {list}"),
     }
@@ -1603,7 +2245,10 @@ mod tests {
     };
 
     use super::*;
-    use crate::{settings::Keybindings, terminal::Terminal};
+    use crate::{
+        settings::{Keybindings, Pins},
+        terminal::{Terminal, TerminalBounds},
+    };
 
     /// open a workspace with `tabs` tabs and user keybindings `keys`, the last tab is active
     fn open_with<'a>(
@@ -2075,6 +2720,52 @@ mod tests {
         }
         cx.run_until_parked();
         pump(cx);
+    }
+
+    fn bells(ws: &Entity<Workspace>, cx: &mut VisualTestContext) -> Vec<bool> {
+        ws.update(cx, |ws, _| {
+            ws.focused_pane().tabs.iter().map(|t| t.bell).collect()
+        })
+    }
+
+    #[gpui::test]
+    fn bell_marks_background_tabs_until_shown(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 3);
+        // the last tab is active, so the bell of tab 0 rings in the background
+        terminal(&ws, cx, 0).update(cx, |_, cx| cx.emit(Event::Bell));
+        terminal(&ws, cx, 2).update(cx, |_, cx| cx.emit(Event::Bell));
+        cx.run_until_parked();
+        assert_eq!(bells(&ws, cx), vec![true, false, false]);
+        activate(&ws, cx, 0);
+        assert_eq!(bells(&ws, cx), vec![false, false, false]);
+    }
+
+    #[gpui::test]
+    fn bell_does_not_mark_tabs_without_tab_indicator(cx: &mut TestAppContext) {
+        let mut settings = Settings::default();
+        settings.bell.tab_indicator = false;
+        let (ws, cx) = open_with_settings(cx, 2, "{}", settings);
+        terminal(&ws, cx, 0).update(cx, |_, cx| cx.emit(Event::Bell));
+        cx.run_until_parked();
+        assert_eq!(bells(&ws, cx), vec![false, false]);
+    }
+
+    #[gpui::test]
+    fn hovering_a_pane_focuses_it(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 2);
+        let new_pane = split_pane(&ws, cx, DropSide::Right);
+        let other = ws.update(cx, |ws, _| {
+            ws.layout
+                .panes()
+                .into_iter()
+                .map(|pane| pane.id)
+                .find(|id| *id != new_pane)
+                .unwrap()
+        });
+        ws.update_in(cx, |ws, window, cx| ws.hover_pane(other, window, cx));
+        cx.run_until_parked();
+        assert_eq!(ws.update(cx, |ws, _| ws.focused), other);
+        assert_eq!(current(&ws, cx), 0);
     }
 
     fn terminal(ws: &Entity<Workspace>, cx: &mut VisualTestContext, ix: usize) -> Entity<Terminal> {
@@ -2812,7 +3503,7 @@ mod tests {
     #[gpui::test]
     fn font_size_actions_change_only_the_active_tab(cx: &mut TestAppContext) {
         let (ws, cx) = open(cx, 2);
-        let settings_size = cx.update(|_, cx| Settings::get(cx).terminal.font_size);
+        let settings_size = cx.update(|_, cx| Settings::get(cx).terminal.font.size);
         let sizes = |cx: &mut VisualTestContext| -> Vec<f32> {
             ws.update(cx, |ws, cx| {
                 ws.focused_pane()
@@ -2828,7 +3519,7 @@ mod tests {
         run_actions(&ws, cx, r#""decrease_font_size""#);
         assert_eq!(sizes(cx), vec![settings_size, settings_size + 1.]);
         assert_eq!(
-            cx.update(|_, cx| Settings::get(cx).terminal.font_size),
+            cx.update(|_, cx| Settings::get(cx).terminal.font.size),
             settings_size
         );
 
@@ -3031,82 +3722,179 @@ mod tests {
         assert_eq!(current(&ws, cx), 0);
     }
 
+    fn error_texts(ws: &Entity<Workspace>, cx: &mut VisualTestContext) -> Vec<String> {
+        ws.read_with(cx, |ws, _| {
+            ws.notifications
+                .iter()
+                .filter(|notification| notification.error)
+                .map(|notification| notification.text.clone())
+                .collect()
+        })
+    }
+
     #[gpui::test]
-    fn reload_commands_read_config_files(cx: &mut TestAppContext) {
+    fn reload_config_applies_every_section_and_keeps_the_last_good_one(cx: &mut TestAppContext) {
         let dir = crate::settings::tests::temp_dir("workspace_reload");
+        let config = dir.join("kuterm");
+        std::fs::create_dir_all(config.join("themes")).unwrap();
+        crate::settings::tests::with_config_home(&dir, || {
+            let (ws, cx) = open(cx, 1);
+            let reload = |cx: &mut VisualTestContext| {
+                ws.update_in(cx, |ws, window, cx| ws.reload_config(window, cx));
+                cx.run_until_parked();
+            };
+            let write = |name: &str, json: &str| std::fs::write(config.join(name), json).unwrap();
+            let border = |cx: &mut VisualTestContext| cx.update(|_, cx| Theme::get(cx).border);
+            let palette_enabled = |cx: &mut VisualTestContext| {
+                cx.update(|_, cx| Settings::get(cx).command_palette.enable)
+            };
+
+            write(
+                "settings.jsonc",
+                r#"{
+                    "keybindings": {"command_palette": "ctrl-shift-k"},
+                    "commands": [{"name": "only", "actions": ["new_tab"]}],
+                    "theme": {"mode": "dark", "dark": "themes/mine.jsonc"},
+                }"#,
+            );
+            write("themes/mine.jsonc", r##"{"border": "#010203"}"##);
+            reload(cx);
+            assert_eq!(border(cx), gpui::rgb(0x010203).into());
+            type_keys(cx, "ctrl-shift-p");
+            assert!(!palette_open(&ws, cx));
+            type_keys(cx, "ctrl-shift-k");
+            assert_eq!(palette_names(&ws, cx), ["only"]);
+            type_keys(cx, "escape");
+
+            // theme files are read again too
+            write("themes/mine.jsonc", r##"{"border": "#040506"}"##);
+            reload(cx);
+            assert_eq!(border(cx), gpui::rgb(0x040506).into());
+            assert!(error_texts(&ws, cx).is_empty());
+
+            // a broken settings file keeps everything as it was and tells what is wrong
+            write(
+                "settings.jsonc",
+                r#"{"command_palette": {"enable": false}, "tab_width": "wide"}"#,
+            );
+            reload(cx);
+            assert!(palette_enabled(cx));
+            assert_eq!(border(cx), gpui::rgb(0x040506).into());
+            let errors = error_texts(&ws, cx);
+            assert_eq!(errors.len(), 1, "{errors:?}");
+            assert!(errors[0].contains("settings.jsonc"), "{errors:?}");
+            assert!(errors[0].contains("wide"), "{errors:?}");
+
+            // so does a broken theme file, the old error is replaced
+            write(
+                "settings.jsonc",
+                r#"{"command_palette": {"enable": false},
+                    "theme": {"mode": "dark", "dark": "themes/mine.jsonc"}}"#,
+            );
+            write("themes/mine.jsonc", r#"{"border": "nope"}"#);
+            reload(cx);
+            assert!(palette_enabled(cx));
+            let errors = error_texts(&ws, cx);
+            assert_eq!(errors.len(), 1, "{errors:?}");
+            assert!(errors[0].contains("mine.jsonc"), "{errors:?}");
+
+            // fixed files apply and clear the error
+            write("themes/mine.jsonc", r##"{"border": "#070809"}"##);
+            reload(cx);
+            assert!(!palette_enabled(cx));
+            assert_eq!(border(cx), gpui::rgb(0x070809).into());
+            assert!(error_texts(&ws, cx).is_empty());
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[gpui::test]
+    fn reload_config_action_reloads(cx: &mut TestAppContext) {
+        let dir = crate::settings::tests::temp_dir("workspace_reload_action");
         let config = dir.join("kuterm");
         std::fs::create_dir_all(&config).unwrap();
         crate::settings::tests::with_config_home(&dir, || {
             let (ws, cx) = open(cx, 1);
-            let run = |cx: &mut VisualTestContext, action: &str| {
+            for (width, action) in [(101, "reload_config"), (102, "reload_config")] {
+                std::fs::write(
+                    config.join("settings.jsonc"),
+                    format!(r#"{{"tab_width": {width}}}"#),
+                )
+                .unwrap();
                 let json = format!(r#"{{"commands": [{{"name": "x", "actions": ["{action}"]}}]}}"#);
                 let command = Commands::parse(&json).unwrap().commands.remove(0);
                 ws.update_in(cx, |ws, window, cx| ws.run_command(&command, window, cx));
                 cx.run_until_parked();
-            };
-
-            std::fs::write(
-                config.join("keybindings.jsonc"),
-                r#"{"command_palette": "ctrl-shift-k"}"#,
-            )
-            .unwrap();
-            run(cx, "reload_keybindings");
-            type_keys(cx, "ctrl-shift-p");
-            assert!(!palette_open(&ws, cx));
-            type_keys(cx, "ctrl-shift-k");
-            assert!(palette_open(&ws, cx));
-            type_keys(cx, "escape");
-
-            std::fs::write(
-                config.join("settings.jsonc"),
-                r#"{"command_palette": {"enable": false}, "theme": {"mode": "light", "light": null}}"#,
-            )
-            .unwrap();
-            run(cx, "reload_settings");
-            assert!(!cx.update(|_, cx| Settings::get(cx).command_palette.enable));
-            assert_eq!(
-                cx.update(|_, cx| Theme::get(cx).clone()),
-                Theme::bundled(false)
-            );
-            type_keys(cx, "ctrl-shift-k");
-            assert!(!palette_open(&ws, cx));
-
-            std::fs::write(
-                config.join("settings.jsonc"),
-                r#"{"theme": {"mode": "dark", "dark": "themes/mine.jsonc"}}"#,
-            )
-            .unwrap();
-            std::fs::create_dir_all(config.join("themes")).unwrap();
-            std::fs::write(
-                config.join("themes/mine.jsonc"),
-                r##"{"border": "#010203"}"##,
-            )
-            .unwrap();
-            run(cx, "reload_settings");
-            let border = cx.update(|_, cx| Theme::get(cx).border);
-            assert_eq!(border, gpui::rgb(0x010203).into());
-            std::fs::write(
-                config.join("themes/mine.jsonc"),
-                r##"{"border": "#040506"}"##,
-            )
-            .unwrap();
-            run(cx, "reload_themes");
-            let border = cx.update(|_, cx| Theme::get(cx).border);
-            assert_eq!(border, gpui::rgb(0x040506).into());
-
-            std::fs::write(config.join("settings.jsonc"), "{}").unwrap();
-            std::fs::write(config.join("keybindings.jsonc"), "{}").unwrap();
-            std::fs::write(
-                config.join("commands.jsonc"),
-                r#"{"commands": [{"name": "only", "actions": ["new_tab"]}]}"#,
-            )
-            .unwrap();
-            run(cx, "reload_all");
-            assert!(cx.update(|_, cx| Settings::get(cx).command_palette.enable));
-            type_keys(cx, "ctrl-shift-p");
-            assert_eq!(palette_names(&ws, cx), ["only"]);
+                assert_eq!(
+                    cx.update(|_, cx| Settings::get(cx).tab_width),
+                    width,
+                    "{action}"
+                );
+            }
         });
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[gpui::test]
+    fn saved_config_files_are_reloaded(cx: &mut TestAppContext) {
+        let dir = crate::settings::tests::temp_dir("workspace_watch");
+        let config = dir.join("kuterm");
+        std::fs::create_dir_all(&config).unwrap();
+        crate::settings::tests::with_config_home(&dir, || {
+            let (ws, cx) = open(cx, 1);
+            let tick = |cx: &mut VisualTestContext| {
+                // a poll sees the change, then it settles, then it is read
+                for _ in 0..3 {
+                    cx.executor().advance_clock(CONFIG_POLL);
+                    cx.run_until_parked();
+                }
+            };
+            let tab_width =
+                |cx: &mut VisualTestContext| cx.update(|_, cx| Settings::get(cx).tab_width);
+            let settings = config.join("settings.jsonc");
+            std::fs::write(&settings, r#"{"tab_width": 123}"#).unwrap();
+            // nothing is watched until the config came from files
+            tick(cx);
+            assert_ne!(tab_width(cx), 123);
+
+            cx.update(|_, cx| {
+                cx.set_global(ConfigFiles {
+                    paths: vec![settings.clone()],
+                    problems: Vec::new(),
+                })
+            });
+            tick(cx);
+            assert_eq!(tab_width(cx), 123);
+
+            std::fs::write(&settings, r#"{"tab_width": 1234}"#).unwrap();
+            tick(cx);
+            assert_eq!(tab_width(cx), 1234);
+
+            // an import that shows up later is noticed, it is watched while missing
+            std::fs::write(&settings, r#"{"import": ["later.jsonc"], "tab_width": 77}"#).unwrap();
+            tick(cx);
+            assert_eq!(tab_width(cx), 77);
+            assert_eq!(error_texts(&ws, cx).len(), 1);
+            std::fs::write(config.join("later.jsonc"), r#"{"ui_font_size": 13}"#).unwrap();
+            tick(cx);
+            assert_eq!(cx.update(|_, cx| Settings::get(cx).ui_font_size), 13.);
+            assert!(error_texts(&ws, cx).is_empty());
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[gpui::test]
+    fn launch_problems_are_shown_in_the_window(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            cx.set_global(ConfigFiles {
+                paths: Vec::new(),
+                problems: vec!["invalid settings in x.jsonc".into()],
+            })
+        });
+        let (ws, cx) = open(cx, 1);
+        assert_eq!(error_texts(&ws, cx), ["invalid settings in x.jsonc"]);
+        // shown once, not again for a later window
+        assert!(cx.update(|_, cx| cx.global::<ConfigFiles>().problems.is_empty()));
     }
 
     fn recent_test_commands(cx: &mut VisualTestContext) {
@@ -3331,12 +4119,17 @@ mod tests {
 
     #[gpui::test]
     fn palette_actions_report_in_notifications(cx: &mut TestAppContext) {
-        let (ws, cx) = open(cx, 1);
-        run_actions(&ws, cx, r#""reload_keybindings", "copy""#);
-        assert_eq!(
-            notifications(&ws, cx),
-            ["keybindings reloaded", "nothing selected to copy"]
-        );
+        let dir = crate::settings::tests::temp_dir("workspace_report");
+        // reloading reads the config folder, so it is a temp one
+        crate::settings::tests::with_config_home(&dir, || {
+            let (ws, cx) = open(cx, 1);
+            run_actions(&ws, cx, r#""reload_config", "copy""#);
+            assert_eq!(
+                notifications(&ws, cx),
+                ["config reloaded", "nothing selected to copy"]
+            );
+        });
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[gpui::test]
@@ -3625,6 +4418,7 @@ mod tests {
             quit_message(&names(&["a", "b", "c", "d"])),
             "4 tabs are still running programs: a, b, c, …"
         );
+        assert_eq!(quit_message(&[]), "quit kuterm?");
     }
 
     #[gpui::test]
@@ -3654,12 +4448,38 @@ mod tests {
         assert!(dialog(&ws, cx).is_none());
         assert!(quitting(&ws, cx));
 
-        let settings = Settings::parse(r#"{"close_running_tab_warn": false}"#).unwrap();
+        let settings = Settings::parse(r#"{"confirm_quit": "never"}"#).unwrap();
         let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
         start_program(&ws, cx);
         run_actions(&ws, cx, r#""quit""#);
         assert!(dialog(&ws, cx).is_none());
         assert!(quitting(&ws, cx));
+    }
+
+    #[gpui::test]
+    fn confirm_quit_always_asks_when_idle(cx: &mut TestAppContext) {
+        let settings = Settings::parse(r#"{"confirm_quit": "always"}"#).unwrap();
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        run_actions(&ws, cx, r#""quit""#);
+        let (target, message) = dialog(&ws, cx).expect("quit asked nothing");
+        assert_eq!(target, CloseTarget::Window);
+        assert_eq!(message, "quit kuterm?");
+        type_keys(cx, "escape");
+        assert!(!quitting(&ws, cx));
+        assert!(!cx.simulate_close(), "idle window closed without asking");
+        type_keys(cx, "enter");
+        assert!(quitting(&ws, cx));
+    }
+
+    #[gpui::test]
+    fn confirm_quit_is_separate_from_close_tab_warning(cx: &mut TestAppContext) {
+        let settings =
+            Settings::parse(r#"{"close_running_tab_warn": false, "confirm_quit": "running"}"#)
+                .unwrap();
+        let (ws, cx) = open_with_settings(cx, 2, "{}", settings);
+        start_program(&ws, cx);
+        assert!(!cx.simulate_close(), "busy window closed without asking");
+        assert_eq!(dialog(&ws, cx).map(|d| d.0), Some(CloseTarget::Window));
     }
 
     #[gpui::test]
@@ -3692,7 +4512,7 @@ mod tests {
 
     #[gpui::test]
     fn disabled_warning_closes_busy_window(cx: &mut TestAppContext) {
-        let settings = Settings::parse(r#"{"close_running_tab_warn": false}"#).unwrap();
+        let settings = Settings::parse(r#"{"confirm_quit": "never"}"#).unwrap();
         let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
         start_program(&ws, cx);
         assert!(cx.simulate_close());
@@ -3880,5 +4700,896 @@ mod tests {
         assert_eq!(scroll_offset(&terminal, cx), top - 5);
         run_actions(&ws, cx, r#""scroll_bottom""#);
         assert_eq!(scroll_offset(&terminal, cx), 0);
+    }
+
+    fn window_settings(json: &str) -> Settings {
+        Settings::parse(&format!(
+            r#"{{"hide_bar_for_one_tab": true, "terminal": {{"scrollbar": {{"enable": "off"}}}},
+                "window": {json}}}"#
+        ))
+        .unwrap()
+    }
+
+    fn grid_bounds(ws: &Entity<Workspace>, cx: &mut VisualTestContext) -> TerminalBounds {
+        let terminal = terminal(ws, cx, 0);
+        terminal.read_with(cx, |t, _| t.last_content.terminal_bounds)
+    }
+
+    #[gpui::test]
+    fn padding_moves_and_shrinks_the_grid(cx: &mut TestAppContext) {
+        let settings = window_settings(
+            r#"{"decorations": "full", "padding": {"x": 30, "y": 20}, "padding_balance": false}"#,
+        );
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        cx.run_until_parked();
+        let b = grid_bounds(&ws, cx);
+        assert_eq!(b.bounds.origin, point(gpui::px(30.), gpui::px(20.)));
+        assert_eq!(b.bounds.size, gpui::size(gpui::px(840.), gpui::px(560.)));
+        assert_eq!(b.num_columns(), (840. / f32::from(b.cell_width)) as usize);
+        assert_eq!(b.num_lines(), (560. / f32::from(b.line_height)) as usize);
+    }
+
+    #[gpui::test]
+    fn balanced_padding_centers_the_grid(cx: &mut TestAppContext) {
+        let settings = window_settings(
+            r#"{"decorations": "full", "padding": {"x": 30, "y": 20}, "padding_balance": true}"#,
+        );
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        cx.run_until_parked();
+        let b = grid_bounds(&ws, cx);
+        let spare_x = 840. % f32::from(b.cell_width);
+        let spare_y = 560. % f32::from(b.line_height);
+        // origins are snapped down to whole device pixels
+        let expected_x = (30. + spare_x / 2.).floor();
+        let expected_y = (20. + spare_y / 2.).floor();
+        assert_eq!(f32::from(b.bounds.origin.x), expected_x);
+        assert_eq!(f32::from(b.bounds.origin.y), expected_y);
+        // the grid is never pushed past the padding on the far side
+        let right = f32::from(b.bounds.origin.x + b.cell_width * b.num_columns() as f32);
+        let bottom = f32::from(b.bounds.origin.y + b.line_height * b.num_lines() as f32);
+        assert!(right <= 870., "{right}");
+        assert!(bottom <= 580., "{bottom}");
+    }
+
+    #[gpui::test]
+    fn startup_size_fits_columns_and_rows(cx: &mut TestAppContext) {
+        let settings = window_settings(
+            r#"{"decorations": "full", "padding": {"x": 7, "y": 3}, "columns": 83, "rows": 27,
+                "startup": "windowed", "remember_size": false}"#,
+        );
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        let bounds = cx.update(|_, cx| startup_bounds(cx));
+        cx.simulate_resize(bounds.size);
+        cx.run_until_parked();
+        let b = grid_bounds(&ws, cx);
+        assert_eq!((b.num_columns(), b.num_lines()), (83, 27));
+    }
+
+    #[gpui::test]
+    fn startup_size_counts_the_tab_bar_without_frame(cx: &mut TestAppContext) {
+        let settings = window_settings(
+            r#"{"decorations": "none", "padding": {"x": 0, "y": 0}, "columns": 50, "rows": 10,
+                "startup": "windowed", "remember_size": false}"#,
+        );
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        let bounds = cx.update(|_, cx| startup_bounds(cx));
+        cx.simulate_resize(bounds.size);
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("drag-area").is_some(), "tab bar is hidden");
+        let b = grid_bounds(&ws, cx);
+        assert_eq!((b.num_columns(), b.num_lines()), (50, 10));
+    }
+
+    #[gpui::test]
+    fn frameless_window_shows_tab_bar_with_drag_area(cx: &mut TestAppContext) {
+        let settings = window_settings(r#"{"decorations": "full"}"#);
+        let (_ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        assert!(cx.debug_bounds("drag-area").is_none());
+        assert!(
+            cx.debug_bounds("new-tab").is_none(),
+            "one tab shows the bar"
+        );
+
+        let settings = window_settings(r#"{"decorations": "none"}"#);
+        let (_ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        let area = cx.debug_bounds("drag-area").expect("no drag area");
+        let tab = cx.debug_bounds("tab-title-0").expect("no tab bar");
+        assert!(area.left() >= tab.right(), "drag area overlaps the tab");
+        assert!(cx.debug_bounds("window-close").is_none());
+    }
+
+    #[gpui::test]
+    fn client_frame_draws_window_buttons_in_the_corner_pane(cx: &mut TestAppContext) {
+        let settings = window_settings(r#"{"decorations": "client"}"#);
+        let (ws, cx) = open_with_settings(cx, 2, "{}", settings);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        for id in ["window-minimize", "window-maximize", "window-close"] {
+            let button = cx.debug_bounds(id).unwrap_or_else(|| panic!("no {id}"));
+            assert!(button.left() > gpui::px(450.), "{id} is not on the right");
+        }
+        run_actions(&ws, cx, r#""split_left""#);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        // the moved tab is on the left, the buttons stay at the right edge
+        let close = cx.debug_bounds("window-close").expect("no close button");
+        assert!(close.left() > gpui::px(450.));
+        assert_eq!(ws.update(cx, |ws, _| ws.layout.panes().len()), 2);
+
+        // the close button asks like any other quit
+        start_program(&ws, cx);
+        cx.simulate_click(close.center(), Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(dialog(&ws, cx).map(|d| d.0), Some(CloseTarget::Window));
+    }
+
+    #[test]
+    fn corner_pane_is_top_right() {
+        let leaf = |id| {
+            Box::new(LayoutNode::Leaf(Pane {
+                id,
+                tabs: Vec::new(),
+                active: 0,
+                tab_scroll: ScrollHandle::new(),
+            }))
+        };
+        assert_eq!(leaf(3).corner_pane_id(), Some(3));
+        let side_by_side = LayoutNode::Split {
+            axis: SplitAxis::Horizontal,
+            ratio: 0.5,
+            first: leaf(1),
+            second: leaf(2),
+        };
+        assert_eq!(side_by_side.corner_pane_id(), Some(2));
+        // right column split into top and bottom
+        let nested = LayoutNode::Split {
+            axis: SplitAxis::Horizontal,
+            ratio: 0.5,
+            first: leaf(1),
+            second: Box::new(LayoutNode::Split {
+                axis: SplitAxis::Vertical,
+                ratio: 0.5,
+                first: leaf(4),
+                second: leaf(5),
+            }),
+        };
+        assert_eq!(nested.corner_pane_id(), Some(4));
+        assert_eq!(LayoutNode::Empty.corner_pane_id(), None);
+    }
+
+    #[test]
+    fn opacity_and_blur_pick_background_appearance() {
+        use gpui::WindowBackgroundAppearance as Appearance;
+        for (json, expected) in [
+            (r#"{"opacity": 1.0, "blur": true}"#, Appearance::Opaque),
+            (
+                r#"{"opacity": 0.8, "blur": false}"#,
+                Appearance::Transparent,
+            ),
+            (r#"{"opacity": 0.8, "blur": true}"#, Appearance::Blurred),
+        ] {
+            assert_eq!(
+                background_appearance(&window_settings(json)),
+                expected,
+                "{json}"
+            );
+        }
+        for (mode, expected) in [
+            ("full", gpui::WindowDecorations::Server),
+            ("none", gpui::WindowDecorations::Client),
+            ("client", gpui::WindowDecorations::Client),
+        ] {
+            let settings = window_settings(&format!(r#"{{"decorations": "{mode}"}}"#));
+            assert_eq!(window_decorations(&settings), expected, "{mode}");
+        }
+    }
+
+    /// active tab's terminal with bracketed paste forced off, like a shell that never asks for it
+    fn without_bracketed_paste(ws: &Entity<Workspace>, cx: &mut VisualTestContext) {
+        let ix = current(ws, cx);
+        terminal(ws, cx, ix).update(cx, |terminal, _| {
+            terminal.last_content.mode.remove(TermMode::BRACKETED_PASTE)
+        });
+    }
+
+    #[gpui::test]
+    fn unsafe_paste_asks_and_pastes_only_when_confirmed(cx: &mut TestAppContext) {
+        let settings = Settings::parse(
+            r#"{"notifications": {"timeout": 0}, "terminal": {"paste_protection": true}}"#,
+        )
+        .unwrap();
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        cx.write_to_clipboard(ClipboardItem::new_string("echo one\necho two\n".into()));
+        without_bracketed_paste(&ws, cx);
+        run_actions(&ws, cx, r#""paste""#);
+        assert!(ws.update(cx, |ws, _| ws.confirm_paste.is_some()));
+        let preview = ws.update(cx, |ws, cx| {
+            ws.confirm_paste
+                .as_ref()
+                .unwrap()
+                .read(cx)
+                .preview()
+                .to_vec()
+        });
+        assert_eq!(preview, ["echo one", "echo two"]);
+        // escape cancels, nothing is pasted
+        cx.simulate_keystrokes("escape");
+        cx.run_until_parked();
+        assert!(ws.update(cx, |ws, _| ws.confirm_paste.is_none()));
+        assert!(notifications(&ws, cx).is_empty());
+
+        without_bracketed_paste(&ws, cx);
+        run_actions(&ws, cx, r#""paste""#);
+        cx.simulate_keystrokes("y");
+        cx.run_until_parked();
+        assert!(ws.update(cx, |ws, _| ws.confirm_paste.is_none()));
+        assert_eq!(notifications(&ws, cx), ["pasted from clipboard"]);
+    }
+
+    #[gpui::test]
+    fn safe_or_unprotected_paste_does_not_ask(cx: &mut TestAppContext) {
+        for (protection, text) in [(true, "echo one"), (false, "echo one\necho two\n")] {
+            let settings = Settings::parse(&format!(
+                r#"{{"notifications": {{"timeout": 0}}, "terminal": {{"paste_protection": {protection}}}}}"#
+            ))
+            .unwrap();
+            let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+            cx.write_to_clipboard(ClipboardItem::new_string(text.into()));
+            without_bracketed_paste(&ws, cx);
+            run_actions(&ws, cx, r#""paste""#);
+            assert!(
+                ws.update(cx, |ws, _| ws.confirm_paste.is_none()),
+                "{text:?}"
+            );
+            assert_eq!(notifications(&ws, cx), ["pasted from clipboard"]);
+        }
+    }
+
+    #[gpui::test]
+    fn clipboard_ask_waits_for_an_answer_button(cx: &mut TestAppContext) {
+        let settings = Settings::parse(
+            r#"{"notifications": {"enable": false}, "terminal": {"clipboard": {"write": "ask", "read": "ask"}}}"#,
+        )
+        .unwrap();
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        cx.write_to_clipboard(ClipboardItem::new_string("before".into()));
+        let terminal = terminal(&ws, cx, 0);
+        terminal.update(cx, |terminal, cx| {
+            terminal.process_event(
+                alacritty_terminal::event::Event::ClipboardStore(
+                    alacritty_terminal::term::ClipboardType::Clipboard,
+                    "from program".into(),
+                ),
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        // asked even with notifications off, a program waits for it
+        assert_eq!(notifications(&ws, cx), ["tab 1 wants to copy from program"]);
+        assert_eq!(
+            cx.read_from_clipboard().and_then(|item| item.text()),
+            Some("before".into())
+        );
+        // clicking the text only does not answer
+        let center = cx.debug_bounds("notification-0").unwrap().center();
+        click(cx, center, 1);
+        release(cx, center);
+        cx.run_until_parked();
+        assert_eq!(notifications(&ws, cx).len(), 1);
+        let allow = cx.debug_bounds("notification-0-button-0").unwrap().center();
+        click(cx, allow, 1);
+        release(cx, allow);
+        cx.run_until_parked();
+        assert!(notifications(&ws, cx).is_empty());
+        assert_eq!(
+            cx.read_from_clipboard().and_then(|item| item.text()),
+            Some("from program".into())
+        );
+
+        // deny leaves the clipboard alone
+        terminal.update(cx, |terminal, cx| {
+            terminal.process_event(
+                alacritty_terminal::event::Event::ClipboardStore(
+                    alacritty_terminal::term::ClipboardType::Clipboard,
+                    "second".into(),
+                ),
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        let deny = cx.debug_bounds("notification-1-button-1").unwrap().center();
+        click(cx, deny, 1);
+        release(cx, deny);
+        cx.run_until_parked();
+        assert!(notifications(&ws, cx).is_empty());
+        assert_eq!(
+            cx.read_from_clipboard().and_then(|item| item.text()),
+            Some("from program".into())
+        );
+    }
+
+    #[gpui::test]
+    fn kitty_release_events_reach_the_program(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 1);
+        let reading = reader_with(&ws, cx, "printf '\\033[>3u'; ", "kitty_release", |mode| {
+            mode.contains(TermMode::REPORT_EVENT_TYPES)
+        });
+        cx.simulate_keystrokes("ctrl-a");
+        cx.simulate_event(gpui::KeyUpEvent {
+            keystroke: gpui::Keystroke::parse("ctrl-a").unwrap(),
+        });
+        pump(cx);
+        let got = finish(&ws, cx, reading).concat();
+        // ESC [ 9 7 ; 5 u, then the same with :3 for the release
+        assert!(got.starts_with("1b5b39373b35751b5b39373b353a3375"), "{got}");
+    }
+
+    fn search_bar(
+        ws: &Entity<Workspace>,
+        cx: &mut VisualTestContext,
+    ) -> Option<Entity<crate::ui::search_bar::SearchBar>> {
+        ws.update(cx, |ws, cx| {
+            let pane = ws.focused_pane();
+            pane.tabs[pane.active].view.read(cx).search_bar().cloned()
+        })
+    }
+
+    #[gpui::test]
+    fn search_key_opens_bar_and_escape_closes_it(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 1);
+        print_line(&ws, cx, "find_me_here");
+        cx.simulate_keystrokes("ctrl-shift-f");
+        cx.run_until_parked();
+        let bar = search_bar(&ws, cx).expect("search bar opened");
+        assert!(cx.debug_bounds("search-bar").is_some());
+        cx.simulate_input("find_me");
+        cx.run_until_parked();
+        let status = bar.read_with(cx, |bar, _| bar.status().clone()).unwrap();
+        assert_eq!((status.count, status.active), (1, Some(0)));
+        let terminal = terminal(&ws, cx, 0);
+        assert!(terminal.read_with(cx, |t, _| t.last_content.active_match.is_some()));
+        // enter walks the matches, nothing reaches the shell
+        cx.simulate_keystrokes("enter shift-enter");
+        cx.run_until_parked();
+
+        cx.simulate_keystrokes("escape");
+        cx.run_until_parked();
+        assert!(search_bar(&ws, cx).is_none());
+        assert!(terminal.read_with(cx, |t, _| !t.searching()));
+        // focus is back on the terminal
+        current(&ws, cx);
+    }
+
+    #[gpui::test]
+    fn search_options_toggle_with_buttons(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 1);
+        print_line(&ws, cx, "Mixed mixed");
+        run_actions(&ws, cx, r#""search""#);
+        let bar = search_bar(&ws, cx).expect("palette action opens the bar");
+        cx.simulate_input("mixed");
+        cx.run_until_parked();
+        let count = |cx: &mut VisualTestContext| {
+            bar.read_with(cx, |bar, _| bar.status().clone())
+                .map(|status| status.count)
+        };
+        // lower case query ignores case, the typed command line is not printed text
+        let both = count(cx).unwrap();
+        let center = cx.debug_bounds("search-case").unwrap().center();
+        click(cx, center, 1);
+        release(cx, center);
+        cx.run_until_parked();
+        assert_eq!(count(cx).unwrap(), both - 1);
+        let center = cx.debug_bounds("search-regex").unwrap().center();
+        click(cx, center, 1);
+        release(cx, center);
+        cx.simulate_input("(");
+        cx.run_until_parked();
+        assert!(count(cx).is_err());
+    }
+
+    fn active_view(ws: &Entity<Workspace>, cx: &mut VisualTestContext) -> Entity<TerminalView> {
+        ws.update(cx, |ws, _| {
+            let pane = ws.focused_pane();
+            pane.tabs[pane.active].view.clone()
+        })
+    }
+
+    #[gpui::test]
+    fn ctrl_hover_underlines_and_ctrl_click_runs_the_link(cx: &mut TestAppContext) {
+        let settings = Settings::parse(
+            r#"{"links": {"modifier": "ctrl", "patterns": [{"regex": "ticket-[0-9]+", "action": "copy"}]}}"#,
+        )
+        .unwrap();
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        print_line(&ws, cx, "see ticket-42 now");
+        let position = cell_of(&ws, cx, "see ticket-42 now", 6, false);
+        let view = active_view(&ws, cx);
+        let ctrl = Modifiers {
+            control: true,
+            ..Modifiers::default()
+        };
+        // without the modifier nothing is a link
+        cx.simulate_event(MouseMoveEvent {
+            position,
+            pressed_button: None,
+            modifiers: Modifiers::default(),
+        });
+        cx.run_until_parked();
+        assert!(view.read_with(cx, |view, _| view.hovered_link().is_none()));
+        cx.simulate_event(MouseMoveEvent {
+            position,
+            pressed_button: None,
+            modifiers: ctrl,
+        });
+        cx.run_until_parked();
+        let target = view.read_with(cx, |view, _| view.hovered_link().map(|l| l.target.clone()));
+        assert_eq!(target.as_deref(), Some("ticket-42"));
+        // letting go of the modifier drops the underline
+        cx.simulate_modifiers_change(Modifiers::default());
+        cx.run_until_parked();
+        assert!(view.read_with(cx, |view, _| view.hovered_link().is_none()));
+
+        cx.simulate_event(MouseDownEvent {
+            position,
+            modifiers: ctrl,
+            button: MouseButton::Left,
+            click_count: 1,
+            first_mouse: false,
+        });
+        cx.simulate_event(MouseUpEvent {
+            position,
+            modifiers: ctrl,
+            button: MouseButton::Left,
+            click_count: 1,
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            cx.read_from_clipboard().and_then(|item| item.text()),
+            Some("ticket-42".into())
+        );
+        // a link click starts no selection
+        let terminal = terminal(&ws, cx, 0);
+        assert!(terminal.read_with(cx, |t, _| t.selection_text().is_none()));
+    }
+
+    #[gpui::test]
+    fn hints_label_matches_and_typing_a_label_runs_it(cx: &mut TestAppContext) {
+        let settings = Settings::parse(
+            r#"{"hints": {"alphabet": "fj", "patterns": [{"name": "num", "regex": "[0-9]{4}", "action": "copy"}]}}"#,
+        )
+        .unwrap();
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        print_line(&ws, cx, "codes 1111 2222");
+        cx.simulate_keystrokes("ctrl-shift-e");
+        cx.run_until_parked();
+        let view = active_view(&ws, cx);
+        let labels = view.read_with(cx, |view, _| {
+            view.hints()
+                .map(|hints| {
+                    hints
+                        .shown()
+                        .map(|(link, label)| (link.target.clone(), label.to_string()))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        });
+        // the typed command line holds the numbers too, so only the printed ones are checked
+        let label = labels
+            .iter()
+            .rev()
+            .find(|(target, _)| target == "2222")
+            .map(|(_, label)| label.clone())
+            .expect("2222 is labeled");
+        cx.simulate_keystrokes(
+            &label
+                .chars()
+                .map(String::from)
+                .collect::<Vec<_>>()
+                .join(" "),
+        );
+        cx.run_until_parked();
+        assert!(view.read_with(cx, |view, _| view.hints().is_none()));
+        assert_eq!(
+            cx.read_from_clipboard().and_then(|item| item.text()),
+            Some("2222".into())
+        );
+
+        // escape leaves hints mode without running anything
+        run_actions(&ws, cx, r#""hints""#);
+        assert!(view.read_with(cx, |view, _| view.hints().is_some()));
+        cx.simulate_keystrokes("escape");
+        cx.run_until_parked();
+        assert!(view.read_with(cx, |view, _| view.hints().is_none()));
+    }
+
+    #[gpui::test]
+    fn vi_mode_key_takes_keys_until_escape(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 1);
+        print_line(&ws, cx, "pick me please");
+        let terminal = terminal(&ws, cx, 0);
+        cx.simulate_keystrokes("ctrl-shift-space");
+        cx.run_until_parked();
+        assert!(terminal.read_with(cx, |t, _| t.vi_mode()));
+        // keys move the vi cursor, the shell gets nothing
+        cx.simulate_keystrokes("k k v e y");
+        cx.run_until_parked();
+        assert!(terminal.read_with(cx, |t, _| !t.vi_mode()));
+        assert!(
+            cx.read_from_clipboard()
+                .and_then(|item| item.text())
+                .is_some()
+        );
+
+        run_actions(&ws, cx, r#""vi_mode""#);
+        assert!(terminal.read_with(cx, |t, _| t.vi_mode()));
+        // "/" opens the search bar
+        cx.simulate_keystrokes("/");
+        cx.run_until_parked();
+        assert!(search_bar(&ws, cx).is_some());
+        cx.simulate_keystrokes("escape");
+        cx.run_until_parked();
+        cx.simulate_keystrokes("escape");
+        cx.run_until_parked();
+        assert!(terminal.read_with(cx, |t, _| !t.vi_mode()));
+    }
+
+    fn leaf(id: usize) -> LayoutNode {
+        LayoutNode::Leaf(Pane {
+            id,
+            tabs: Vec::new(),
+            active: 0,
+            tab_scroll: ScrollHandle::new(),
+        })
+    }
+
+    fn split(axis: SplitAxis, ratio: f32, first: LayoutNode, second: LayoutNode) -> LayoutNode {
+        LayoutNode::Split {
+            axis,
+            ratio,
+            first: Box::new(first),
+            second: Box::new(second),
+        }
+    }
+
+    /// 0 on the left, 1 above 2 on the right
+    fn three_panes() -> LayoutNode {
+        split(
+            SplitAxis::Horizontal,
+            0.5,
+            leaf(0),
+            split(SplitAxis::Vertical, 0.5, leaf(1), leaf(2)),
+        )
+    }
+
+    #[test]
+    fn neighbors_follow_the_layout() {
+        let layout = three_panes();
+        let mut rects = Vec::new();
+        let whole = PaneRect {
+            x: 0.,
+            y: 0.,
+            w: 1.,
+            h: 1.,
+        };
+        layout.rects(whole, &mut rects);
+        assert_eq!(neighbor(&rects, 0, DropSide::Right), Some(1));
+        assert_eq!(neighbor(&rects, 2, DropSide::Left), Some(0));
+        assert_eq!(neighbor(&rects, 1, DropSide::Bottom), Some(2));
+        assert_eq!(neighbor(&rects, 2, DropSide::Top), Some(1));
+        assert_eq!(neighbor(&rects, 0, DropSide::Left), None);
+        assert_eq!(neighbor(&rects, 1, DropSide::Right), None);
+    }
+
+    #[test]
+    fn equalize_and_move_divider_change_ratios() {
+        // three side by side: 0 | (1 | 2)
+        let mut layout = split(
+            SplitAxis::Horizontal,
+            0.5,
+            leaf(0),
+            split(SplitAxis::Horizontal, 0.5, leaf(1), leaf(2)),
+        );
+        layout.equalize();
+        let LayoutNode::Split { ratio, second, .. } = &layout else {
+            unreachable!()
+        };
+        assert!((ratio - 1. / 3.).abs() < 1e-6, "{ratio}");
+        let LayoutNode::Split { ratio, .. } = second.as_ref() else {
+            unreachable!()
+        };
+        assert!((ratio - 0.5).abs() < 1e-6);
+
+        let mut layout = three_panes();
+        // pane 2 is in a vertical split inside the horizontal one
+        assert!(layout.move_divider(2, SplitAxis::Horizontal, -0.1));
+        assert!(layout.move_divider(2, SplitAxis::Vertical, 0.1));
+        let LayoutNode::Split { ratio, second, .. } = &layout else {
+            unreachable!()
+        };
+        assert!((ratio - 0.4).abs() < 1e-6);
+        let LayoutNode::Split { ratio, .. } = second.as_ref() else {
+            unreachable!()
+        };
+        assert!((ratio - 0.6).abs() < 1e-6);
+        // pane 0 has no vertical split around it
+        assert!(!layout.move_divider(0, SplitAxis::Vertical, 0.1));
+        // dividers never go past the minimum share
+        for _ in 0..30 {
+            layout.move_divider(0, SplitAxis::Horizontal, -0.1);
+        }
+        let LayoutNode::Split { ratio, .. } = &layout else {
+            unreachable!()
+        };
+        assert_eq!(*ratio, MIN_SPLIT_RATIO);
+    }
+
+    #[gpui::test]
+    fn pane_actions_focus_zoom_and_close(cx: &mut TestAppContext) {
+        let settings = Settings::parse(r#"{"panes": {"dim_inactive": 0.5}}"#).unwrap();
+        let (ws, cx) = open_with_settings(cx, 2, "{}", settings);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        run_actions(&ws, cx, r#""split_right""#);
+        let right = ws.update(cx, |ws, _| ws.focused);
+        let left = ws.update(cx, |ws, _| *ws.layout.pane_ids().first().unwrap());
+        assert_ne!(left, right);
+        // the pane without focus is dimmed
+        let dim = cx
+            .debug_bounds(&*format!("pane-dim-{left}").leak())
+            .unwrap();
+        assert!(dim.size.width > gpui::px(300.), "{dim:?}");
+        assert!(
+            cx.debug_bounds(&*format!("pane-dim-{right}").leak())
+                .is_none()
+        );
+
+        run_actions(&ws, cx, r#""focus_pane_left""#);
+        assert_eq!(ws.update(cx, |ws, _| ws.focused), left);
+        run_actions(&ws, cx, r#""focus_pane_up""#);
+        assert_eq!(ws.update(cx, |ws, _| ws.focused), left);
+        run_actions(&ws, cx, r#""focus_pane_right""#);
+        assert_eq!(ws.update(cx, |ws, _| ws.focused), right);
+
+        let width = |cx: &mut VisualTestContext, id: usize| {
+            cx.debug_bounds(&*format!("pane-terminal-{id}").leak())
+                .map(|bounds| bounds.size.width)
+        };
+        let before = width(cx, right).unwrap();
+        run_actions(&ws, cx, r#""resize_pane_left""#);
+        assert!(width(cx, right).unwrap() > before);
+        run_actions(&ws, cx, r#""equalize_panes""#);
+        assert!((width(cx, right).unwrap() - before).abs() < gpui::px(2.));
+
+        run_actions(&ws, cx, r#""zoom_pane""#);
+        assert!(width(cx, left).is_none(), "other pane still shown");
+        assert!(width(cx, right).unwrap() > gpui::px(800.));
+        run_actions(&ws, cx, r#""zoom_pane""#);
+        assert!(width(cx, left).is_some());
+
+        run_actions(&ws, cx, r#""close_pane""#);
+        assert_eq!(ws.update(cx, |ws, _| ws.layout.pane_ids()), vec![left]);
+        assert_eq!(ws.update(cx, |ws, _| ws.focused), left);
+    }
+
+    #[gpui::test]
+    fn split_starts_its_shell_in_the_folder_of_the_split_tab(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 1);
+        let dir = std::env::temp_dir().canonicalize().unwrap();
+        send_to(&ws, cx, 0, &format!("cd {}\r", dir.display()));
+        let shell_pid = terminal(&ws, cx, 0).read_with(cx, |t, _| t.shell_pid);
+        wait_until(cx, "cd never ran", |_| {
+            crate::terminal::process_info(shell_pid).and_then(|p| p.cwd) == Some(dir.clone())
+        });
+        run_actions(&ws, cx, r#""split_right""#);
+        // the new shell stays in the left pane, the moved tab went right
+        let left = ws.update(cx, |ws, _| *ws.layout.pane_ids().first().unwrap());
+        let new_pid = ws.update(cx, |ws, cx| {
+            ws.pane(left).unwrap().tabs[0]
+                .view
+                .read(cx)
+                .terminal()
+                .read(cx)
+                .shell_pid
+        });
+        wait_until(cx, "new shell is elsewhere", |_| {
+            crate::terminal::process_info(new_pid).and_then(|p| p.cwd) == Some(dir.clone())
+        });
+    }
+
+    #[gpui::test]
+    fn program_and_long_command_notifications_follow_settings(cx: &mut TestAppContext) {
+        let settings = Settings::parse(
+            r#"{"notifications": {"timeout": 0, "from_programs": "always"}, "shell_integration": {"notify_after": 5}}"#,
+        )
+        .unwrap();
+        let (ws, cx) = open_with_settings(cx, 2, "{}", settings);
+        cx.update(|window, _| window.activate_window());
+        cx.run_until_parked();
+        let notify = Event::Notify {
+            title: "build".into(),
+            body: "done".into(),
+        };
+        terminal(&ws, cx, 1).update(cx, |_, cx| cx.emit(notify.clone()));
+        cx.run_until_parked();
+        assert_eq!(notifications(&ws, cx), ["build: done"]);
+
+        // a short command, or one in the tab in front, tells nothing
+        let finished = |seconds: u64| Event::CommandFinished {
+            duration: Duration::from_secs(seconds),
+            exit: Some(1),
+        };
+        terminal(&ws, cx, 0).update(cx, |_, cx| cx.emit(finished(2)));
+        terminal(&ws, cx, 1).update(cx, |_, cx| cx.emit(finished(60)));
+        cx.run_until_parked();
+        assert_eq!(notifications(&ws, cx).len(), 1);
+        // a long one in a background tab does
+        terminal(&ws, cx, 0).update(cx, |_, cx| cx.emit(finished(60)));
+        cx.run_until_parked();
+        assert_eq!(
+            notifications(&ws, cx),
+            ["build: done", "command failed with 1 in tab 1"]
+        );
+
+        // "unfocused" leaves out notifications of the tab in front
+        let mut settings = cx.update(|_, cx| Settings::get(cx).clone());
+        settings.notifications.from_programs = crate::settings::ProgramNotifications::Unfocused;
+        cx.update(|_, cx| cx.set_global(settings));
+        terminal(&ws, cx, 1).update(cx, |_, cx| cx.emit(notify.clone()));
+        cx.run_until_parked();
+        assert_eq!(notifications(&ws, cx).len(), 2);
+    }
+
+    #[gpui::test]
+    fn keymap_sends_text_chords_and_unbinds(cx: &mut TestAppContext) {
+        let keys = r#"{"keymap": [
+            {"keys": "ctrl-a c", "action": "new_tab"},
+            {"keys": "ctrl-shift-k", "action": {"send_text": "sent"}, "when": "terminal"},
+            {"keys": "ctrl-shift-w", "action": "unbind"},
+            {"keys": "ctrl-shift-z", "action": "new_tab", "when": "vi_mode"},
+        ]}"#;
+        let full = crate::settings::config_combine(serde_json_lenient::from_str(keys).unwrap());
+        let keymap = Keybindings::from_full(&full).unwrap();
+        let (ws, cx) = open(cx, 1);
+        cx.update(|_, cx| cx.bind_keys(keymap.bindings()));
+        // a chord: ctrl-a, then c
+        cx.simulate_keystrokes("ctrl-a c");
+        cx.run_until_parked();
+        assert_eq!(views(&ws, cx).len(), 2);
+        // unbound, so the tab stays
+        cx.simulate_keystrokes("ctrl-shift-w");
+        cx.run_until_parked();
+        assert_eq!(views(&ws, cx).len(), 2);
+        // only in vi mode
+        cx.simulate_keystrokes("ctrl-shift-z");
+        cx.run_until_parked();
+        assert_eq!(views(&ws, cx).len(), 2);
+        run_actions(&ws, cx, r#""vi_mode""#);
+        cx.simulate_keystrokes("ctrl-shift-z");
+        cx.run_until_parked();
+        assert_eq!(views(&ws, cx).len(), 3);
+
+        let reading = reader(&ws, cx, false, "keymap_send");
+        cx.simulate_keystrokes("ctrl-shift-k");
+        pump(cx);
+        let got = finish(&ws, cx, reading).concat();
+        assert!(got.starts_with("73656e74"), "{got}");
+    }
+
+    #[gpui::test]
+    fn open_scrollback_runs_the_pager_on_the_history(cx: &mut TestAppContext) {
+        let copy = std::env::temp_dir().join(format!("kuterm_pager_{}", std::process::id()));
+        let _ = std::fs::remove_file(&copy);
+        let pager = format!(r#"cp "$0" {}.tmp; mv {0}.tmp {0}; sleep 5"#, copy.display());
+        let settings = Settings::parse(&format!(
+            r#"{{"scrollback_pager": ["sh", "-c", {pager:?}]}}"#
+        ))
+        .unwrap();
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        print_line(&ws, cx, "remember this line");
+        run_actions(&ws, cx, r#""open_scrollback""#);
+        assert_eq!(views(&ws, cx).len(), 2);
+        wait_until(cx, "pager never got the file", |_| copy.exists());
+        let text = std::fs::read_to_string(&copy).unwrap();
+        assert!(text.contains("remember this line"), "{text:?}");
+        std::fs::remove_file(&copy).ok();
+    }
+
+    #[gpui::test]
+    fn session_is_saved_and_restored_with_splits_and_folders(cx: &mut TestAppContext) {
+        let dir = crate::settings::tests::temp_dir("session");
+        crate::settings::tests::with_config_home(&dir, || {
+            let settings = Settings::parse(r#"{"restore_session": "always"}"#).unwrap();
+            let (ws, cx) = open_with_settings(cx, 2, "{}", settings.clone());
+            let tmp = std::env::temp_dir().canonicalize().unwrap();
+            send_to(&ws, cx, 1, &format!("cd {}\r", tmp.display()));
+            let shell_pid = terminal(&ws, cx, 1).read_with(cx, |t, _| t.shell_pid);
+            wait_until(cx, "cd never ran", |_| {
+                crate::terminal::process_info(shell_pid).and_then(|p| p.cwd) == Some(tmp.clone())
+            });
+            run_actions(&ws, cx, r#""split_down""#);
+            ws.update(cx, |ws, cx| ws.save_session(cx));
+            assert!(dir.join("state/kuterm/session.json").exists());
+            // only a first window restores
+            cx.update(|window, _| window.remove_window());
+            cx.run_until_parked();
+
+            let (restored, cx) = cx.add_window_view(Workspace::new);
+            cx.run_until_parked();
+            let (panes, cwd) = restored.update(cx, |ws, cx| {
+                let panes = ws.layout.pane_ids().len();
+                let pane = ws.focused_pane();
+                let pid = pane.tabs[pane.active]
+                    .view
+                    .read(cx)
+                    .terminal()
+                    .read(cx)
+                    .shell_pid;
+                (panes, pid)
+            });
+            assert_eq!(panes, 2);
+            // the moved tab was focused and its shell was in the temp folder
+            wait_until(cx, "restored shell is elsewhere", |_| {
+                crate::terminal::process_info(cwd).and_then(|p| p.cwd) == Some(tmp.clone())
+            });
+
+            // closing everything leaves no session
+            restored.update(cx, |ws, cx| {
+                ws.layout = LayoutNode::Empty;
+                ws.save_session(cx);
+            });
+            assert!(!dir.join("state/kuterm/session.json").exists());
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[gpui::test]
+    fn remote_requests_open_tabs_type_and_list(cx: &mut TestAppContext) {
+        use crate::remote::Request;
+        use crate::ui::windows::handle_request;
+
+        let (ws, cx) = open(cx, 1);
+        cx.update(|window, _| window.activate_window());
+        let reply = cx.cx.update(|cx| {
+            handle_request(
+                Request::NewTab {
+                    cwd: Some(std::env::temp_dir()),
+                    profile: None,
+                },
+                cx,
+            )
+        });
+        assert!(reply.ok, "{reply:?}");
+        cx.run_until_parked();
+        assert_eq!(views(&ws, cx).len(), 2);
+        let reply = cx.cx.update(|cx| {
+            handle_request(
+                Request::NewTab {
+                    cwd: None,
+                    profile: Some("missing".into()),
+                },
+                cx,
+            )
+        });
+        assert!(!reply.ok);
+
+        let reply = cx.cx.update(|cx| handle_request(Request::ListTabs, cx));
+        assert_eq!(reply.tabs.len(), 2);
+        assert!(reply.tabs[1].active && !reply.tabs[0].active);
+        assert_eq!(reply.tabs[1].number, 2);
+
+        let reply = cx.cx.update(|cx| {
+            handle_request(
+                Request::SendText {
+                    text: "echo remote_$((2*21))\r".into(),
+                },
+                cx,
+            )
+        });
+        assert!(reply.ok);
+        let terminal = terminal(&ws, cx, 1);
+        wait_until(cx, "sent text never ran", |cx| {
+            terminal.read_with(cx, |t, _| line_starting_with(t, "remote_42").is_some())
+        });
     }
 }

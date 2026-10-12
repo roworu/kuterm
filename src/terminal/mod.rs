@@ -4,13 +4,21 @@ mod bounds;
 mod builder;
 mod content;
 mod events;
+mod graphics;
+mod integration;
 mod keys;
+mod links;
 mod mouse;
 mod process;
+mod scanner;
+mod scrollback;
+mod search;
 mod selection;
+mod vi;
 
 use std::{
     borrow::Cow,
+    collections::HashMap,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -26,20 +34,29 @@ use alacritty_terminal::{
     term::TermMode,
     vte::ansi::{ClearMode, Handler},
 };
-use gpui::{App, EventEmitter, Keystroke, Task, WindowAppearance};
+use gpui::{App, ClipboardItem, Context, EventEmitter, Keystroke, Task, WindowAppearance};
 
 pub use bounds::TerminalBounds;
 pub use builder::TerminalBuilder;
 pub use content::{Content, IndexedCell};
+pub use integration::with_shell_integration;
+pub use links::{Link, TextPatterns};
 pub use mouse::{MouseAction, MouseButton};
 #[cfg(test)]
 pub(crate) use process::tests::{Kill, spawn};
 pub use process::{ForegroundProcess, children, foreground_process, process_info};
+pub use scanner::ScanEvent;
+pub use search::{SearchQuery, SearchStatus};
+pub use vi::ViKey;
 
-use builder::ZedListener;
-use keys::to_esc_str;
+use builder::{ZedListener, term_config};
+pub use keys::KeyEventKind;
+use keys::{to_esc_str, to_kitty_str};
 
-use crate::{settings::ThemeSettings, theme::Theme};
+use crate::{
+    settings::{ClipboardSettings, ProfileTheme, TerminalSettings, ThemeSettings},
+    theme::Theme,
+};
 
 /// events emitted to terminal view
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -47,6 +64,31 @@ pub enum Event {
     TitleChanged,
     Wakeup,
     CloseTerminal,
+    /// the program rang the bell
+    Bell,
+    /// the program wants the clipboard and settings say to ask, `text` is what it would
+    /// copy, none when it wants to read. answered with `answer_clipboard`
+    ClipboardAsk {
+        id: usize,
+        text: Option<String>,
+    },
+    /// a command the shell marked finished, after running this long
+    CommandFinished {
+        duration: std::time::Duration,
+        exit: Option<i32>,
+    },
+    /// the program sent a notification with osc 9 or osc 777
+    Notify {
+        title: String,
+        body: String,
+    },
+}
+
+/// clipboard access waiting for the user to allow it
+enum ClipboardRequest {
+    Write(String),
+    /// builds the reply to the program from the clipboard text
+    Read(Arc<dyn Fn(&str) -> String + Sync + Send + 'static>),
 }
 
 enum InternalEvent {
@@ -65,8 +107,27 @@ pub struct Terminal {
     /// pid of the shell running in the pty
     pub shell_pid: u32,
     /// color scheme from the profile, global theme when none
-    theme_settings: Option<ThemeSettings>,
+    theme_settings: Option<ProfileTheme>,
     theme: Option<Theme>,
+    /// what programs may do with the clipboard
+    clipboard: ClipboardSettings,
+    /// clipboard accesses asked about, by id
+    clipboard_requests: HashMap<usize, ClipboardRequest>,
+    next_clipboard_request: usize,
+    /// running search, none while the search bar is closed
+    search: Option<search::SearchState>,
+    /// count and pending keys of vi mode
+    vi: vi::ViState,
+    /// shell integration marks and notifications found in the output
+    scan_events: scanner::ScanEvents,
+    /// folder the shell reported with osc 7
+    reported_cwd: Option<std::path::PathBuf>,
+    /// when the running command started, from shell integration marks
+    command_started: Option<std::time::Instant>,
+    /// images the program showed
+    graphics: graphics::SharedGraphics,
+    /// cell size for sizing images, shared with the pty thread
+    cell_size: Arc<graphics::CellSize>,
     _event_loop_task: Task<()>,
 }
 
@@ -86,12 +147,19 @@ impl Terminal {
         self.theme.as_ref().unwrap_or_else(|| Theme::get(cx))
     }
 
-    /// load the profile theme for this system appearance
-    pub fn apply_theme(&mut self, appearance: WindowAppearance) {
+    /// load the profile theme for this system appearance, its names come from `themes`
+    pub fn apply_theme(&mut self, appearance: WindowAppearance, themes: &ThemeSettings) {
         self.theme = self
             .theme_settings
             .as_ref()
-            .map(|settings| Theme::for_appearance(settings, appearance));
+            .map(|profile| Theme::for_appearance(&themes.with_profile(profile), appearance));
+    }
+
+    /// apply changed settings, like word separators, to the running terminal
+    pub fn apply_settings(&mut self, settings: &TerminalSettings) {
+        self.clipboard = settings.clipboard;
+        self.term.lock().set_options(term_config(settings));
+        self.dirty.store(true, Ordering::Release);
     }
 
     fn write_to_pty(&self, input: impl Into<Cow<'static, [u8]>>) {
@@ -107,6 +175,10 @@ impl Terminal {
 
     /// queue a resize, applied on next `sync`
     pub fn set_size(&mut self, new_bounds: TerminalBounds) {
+        self.cell_size.set(
+            f32::from(new_bounds.cell_width),
+            f32::from(new_bounds.line_height),
+        );
         let old_bounds = self.last_content.terminal_bounds;
         self.last_content.terminal_bounds = new_bounds;
         // skip pixel-only changes so dragging window does not spam SIGWINCH
@@ -139,8 +211,22 @@ impl Terminal {
     }
 
     /// map a keystroke to an escape sequence and write it, returns false if unmapped
-    pub fn try_keystroke(&mut self, keystroke: &Keystroke, option_as_meta: bool) -> bool {
-        match to_esc_str(keystroke, self.last_content.mode, option_as_meta) {
+    pub fn try_keystroke(
+        &mut self,
+        keystroke: &Keystroke,
+        kind: KeyEventKind,
+        option_as_meta: bool,
+    ) -> bool {
+        let mode = self.last_content.mode;
+        if let Some(esc) = to_kitty_str(keystroke, mode, kind) {
+            self.input(esc.into_bytes());
+            return true;
+        }
+        // only kitty's protocol tells about repeats and releases
+        if kind == KeyEventKind::Release {
+            return false;
+        }
+        match to_esc_str(keystroke, mode, option_as_meta) {
             Some(Cow::Borrowed(esc)) => self.input(esc.as_bytes()),
             Some(Cow::Owned(esc)) => self.input(esc.into_bytes()),
             None => return false,
@@ -150,12 +236,83 @@ impl Terminal {
 
     /// paste text, wrapping it when program asked for bracketed paste
     pub fn paste(&mut self, text: &str) {
-        let text = if self.last_content.mode.contains(TermMode::BRACKETED_PASTE) {
-            format!("\x1b[200~{}\x1b[201~", text.replace('\x1b', ""))
-        } else {
-            text.replace("\r\n", "\r").replace('\n', "\r")
+        let bracketed = self.last_content.mode.contains(TermMode::BRACKETED_PASTE);
+        self.input(pasted(text, bracketed).into_bytes());
+    }
+
+    /// true when pasting `text` should be confirmed: without bracketed paste a newline runs
+    /// it right away and control characters reach the program as keys
+    pub fn paste_is_unsafe(&self, text: &str) -> bool {
+        !self.last_content.mode.contains(TermMode::BRACKETED_PASTE)
+            && text.chars().any(|c| c.is_control() && c != '\t')
+    }
+
+    /// let or refuse a clipboard access the program asked for
+    pub fn answer_clipboard(&mut self, id: usize, allow: bool, cx: &mut Context<Self>) {
+        let Some(request) = self.clipboard_requests.remove(&id) else {
+            return;
         };
-        self.input(text.into_bytes());
+        if allow {
+            self.use_clipboard(request, cx);
+        }
+    }
+
+    fn use_clipboard(&mut self, request: ClipboardRequest, cx: &mut Context<Self>) {
+        match request {
+            ClipboardRequest::Write(text) => cx.write_to_clipboard(ClipboardItem::new_string(text)),
+            ClipboardRequest::Read(format) => {
+                let text = cx
+                    .read_from_clipboard()
+                    .and_then(|item| item.text())
+                    .unwrap_or_default();
+                self.write_to_pty(format(&text).into_bytes());
+            }
+        }
+    }
+
+    /// turn images on or off and limit the memory they take
+    pub fn configure_graphics(&self, enable: bool, max_memory_mb: usize) {
+        self.graphics
+            .lock()
+            .unwrap()
+            .configure(enable, max_memory_mb);
+        self.dirty.store(true, Ordering::Release);
+    }
+
+    /// images no longer shown, their textures should be freed
+    pub fn take_dropped_images(&self) -> Vec<Arc<gpui::RenderImage>> {
+        self.graphics.lock().unwrap().take_dropped()
+    }
+
+    /// folder the shell reported through shell integration, none when it never did
+    pub fn reported_cwd(&self) -> Option<&std::path::Path> {
+        self.reported_cwd.as_deref()
+    }
+
+    /// take what the scanner found in the output, keeping track of the shell, and return
+    /// the events the workspace should hear about
+    pub(crate) fn handle_scan_events(&mut self) -> Vec<Event> {
+        let found = std::mem::take(&mut *self.scan_events.lock().unwrap());
+        let mut events = Vec::new();
+        for (at, event) in found {
+            match event {
+                ScanEvent::PromptStart => {}
+                ScanEvent::CommandStart => self.command_started = Some(at),
+                ScanEvent::CommandEnd(exit) => {
+                    // a prompt drawn without running anything ends nothing
+                    if let Some(started) = self.command_started.take() {
+                        events.push(Event::CommandFinished {
+                            duration: at.saturating_duration_since(started),
+                            exit,
+                        });
+                    }
+                }
+                ScanEvent::Cwd(path) => self.reported_cwd = Some(path),
+                ScanEvent::Notify { title, body } => events.push(Event::Notify { title, body }),
+                ScanEvent::Reply(bytes) => self.write_to_pty(bytes),
+            }
+        }
+        events
     }
 
     /// drop scrollback and everything above the cursor line, which moves to the top
@@ -199,7 +356,23 @@ impl Terminal {
                 InternalEvent::Scroll(scroll) => term.scroll_display(scroll),
             }
         }
-        self.last_content.refresh(&term);
+        let graphics = self.graphics.lock().unwrap();
+        self.last_content
+            .refresh(&term, self.search.as_mut(), &graphics);
+    }
+}
+
+/// bytes a paste sends: bracketed paste wraps it and drops control characters, so the text
+/// can't fake the end of the paste, otherwise newlines become enter presses
+fn pasted(text: &str, bracketed: bool) -> String {
+    if bracketed {
+        let text: String = text
+            .chars()
+            .filter(|c| !c.is_control() || matches!(c, '\t' | '\n' | '\r'))
+            .collect();
+        format!("\x1b[200~{text}\x1b[201~")
+    } else {
+        text.replace("\r\n", "\r").replace('\n', "\r")
     }
 }
 
@@ -216,6 +389,8 @@ mod tests {
     use alacritty_terminal::event::Event as AlacTermEvent;
     use futures::{FutureExt, StreamExt};
     use gpui::{AppContext, Bounds, point, px, size};
+
+    use alacritty_terminal::term::TermMode;
 
     use super::{
         Terminal, TerminalBounds, TerminalBuilder, foreground_process, process::ForegroundProcess,
@@ -337,24 +512,30 @@ mod tests {
         use gpui::WindowAppearance;
 
         use crate::{
-            settings::{ThemeMode, ThemeSettings},
+            settings::{ProfileTheme, Settings, ThemeMode},
             theme::Theme,
         };
 
         let mut builder = spawn(&TerminalSettings::default());
-        builder.terminal.apply_theme(WindowAppearance::Light);
+        builder
+            .terminal
+            .apply_theme(WindowAppearance::Light, &Settings::default().theme);
         assert_eq!(builder.terminal.theme, None);
 
         let mut profile = profile(Shell::System);
-        profile.theme = Some(ThemeSettings {
+        profile.theme = Some(ProfileTheme {
             mode: ThemeMode::System,
             dark: None,
             light: None,
         });
         let mut builder = spawn_with(&TerminalSettings::default(), &profile);
-        builder.terminal.apply_theme(WindowAppearance::Light);
+        builder
+            .terminal
+            .apply_theme(WindowAppearance::Light, &Settings::default().theme);
         assert_eq!(builder.terminal.theme, Some(Theme::bundled(false)));
-        builder.terminal.apply_theme(WindowAppearance::Dark);
+        builder
+            .terminal
+            .apply_theme(WindowAppearance::Dark, &Settings::default().theme);
         assert_eq!(builder.terminal.theme, Some(Theme::bundled(true)));
     }
 
@@ -479,6 +660,24 @@ mod tests {
     }
 
     #[test]
+    fn history_cap_survives_resizes() {
+        let settings = TerminalSettings {
+            max_history_length: crate::settings::MAX_HISTORY_LENGTH,
+            ..TerminalSettings::default()
+        };
+        let mut builder = spawn_long_output(&settings);
+        for (width, height) in [(1600., 1200.), (100., 40.)] {
+            builder.terminal.set_size(TerminalBounds::new(
+                px(20.),
+                px(10.),
+                Bounds::new(point(px(0.), px(0.)), size(px(width), px(height))),
+            ));
+            builder.terminal.sync();
+        }
+        assert!(builder.terminal.history_size() > 0);
+    }
+
+    #[test]
     fn scroll_to_moves_to_absolute_offset() {
         let mut builder = spawn_long_output(&TerminalSettings::default());
         let terminal = &mut builder.terminal;
@@ -500,6 +699,88 @@ mod tests {
         terminal.scroll_to(0);
         terminal.sync();
         assert_eq!(terminal.last_content.display_offset, 0);
+    }
+
+    fn search_for(text: &str, regex: bool, whole_word: bool) -> super::SearchQuery {
+        super::SearchQuery {
+            text: text.into(),
+            regex,
+            whole_word,
+            case: crate::settings::SearchCase::Smart,
+        }
+    }
+
+    #[test]
+    fn search_counts_matches_and_walks_them_up_from_the_bottom() {
+        let mut builder = spawn_long_output(&TerminalSettings::default());
+        let terminal = &mut builder.terminal;
+        // line_1, line_10..line_19 and line_100..line_199
+        let status = terminal
+            .search(&search_for("line_1", false, false))
+            .unwrap();
+        assert_eq!(status.count, 111);
+        // the closest match above the bottom of the screen
+        assert_eq!(status.active, Some(110));
+        terminal.sync();
+        let active = terminal.last_content.active_match.clone().unwrap();
+        let line: String = terminal
+            .last_content
+            .cells
+            .iter()
+            .filter(|cell| cell.point.line == active.start().line)
+            .map(|cell| cell.cell.c)
+            .collect();
+        assert!(line.starts_with("line_199"), "{line:?}");
+        assert!(!terminal.last_content.search_matches.is_empty());
+
+        assert_eq!(terminal.search_next(true).active, Some(109));
+        assert_eq!(terminal.search_next(false).active, Some(110));
+        // wraps around at the ends
+        assert_eq!(terminal.search_next(false).active, Some(0));
+        assert_eq!(terminal.search_next(true).active, Some(110));
+
+        terminal.end_search();
+        terminal.sync();
+        assert!(terminal.last_content.search_matches.is_empty());
+        assert_eq!(terminal.last_content.active_match, None);
+    }
+
+    #[test]
+    fn search_scrolls_to_a_match_in_history() {
+        let mut builder = spawn_long_output(&TerminalSettings::default());
+        let terminal = &mut builder.terminal;
+        let status = terminal.search(&search_for("line_3", false, true)).unwrap();
+        // whole words only: not line_30 and the others
+        assert_eq!(status.count, 1);
+        terminal.sync();
+        assert!(terminal.last_content.display_offset > 0);
+        let active = terminal.last_content.active_match.clone().unwrap();
+        let visible = -(terminal.last_content.display_offset as i32);
+        assert!(
+            active.start().line.0 >= visible,
+            "{active:?} above the view"
+        );
+        assert!(
+            screen_text(terminal)
+                .lines()
+                .any(|line| line.trim_end() == "line_3")
+        );
+    }
+
+    #[test]
+    fn search_reports_broken_regex_and_no_matches() {
+        let mut builder = spawn_long_output(&TerminalSettings::default());
+        let terminal = &mut builder.terminal;
+        assert!(terminal.search(&search_for("line_(", true, false)).is_err());
+        let status = terminal
+            .search(&search_for(r"line_1\d\d", true, false))
+            .unwrap();
+        assert_eq!(status.count, 100);
+        let status = terminal
+            .search(&search_for("nowhere", false, false))
+            .unwrap();
+        assert_eq!((status.count, status.active), (0, None));
+        assert_eq!(terminal.search_next(true).active, None);
     }
 
     #[test]
@@ -530,6 +811,164 @@ mod tests {
         terminal.sync();
         assert!(screen_text(terminal).contains("quiet_ready"));
         assert_eq!(terminal.last_content.cells.as_ptr(), buffer);
+    }
+
+    #[test]
+    fn bracketed_paste_drops_control_characters() {
+        assert_eq!(
+            super::pasted("a\x1b[201~b\x03c\u{9b}d\te\nf\r", true),
+            "\x1b[200~a[201~bcd\te\nf\r\x1b[201~"
+        );
+        assert_eq!(super::pasted("a\nb\r\nc", false), "a\rb\rc");
+    }
+
+    #[test]
+    fn paste_is_unsafe_only_without_bracketed_paste() {
+        let mut builder = spawn(&TerminalSettings::default());
+        let terminal = &mut builder.terminal;
+        terminal.last_content.mode = TermMode::empty();
+        assert!(!terminal.paste_is_unsafe("ls -la\tdone"));
+        assert!(terminal.paste_is_unsafe("ls\n"));
+        assert!(terminal.paste_is_unsafe("ls\r"));
+        assert!(terminal.paste_is_unsafe("\x1b[A"));
+        terminal.last_content.mode = TermMode::BRACKETED_PASTE;
+        assert!(!terminal.paste_is_unsafe("ls\nrm -rf x\x1b[201~"));
+    }
+
+    #[gpui::test]
+    fn clipboard_access_follows_settings(cx: &mut gpui::TestAppContext) {
+        use std::{cell::RefCell, rc::Rc};
+
+        use alacritty_terminal::term::ClipboardType;
+        use gpui::ClipboardItem;
+
+        use super::Event;
+        use crate::settings::{ClipboardAccess, ClipboardSettings};
+
+        cx.update(|cx| cx.set_global(crate::theme::Theme::default()));
+        let settings = TerminalSettings {
+            clipboard: ClipboardSettings {
+                write: ClipboardAccess::Deny,
+                read: ClipboardAccess::Ask,
+            },
+            ..TerminalSettings::default()
+        };
+        let builder = spawn(&settings);
+        let terminal = cx.new(|_| builder.terminal);
+        let events = Rc::new(RefCell::new(Vec::new()));
+        cx.update(|cx| {
+            let events = events.clone();
+            cx.subscribe(&terminal, move |_, event: &Event, _| {
+                events.borrow_mut().push(event.clone())
+            })
+            .detach()
+        });
+        cx.write_to_clipboard(ClipboardItem::new_string("before".into()));
+        let store =
+            |text: &str| AlacTermEvent::ClipboardStore(ClipboardType::Clipboard, text.into());
+        let clipboard =
+            |cx: &mut gpui::TestAppContext| cx.read_from_clipboard().and_then(|item| item.text());
+
+        terminal.update(cx, |terminal, cx| {
+            terminal.process_event(store("denied"), cx)
+        });
+        assert_eq!(clipboard(cx), Some("before".into()));
+        let load = std::sync::Arc::new(|text: &str| format!("load:{text}"));
+        terminal.update(cx, |terminal, cx| {
+            terminal.process_event(
+                AlacTermEvent::ClipboardLoad(ClipboardType::Clipboard, load),
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            *events.borrow(),
+            [Event::ClipboardAsk { id: 0, text: None }]
+        );
+
+        terminal.update(cx, |terminal, cx| {
+            terminal.clipboard.write = ClipboardAccess::Ask;
+            terminal.process_event(store("asked"), cx);
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            events.borrow().last(),
+            Some(&Event::ClipboardAsk {
+                id: 1,
+                text: Some("asked".into())
+            })
+        );
+        assert_eq!(clipboard(cx), Some("before".into()));
+        terminal.update(cx, |terminal, cx| terminal.answer_clipboard(1, true, cx));
+        assert_eq!(clipboard(cx), Some("asked".into()));
+        // an answer counts once
+        cx.write_to_clipboard(ClipboardItem::new_string("after".into()));
+        terminal.update(cx, |terminal, cx| terminal.answer_clipboard(1, true, cx));
+        assert_eq!(clipboard(cx), Some("after".into()));
+
+        terminal.update(cx, |terminal, cx| {
+            terminal.clipboard.write = ClipboardAccess::Allow;
+            terminal.process_event(store("allowed"), cx);
+        });
+        assert_eq!(clipboard(cx), Some("allowed".into()));
+    }
+
+    #[test]
+    fn program_turns_on_kitty_keyboard_protocol() {
+        let profile = profile(Shell::WithArguments {
+            program: "/bin/sh".into(),
+            args: vec![
+                "-c".into(),
+                "stty raw -echo; printf '\\033[>1ukitty_on'; dd bs=1 count=8 2>/dev/null | od -An -tx1 | tr -d ' \\n'; echo =got; sleep 5"
+                    .into(),
+            ],
+        });
+        let mut builder = spawn_with(&TerminalSettings::default(), &profile);
+        let terminal = &mut builder.terminal;
+        wait_for_text(terminal, "kitty_on");
+        assert!(
+            terminal
+                .last_content
+                .mode
+                .contains(TermMode::DISAMBIGUATE_ESC_CODES)
+        );
+        let ctrl_i = gpui::Keystroke::parse("ctrl-i").unwrap();
+        assert!(terminal.try_keystroke(&ctrl_i, super::KeyEventKind::Press, false));
+        // ESC [ 1 0 5 ; 5 u, ctrl-i is no longer the same as tab
+        wait_for_text(terminal, "1b5b3130353b3575=got");
+    }
+
+    #[test]
+    fn synchronized_output_is_not_shown_half_done() {
+        let profile = profile(Shell::WithArguments {
+            program: "/bin/sh".into(),
+            args: vec![
+                "-c".into(),
+                // the update is never ended, alacritty gives up waiting after a timeout
+                "read _; printf 'sync_before\\n\\033[?2026hsync_inside'; sleep 5".into(),
+            ],
+        });
+        let mut builder = spawn_with(&TerminalSettings::default(), &profile);
+        let terminal = &mut builder.terminal;
+        terminal.input(b"\r".to_vec());
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            // a local change makes `sync` take a snapshot even without new output
+            terminal.scroll(0);
+            terminal.sync();
+            let text = screen_text(terminal);
+            if text.contains("sync_before") {
+                assert!(
+                    !text.contains("sync_inside"),
+                    "half done update shown:\n{text}"
+                );
+                break;
+            }
+            assert!(Instant::now() < deadline, "no output:\n{text}");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        // the update shows up whole once it ends or times out
+        wait_for_text(terminal, "sync_inside");
     }
 
     #[gpui::test]
@@ -605,318 +1044,5 @@ mod tests {
             terminal.process_event(AlacTermEvent::ChildExit(status), cx);
             terminal.process_event(AlacTermEvent::Wakeup, cx);
         });
-    }
-}
-
-#[cfg(test)]
-mod history_cap_terminal {
-
-    use gpui::{Bounds, point, px, size};
-
-    use super::TerminalBounds;
-    use super::tests::{profile, spawn_with, wait_for_text};
-    use crate::settings::{MAX_HISTORY_LENGTH, Settings, Shell, TerminalSettings};
-
-    fn run(settings: &TerminalSettings, lines: usize) -> super::TerminalBuilder {
-        let p = profile(Shell::WithArguments {
-            program: "/bin/sh".into(),
-            args: vec![
-                "-c".into(),
-                format!(
-                    "read go; i=0; while [ $i -lt {lines} ]; do echo row_$i; i=$((i+1)); done; echo agent_done; sleep 5"
-                ),
-            ],
-        });
-        let mut b = spawn_with(settings, &p);
-        b.terminal.input(b"\r".to_vec());
-        wait_for_text(&mut b.terminal, "agent_done");
-        b
-    }
-
-    fn resize(b: &mut super::TerminalBuilder, w: f32, h: f32) {
-        b.terminal.set_size(TerminalBounds::new(
-            px(20.),
-            px(10.),
-            Bounds::new(point(px(0.), px(0.)), size(px(w), px(h))),
-        ));
-        b.terminal.sync();
-    }
-
-    fn huge() -> TerminalSettings {
-        let json = format!(
-            r#"{{"terminal": {{"max_history_length": {}}}}}"#,
-            usize::MAX
-        );
-        Settings::parse(&json).unwrap().terminal
-    }
-
-    #[test]
-    fn huge_history_setting_spawns_and_prints() {
-        let b = run(&huge(), 200);
-        assert!(b.terminal.last_content.history_size > 100);
-    }
-
-    #[test]
-    fn huge_history_setting_survives_resizes() {
-        let mut b = run(&huge(), 200);
-        resize(&mut b, 400., 200.);
-        resize(&mut b, 1600., 1200.);
-        resize(&mut b, 100., 40.);
-        assert!(b.terminal.history_size() > 0);
-    }
-
-    #[test]
-    fn cap_value_survives_resizes() {
-        let s = TerminalSettings {
-            max_history_length: MAX_HISTORY_LENGTH,
-            ..TerminalSettings::default()
-        };
-        let mut b = run(&s, 50);
-        resize(&mut b, 1600., 1200.);
-        resize(&mut b, 200., 100.);
-    }
-
-    #[test]
-    fn zero_history_survives_resizes() {
-        let s = TerminalSettings {
-            max_history_length: 0,
-            ..TerminalSettings::default()
-        };
-        let mut b = run(&s, 50);
-        resize(&mut b, 1600., 1200.);
-        resize(&mut b, 200., 100.);
-    }
-}
-
-#[cfg(test)]
-mod profiles_terminal {
-
-    use gpui::WindowAppearance;
-
-    use super::tests::{profile, spawn_with, wait_for_text};
-    use crate::{
-        settings::{Shell, TerminalSettings, ThemeMode, ThemeSettings},
-        theme::Theme,
-    };
-
-    fn sh(script: &str) -> Shell {
-        Shell::WithArguments {
-            program: "/bin/sh".into(),
-            args: vec!["-c".into(), format!("{script}; sleep 5")],
-        }
-    }
-
-    #[test]
-    fn profile_program_command_runs() {
-        let p = profile(Shell::Program("/bin/sh".into()));
-        let mut b = spawn_with(&TerminalSettings::default(), &p);
-        b.terminal.input(b"echo prog_$((6*7))\r".to_vec());
-        wait_for_text(&mut b.terminal, "prog_42");
-    }
-
-    #[test]
-    fn several_env_vars_reach_command() {
-        let mut p = profile(sh("echo \"vars=$AGENT_A-$AGENT_B-$AGENT_C=\""));
-        p.env.insert("AGENT_A".into(), "one".into());
-        p.env.insert("AGENT_B".into(), "two words".into());
-        p.env.insert("AGENT_C".into(), "".into());
-        let mut b = spawn_with(&TerminalSettings::default(), &p);
-        wait_for_text(&mut b.terminal, "vars=one-two words-=");
-    }
-
-    #[test]
-    fn profile_env_overrides_term_program() {
-        let mut p = profile(sh("echo \"tp=$TERM_PROGRAM=\""));
-        p.env.insert("TERM_PROGRAM".into(), "agent_override".into());
-        let mut b = spawn_with(&TerminalSettings::default(), &p);
-        wait_for_text(&mut b.terminal, "tp=agent_override=");
-    }
-
-    #[test]
-    fn env_of_one_profile_does_not_leak_into_another() {
-        let mut p = profile(sh("echo \"leak=${AGENT_LEAK:-none}=\""));
-        p.env.insert("AGENT_LEAK".into(), "yes".into());
-        let mut b = spawn_with(&TerminalSettings::default(), &p);
-        wait_for_text(&mut b.terminal, "leak=yes=");
-        let p = profile(sh("echo \"leak=${AGENT_LEAK:-none}=\""));
-        let mut b = spawn_with(&TerminalSettings::default(), &p);
-        wait_for_text(&mut b.terminal, "leak=none=");
-    }
-
-    #[test]
-    fn absolute_working_directory_is_used() {
-        let dir = std::env::temp_dir().join(format!("kuterm_agent_wd_{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let dir = dir.canonicalize().unwrap();
-        let mut p = profile(sh("echo \"wd=$(pwd -P)=\""));
-        p.working_directory = Some(dir.clone());
-        let mut b = spawn_with(&TerminalSettings::default(), &p);
-        wait_for_text(&mut b.terminal, &format!("wd={}=", dir.display()));
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn tilde_subfolder_is_expanded_to_home() {
-        let home = std::path::PathBuf::from(std::env::var("HOME").unwrap());
-        let name = format!("kuterm_agent_home_{}", std::process::id());
-        let dir = home.join(&name);
-        std::fs::create_dir_all(&dir).unwrap();
-        let mut p = profile(sh("echo \"hw=$(pwd)=\""));
-        p.working_directory = Some(format!("~/{name}").into());
-        let mut b = spawn_with(&TerminalSettings::default(), &p);
-        wait_for_text(&mut b.terminal, &format!("hw={}=", dir.display()));
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn no_working_directory_uses_kuterm_folder() {
-        let cwd = std::env::current_dir().unwrap();
-        let p = profile(sh("echo \"cw=$(pwd)=\""));
-        let mut b = spawn_with(&TerminalSettings::default(), &p);
-        wait_for_text(&mut b.terminal, &format!("cw={}=", cwd.display()));
-    }
-
-    #[test]
-    fn profile_theme_mode_overrides_appearance() {
-        let mut p = profile(Shell::System);
-        p.theme = Some(ThemeSettings {
-            mode: ThemeMode::Dark,
-            dark: None,
-            light: None,
-        });
-        let mut b = spawn_with(&TerminalSettings::default(), &p);
-        b.terminal.apply_theme(WindowAppearance::Light);
-        assert_eq!(b.terminal.theme, Some(Theme::bundled(true)));
-
-        p.theme = Some(ThemeSettings {
-            mode: ThemeMode::Light,
-            dark: None,
-            light: None,
-        });
-        let mut b = spawn_with(&TerminalSettings::default(), &p);
-        b.terminal.apply_theme(WindowAppearance::Dark);
-        assert_eq!(b.terminal.theme, Some(Theme::bundled(false)));
-    }
-
-    #[test]
-    fn profile_without_theme_has_no_own_theme() {
-        let p = profile(Shell::System);
-        let mut b = spawn_with(&TerminalSettings::default(), &p);
-        for appearance in [WindowAppearance::Dark, WindowAppearance::Light] {
-            b.terminal.apply_theme(appearance);
-            assert_eq!(b.terminal.theme, None);
-        }
-    }
-}
-
-#[cfg(test)]
-mod scrollbar_terminal {
-
-    use super::tests::{profile, screen_text, spawn_with, wait_for_text};
-    use crate::settings::{Shell, TerminalSettings};
-
-    fn printing(lines: usize, settings: &TerminalSettings) -> super::TerminalBuilder {
-        let p = profile(Shell::WithArguments {
-            program: "/bin/sh".into(),
-            args: vec![
-                "-c".into(),
-                format!(
-                    "read go; i=0; while [ $i -lt {lines} ]; do echo row_$i; i=$((i+1)); done; echo agent_done; sleep 5"
-                ),
-            ],
-        });
-        let mut b = spawn_with(settings, &p);
-        b.terminal.input(b"\r".to_vec());
-        wait_for_text(&mut b.terminal, "agent_done");
-        b
-    }
-
-    fn with_history(n: usize) -> TerminalSettings {
-        TerminalSettings {
-            max_history_length: n,
-            ..TerminalSettings::default()
-        }
-    }
-
-    #[test]
-    fn short_output_has_no_history() {
-        let b = printing(1, &with_history(100));
-        assert_eq!(b.terminal.last_content.history_size, 0);
-    }
-
-    #[test]
-    fn history_capped_at_setting() {
-        let b = printing(300, &with_history(10));
-        assert_eq!(b.terminal.last_content.history_size, 10);
-    }
-
-    #[test]
-    fn history_below_cap_is_not_padded() {
-        let b = printing(300, &with_history(100_000));
-        let h = b.terminal.last_content.history_size;
-        assert!(h > 200 && h < 400, "history {h}");
-    }
-
-    #[test]
-    fn zero_history_is_unlimited() {
-        let b = printing(1500, &with_history(0));
-        assert!(b.terminal.last_content.history_size >= 1400);
-    }
-
-    #[test]
-    fn scroll_to_top_shows_first_line() {
-        let mut b = printing(300, &with_history(0));
-        let t = &mut b.terminal;
-        let h = t.last_content.history_size;
-        t.scroll_to(h);
-        t.sync();
-        assert_eq!(t.last_content.display_offset, h);
-        assert!(screen_text(t).contains("row_0"));
-    }
-
-    #[test]
-    fn scroll_to_is_absolute_not_relative() {
-        let mut b = printing(300, &with_history(0));
-        let t = &mut b.terminal;
-        t.scroll_to(50);
-        t.sync();
-        t.scroll_to(20);
-        t.sync();
-        assert_eq!(t.last_content.display_offset, 20);
-        t.scroll(5);
-        t.sync();
-        t.scroll_to(7);
-        t.sync();
-        assert_eq!(t.last_content.display_offset, 7);
-    }
-
-    #[test]
-    fn scroll_to_past_history_clamps() {
-        let mut b = printing(300, &with_history(40));
-        let t = &mut b.terminal;
-        t.scroll_to(10_000);
-        t.sync();
-        assert_eq!(t.last_content.display_offset, 40);
-    }
-
-    #[test]
-    fn scroll_to_zero_returns_to_bottom() {
-        let mut b = printing(300, &with_history(0));
-        let t = &mut b.terminal;
-        t.scroll_to(100);
-        t.sync();
-        t.scroll_to(0);
-        t.sync();
-        assert_eq!(t.last_content.display_offset, 0);
-        assert!(screen_text(t).contains("agent_done"));
-    }
-
-    #[test]
-    fn scroll_to_without_history_stays_at_bottom() {
-        let mut b = printing(1, &with_history(100));
-        let t = &mut b.terminal;
-        t.scroll_to(5);
-        t.sync();
-        assert_eq!(t.last_content.display_offset, 0);
     }
 }

@@ -126,6 +126,48 @@ def test_paste_is_bracketed_only_when_asked(app_factory, bracketed):
     assert "hi" in got
 
 
+@pytest.mark.parametrize("flags,keys,expected", [
+    ("1", ["ctrl+i", "Tab"], "\x1b[105;5u\t"),
+    ("1", ["Escape", "ctrl+shift+a"], "\x1b[27u\x1b[97;6u"),
+    # gpui's x11 backend loses key releases of xdotool keys, the unit tests cover them there
+    pytest.param("3", ["ctrl+a"], "\x1b[97;5u\x1b[97;5:3u", marks=pytest.mark.wayland_only),
+], ids=["ctrl-i_vs_tab", "escape_and_ctrl-shift-a", "release_events"])
+def test_kitty_keyboard_protocol(app_factory, flags, keys, expected):
+    """a program that turns on kitty's keyboard protocol gets keys it can tell apart"""
+    app = app_factory({"theme": {"mode": "dark"}},
+                      script=f"stty raw -echo; printf '\\033[>{flags}u'; step 1; "
+                             'timeout --foreground 2 cat > "$T2_TMP/got"; stty sane; touch "$T2_TMP/done"')
+    time.sleep(0.5)
+    app.step(1)
+    time.sleep(0.3)
+    for key in keys:
+        app.key(key)
+    app.wait_file("done", timeout=10)
+    got = app.file("got").read_bytes().decode(errors="replace")
+    assert got == expected, repr(got)
+
+
+def test_keymap_send_text_chord_and_unbind(app_factory):
+    """keymap entries: a chord opens a tab, send_text types escapes, unbind lets a key through"""
+    app = app_factory({"theme": {"mode": "dark"}, "window_title": ["number"],
+                       "keymap": [{"keys": "ctrl-a c", "action": "new_tab"},
+                                  {"keys": "ctrl-shift-k", "action": {"send_text": "\u001b[2Jsent"}},
+                                  {"keys": "ctrl-shift-w", "action": "unbind"}]},
+                      script="stty raw -echo; step 1; "
+                             'timeout --foreground 3 cat > "$T2_TMP/got"; stty sane; touch "$T2_TMP/done"')
+    time.sleep(0.5)
+    app.step(1)
+    time.sleep(0.3)
+    app.key("ctrl+shift+k", "ctrl+shift+w")
+    app.wait_file("done", timeout=10)
+    got = app.file("got").read_bytes().decode(errors="replace")
+    assert got == "\x1b[2Jsent", repr(got)
+    # ctrl-shift-w no longer closes the only tab, which would quit
+    assert app.alive()
+    app.key("ctrl+a", "c")
+    app.wait_title("2")
+
+
 def test_mouse_selection_and_copy(app_factory):
     """dragging selects text in the selection color, ctrl-shift-c copies it"""
     app = keyed(app_factory)
@@ -151,6 +193,30 @@ def test_double_click_selects_word(app_factory):
     app.click((x0 + x1) // 2, (y0 + y1) // 2, repeat=2)
     app.key("ctrl+shift+c")
     app.wait(lambda: get_clipboard() == "bravo", msg=f"clipboard, got {get_clipboard()!r}")
+
+
+def test_word_separators(app_factory):
+    """word_separators decides where a double clicked word ends"""
+    app = keyed(app_factory, terminal={"word_separators": " -"})
+    app.run("clear; echo alpha-bravo charlie")
+    time.sleep(1)
+    x0, y0, x1, y1 = app.cell_rect(8, 0)
+    app.click((x0 + x1) // 2, (y0 + y1) // 2, repeat=2)
+    app.key("ctrl+shift+c")
+    app.wait(lambda: get_clipboard() == "bravo", msg=f"clipboard, got {get_clipboard()!r}")
+
+
+@pytest.mark.parametrize("trim", [True, False])
+def test_copy_trim_trailing_whitespace(app_factory, trim):
+    """copy_trim_trailing_whitespace drops spaces and tabs at the end of copied lines"""
+    app = keyed(app_factory, terminal={"copy_trim_trailing_whitespace": trim})
+    app.run("clear; printf 'padded \\t\\n'")
+    time.sleep(1)
+    x0, y0, x1, y1 = app.cell_rect(2, 0)
+    app.click((x0 + x1) // 2, (y0 + y1) // 2, repeat=3)
+    app.key("ctrl+shift+c")
+    expected = "padded\n" if trim else "padded \t\n"
+    app.wait(lambda: get_clipboard() == expected, msg=f"clipboard, got {get_clipboard()!r}")
 
 
 def selected(app: App, col: int, row: int, cols: int) -> bool:
@@ -193,7 +259,7 @@ def test_shift_click_extends_selection(app_factory):
 @pytest.mark.parametrize("action,keys", [("new_tab", "ctrl+shift+t"), ("next_tab", "ctrl+Tab"),
                                          ("activate_tab_1", "alt+1")])
 def test_null_disables_action(app_factory, action, keys):
-    """null in keybindings.jsonc disables an action and its key"""
+    """null in the keybindings section disables an action and its key"""
     keys_file = {action: None} if action == "new_tab" else {action: None, "new_tab": "ctrl-shift-t"}
     app = keyed(app_factory, keybindings=keys_file)
     if action != "new_tab":
@@ -234,13 +300,22 @@ def test_activate_tab_above_nine(app_factory):
     app.wait_title("10")
 
 
-@pytest.mark.parametrize("content", ["{", "[]", '{"new_tab": 5}'])
-def test_invalid_keybindings_use_defaults(app_factory, content):
-    """a broken keybindings file prints an error and keeps the default keys"""
-    app = keyed(app_factory, keybindings=content)
+@pytest.mark.parametrize("keys", [{"new_tab": 5}, {"new_tab": "foo-t"}, {"launch_rockets": "ctrl-b"}])
+def test_invalid_keybindings_at_launch_are_reported(app_factory, keys):
+    """a bad keybindings section at launch prints an error naming the section, defaults are used"""
+    app = keyed(app_factory, keybindings=keys)
+    app.wait(lambda: "invalid settings in" in app.output(), msg="error on stderr")
+    assert "keybindings" in app.output()
+    assert app.alive()
+
+
+def test_invalid_keybindings_section_keeps_the_last_good_keys(app_factory):
+    """a bad key saved in the keybindings section is reported, the running keys stay"""
+    app = keyed(app_factory)
+    app.write("settings.jsonc", {**app.settings, "keybindings": {"new_tab": 5}})
+    app.wait(lambda: "keybindings" in app.output() and "invalid settings" in app.output(), msg="error on stderr")
     app.key("ctrl+shift+t")
     app.wait_title("2")
-    assert "invalid keybindings" in app.output()
 
 
 def test_wheel_scrolls_history_and_typing_jumps_back(app_factory):

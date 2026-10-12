@@ -1,37 +1,103 @@
 //! custom gpui element that paints terminal grid
 
+mod box_drawing;
 mod cursor;
 mod grid;
 mod input_handler;
 mod scrollbar;
 
-use alacritty_terminal::{term::TermMode, vte::ansi::CursorShape};
+use alacritty_terminal::{index::Point as AlacPoint, term::search::Match, vte::ansi::CursorShape};
+use std::sync::Arc;
+
 use gpui::{
-    App, Bounds, ContentMask, CursorStyle, DispatchPhase, Element, ElementId, Entity, FocusHandle,
-    Font, FontFeatures, GlobalElementId, Hitbox, HitboxBehavior, InspectorElementId, IntoElement,
-    LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Style, TextRun,
+    App, Bounds, ContentMask, Corners, CursorStyle, DispatchPhase, Element, ElementId, Entity,
+    FocusHandle, Font, FontFallbacks, FontFeatures, FontWeight, GlobalElementId, Hitbox,
+    HitboxBehavior, Hsla, InspectorElementId, IntoElement, LayoutId, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, Pixels, Point, RenderImage, ShapedLine, Size, Style, TextRun,
     Window, fill, point, px, relative, size,
 };
 
 use crate::{
-    settings::{ScrollbarEnable, ScrollbarPlacement, Settings},
+    settings::{
+        ScrollbarEnable, ScrollbarPlacement, Settings, TerminalSettings, parse_font_feature,
+    },
     terminal::{Terminal, TerminalBounds},
     ui::terminal_view::TerminalView,
 };
 use cursor::CursorLayout;
-use grid::{BatchedTextRun, LayoutRect, layout_grid};
+use grid::{
+    BatchedTextRun, BoxGlyph, GridStyle, LayoutRect, SearchHighlights, TerminalFonts, layout_grid,
+};
 use input_handler::TerminalInputHandler;
 use scrollbar::ScrollbarLayout;
+
+/// regular terminal font with the features and fallbacks from settings
+fn terminal_font(settings: &TerminalSettings) -> Font {
+    let features: Vec<_> = settings
+        .font_features
+        .iter()
+        .filter_map(|feature| parse_font_feature(feature))
+        .collect();
+    Font {
+        features: FontFeatures(features.into()),
+        fallbacks: (!settings.font_fallbacks.is_empty())
+            .then(|| FontFallbacks::from_fonts(settings.font_fallbacks.clone())),
+        ..gpui::font(settings.font.family.clone())
+    }
+}
+
+/// faces for each style, a style without own family uses the regular one
+fn terminal_fonts(settings: &TerminalSettings) -> TerminalFonts {
+    let regular = terminal_font(settings);
+    let font = &settings.font;
+    let face = |family: &Option<String>, weight: FontWeight, style: gpui::FontStyle| Font {
+        family: family.clone().map_or(regular.family.clone(), Into::into),
+        weight,
+        style,
+        ..regular.clone()
+    };
+    let bold = FontWeight(font.bold.weight);
+    let italic = font.italic.style.into();
+    TerminalFonts {
+        bold: face(&font.bold.family, bold, gpui::FontStyle::Normal),
+        italic: face(&font.italic.family, FontWeight::NORMAL, italic),
+        bold_italic: face(&font.bold_italic.family, bold, italic),
+        regular,
+    }
+}
+
+/// width and height of one grid cell at `font_size`
+pub fn cell_size(font_size: Pixels, cx: &App) -> Size<Pixels> {
+    let settings = &Settings::get(cx).terminal;
+    let text_system = cx.text_system();
+    let font_id = text_system.resolve_font(&terminal_font(settings));
+    let cell_width = text_system.advance(font_id, font_size, 'm').unwrap().width;
+    size(
+        (cell_width + px(settings.cell_width)).max(px(1.)),
+        (font_size * settings.line_height.value()).round(),
+    )
+}
 
 /// everything computed in prepaint that paint needs
 pub struct LayoutState {
     hitbox: Hitbox,
     rects: Vec<LayoutRect>,
     batched_text_runs: Vec<BatchedTextRun>,
+    box_glyphs: Vec<BoxGlyph>,
+    /// moves text inside its cells, backgrounds and builtin glyphs stay
+    glyph_offset: Point<Pixels>,
     cursor: Option<CursorLayout>,
     scrollbar: Option<(ScrollbarLayout, Hitbox)>,
     dimensions: TerminalBounds,
     font_size: Pixels,
+    /// underline of the hovered link, relative to the grid origin
+    link_underlines: Vec<Bounds<Pixels>>,
+    link_color: Hsla,
+    /// hint labels with their boxes, relative to the grid origin
+    hint_labels: Vec<(Bounds<Pixels>, ShapedLine)>,
+    /// images with where they go, relative to the grid origin
+    images: Vec<(Bounds<Pixels>, Arc<RenderImage>)>,
+    hint_background: Hsla,
 }
 
 pub struct TerminalElement {
@@ -43,10 +109,17 @@ pub struct TerminalElement {
     cursor_on: bool,
     /// false once auto hide kicked in
     scrollbar_visible: bool,
+    /// fading bell flash painted over the terminal
+    bell_flash: Option<Hsla>,
+    /// cells of the link under the mouse, underlined
+    link: Option<Match>,
+    /// hint labels and the cell each one starts at
+    hints: Vec<(AlacPoint, String)>,
 }
 
 impl TerminalElement {
     /// create element that paints given terminal
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         terminal: Entity<Terminal>,
         terminal_view: Entity<TerminalView>,
@@ -54,6 +127,9 @@ impl TerminalElement {
         focused: bool,
         cursor_on: bool,
         scrollbar_visible: bool,
+        bell_flash: Option<Hsla>,
+        link: Option<Match>,
+        hints: Vec<(AlacPoint, String)>,
     ) -> Self {
         Self {
             terminal,
@@ -62,6 +138,9 @@ impl TerminalElement {
             focused,
             cursor_on,
             scrollbar_visible,
+            bell_flash,
+            link,
+            hints,
         }
     }
 
@@ -96,7 +175,7 @@ impl TerminalElement {
     }
 
     // window level listeners, so a drag keeps selecting after leaving the terminal area
-    fn register_mouse_listeners(&self, hitbox: Hitbox, report_motion: bool, window: &mut Window) {
+    fn register_mouse_listeners(&self, hitbox: Hitbox, window: &mut Window) {
         let view = self.terminal_view.clone();
         let down_hitbox = hitbox.clone();
         window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
@@ -109,10 +188,10 @@ impl TerminalElement {
         });
         let view = self.terminal_view.clone();
         window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
-            // moves without a button only matter to programs tracking all motion
+            // moves without a button matter to programs tracking all motion and to links
             if phase == DispatchPhase::Bubble
                 && !cx.has_active_drag()
-                && (event.pressed_button.is_some() || (report_motion && hitbox.is_hovered(window)))
+                && (event.pressed_button.is_some() || hitbox.is_hovered(window))
             {
                 view.update(cx, |view, cx| view.mouse_move(event, cx));
             }
@@ -160,16 +239,21 @@ impl Element for TerminalElement {
         window: &mut Window,
         cx: &mut App,
     ) -> Self::PrepaintState {
+        let window_settings = Settings::get(cx).window.clone();
         let settings = &Settings::get(cx).terminal;
-        let font = Font {
-            features: FontFeatures::disable_ligatures(),
-            ..gpui::font(settings.font_family.clone())
+        let fonts = terminal_fonts(settings);
+        let glyph_offset = point(px(settings.glyph_offset.x), px(settings.glyph_offset.y));
+        let cursor_settings = settings.cursor;
+        let style = GridStyle {
+            fonts: &fonts,
+            bold_is_bright: settings.bold_is_bright,
+            minimum_contrast: settings.minimum_contrast,
+            dim_opacity: settings.dim_opacity,
+            builtin_box_drawing: settings.builtin_box_drawing,
         };
         let font_size = px(self.terminal_view.read(cx).font_size(cx));
-        let line_height = (font_size * settings.line_height.value()).round();
-        let text_system = cx.text_system();
-        let font_id = text_system.resolve_font(&font);
-        let cell_width = text_system.advance(font_id, font_size, 'm').unwrap().width;
+        let cell = cell_size(font_size, cx);
+        let (cell_width, line_height) = (cell.width, cell.height);
 
         // the bar keeps its space while hidden, so showing it never reflows the grid
         let bar_settings = settings.scrollbar.clone();
@@ -186,15 +270,22 @@ impl Element for TerminalElement {
             size(bar_width, bounds.size.height),
         );
 
-        let mut origin = bounds.origin;
-        origin.x += cell_width;
+        let padding = window_settings.padding;
+        let (pad_x, pad_y) = (px(padding.x), px(padding.y));
+        let mut origin = point(bounds.origin.x + pad_x, bounds.origin.y + pad_y);
         if bar_settings.placement == ScrollbarPlacement::Left {
             origin.x += bar_width;
         }
         let mut grid_size = bounds.size;
-        grid_size.width = (grid_size.width - cell_width - bar_width).max(cell_width * 2.);
+        grid_size.width = (grid_size.width - pad_x * 2. - bar_width).max(cell_width * 2.);
         // alacritty panics on a grid without rows
-        grid_size.height = grid_size.height.max(line_height);
+        grid_size.height = (grid_size.height - pad_y * 2.).max(line_height);
+        if window_settings.padding_balance {
+            // only whole cells are drawn, so the rest of the grid size is spare room
+            let spare = |length: Pixels, cell: Pixels| px(f32::from(length) % f32::from(cell));
+            origin.x += spare(grid_size.width, cell_width) / 2.;
+            origin.y += spare(grid_size.height, line_height) / 2.;
+        }
 
         // snap to device pixels so glyphs do not jitter while resizing
         let scale_factor = window.scale_factor();
@@ -212,11 +303,15 @@ impl Element for TerminalElement {
         let terminal = self.terminal.read(cx);
         let theme = terminal.theme(cx);
         let content = &terminal.last_content;
-        let (rects, batched_text_runs) = layout_grid(
+        let (rects, batched_text_runs, box_glyphs) = layout_grid(
             &content.cells,
             content.display_offset,
             content.selection,
-            &font,
+            SearchHighlights {
+                matches: &content.search_matches,
+                active: content.active_match.as_ref(),
+            },
+            &style,
             theme,
         );
 
@@ -230,8 +325,10 @@ impl Element for TerminalElement {
                 font_size,
                 &[TextRun {
                     len: content.cursor_char.len_utf8(),
-                    font: font.clone(),
-                    color: theme.terminal_background,
+                    font: fonts.regular.clone(),
+                    color: cursor_settings
+                        .text_color
+                        .unwrap_or(theme.terminal_background),
                     background_color: None,
                     underline: None,
                     strikethrough: None,
@@ -253,9 +350,12 @@ impl Element for TerminalElement {
                     size(width.ceil(), line_height),
                 ),
                 shape: content.cursor.shape,
-                color: theme.cursor,
+                color: cursor_settings.color.unwrap_or(theme.cursor),
                 focused: self.focused,
+                unfocused: cursor_settings.unfocused,
+                thickness: px(cursor_settings.thickness),
                 text,
+                text_offset: glyph_offset,
             }
         });
 
@@ -275,6 +375,60 @@ impl Element for TerminalElement {
             )
         });
 
+        let link_underlines = self
+            .link
+            .as_ref()
+            .map(|link| link_underlines(link, content.display_offset, &dimensions))
+            .unwrap_or_default();
+        let link_color = theme.terminal_foreground;
+        let images = content
+            .images
+            .iter()
+            .map(|(start, image)| {
+                let row = start.line.0 + content.display_offset as i32;
+                let bounds = Bounds::new(
+                    point(cell_width * start.column.0 as f32, line_height * row as f32),
+                    match image.pixels {
+                        Some((width, height)) => size(px(width as f32), px(height as f32)),
+                        None => size(
+                            cell_width * image.cols as f32,
+                            line_height * image.rows as f32,
+                        ),
+                    },
+                );
+                (bounds, image.image.clone())
+            })
+            .collect();
+        let hint_labels = self
+            .hints
+            .iter()
+            .filter_map(|(start, label)| {
+                let row = start.line.0 + content.display_offset as i32;
+                if row < 0 || row as usize >= dimensions.num_lines() || label.is_empty() {
+                    return None;
+                }
+                let text = window.text_system().shape_line(
+                    label.clone().into(),
+                    font_size,
+                    &[TextRun {
+                        len: label.len(),
+                        font: fonts.bold.clone(),
+                        color: theme.terminal_background,
+                        background_color: None,
+                        underline: None,
+                        strikethrough: None,
+                    }],
+                    Some(cell_width),
+                );
+                let bounds = Bounds::new(
+                    point(cell_width * start.column.0 as f32, line_height * row as f32),
+                    size(cell_width * label.chars().count() as f32, line_height),
+                );
+                Some((bounds, text))
+            })
+            .collect();
+        let hint_background = theme.cursor;
+
         // inserted after the terminal hitbox so it sits on top and clicks on it skip selection
         let hitbox = window.insert_hitbox(bounds, HitboxBehavior::Normal);
         let scrollbar = scrollbar.map(|scrollbar| {
@@ -286,10 +440,17 @@ impl Element for TerminalElement {
             hitbox,
             rects,
             batched_text_runs,
+            box_glyphs,
+            glyph_offset,
             cursor,
             scrollbar,
             dimensions,
             font_size,
+            link_underlines,
+            link_color,
+            hint_labels,
+            hint_background,
+            images,
         }
     }
 
@@ -303,14 +464,13 @@ impl Element for TerminalElement {
         window: &mut Window,
         cx: &mut App,
     ) {
-        window.set_cursor_style(CursorStyle::IBeam, &layout.hitbox);
-        let report_motion = self
-            .terminal
-            .read(cx)
-            .last_content
-            .mode
-            .contains(TermMode::MOUSE_MOTION);
-        self.register_mouse_listeners(layout.hitbox.clone(), report_motion, window);
+        let cursor = if layout.link_underlines.is_empty() {
+            CursorStyle::IBeam
+        } else {
+            CursorStyle::PointingHand
+        };
+        window.set_cursor_style(cursor, &layout.hitbox);
+        self.register_mouse_listeners(layout.hitbox.clone(), window);
         if let Some((scrollbar, hitbox)) = &layout.scrollbar {
             window.set_cursor_style(CursorStyle::Arrow, hitbox);
             self.register_scrollbar_listeners(*scrollbar, hitbox.clone(), window);
@@ -318,7 +478,8 @@ impl Element for TerminalElement {
 
         window.with_content_mask(Some(ContentMask { bounds }), |window| {
             let background = self.terminal.read(cx).theme(cx).terminal_background;
-            window.paint_quad(fill(bounds, background));
+            let opacity = Settings::get(cx).window.opacity;
+            window.paint_quad(fill(bounds, background.opacity(opacity)));
 
             let origin = layout.dimensions.bounds.origin;
             window.handle_input(
@@ -333,8 +494,46 @@ impl Element for TerminalElement {
             for rect in &layout.rects {
                 rect.paint(origin, &layout.dimensions, window);
             }
+            // over cell backgrounds, under the text
+            for (image_bounds, image) in &layout.images {
+                window
+                    .paint_image(
+                        bounds,
+                        *image_bounds + origin,
+                        Corners::default(),
+                        image.clone(),
+                        0,
+                        false,
+                    )
+                    .ok();
+            }
             for run in &mut layout.batched_text_runs {
-                run.paint(origin, &layout.dimensions, layout.font_size, window, cx);
+                run.paint(
+                    origin + layout.glyph_offset,
+                    &layout.dimensions,
+                    layout.font_size,
+                    window,
+                    cx,
+                );
+            }
+            for glyph in &layout.box_glyphs {
+                glyph.paint(origin, &layout.dimensions, window);
+            }
+            for underline in &layout.link_underlines {
+                window.paint_quad(fill(*underline + origin, layout.link_color));
+            }
+            for (bounds, text) in &layout.hint_labels {
+                let bounds = *bounds + origin;
+                window.paint_quad(fill(bounds, layout.hint_background));
+                text.paint(
+                    bounds.origin,
+                    layout.dimensions.line_height,
+                    gpui::TextAlign::Left,
+                    None,
+                    window,
+                    cx,
+                )
+                .ok();
             }
             // layout is kept while hidden, the input handler still needs its bounds for ime
             if let Some(cursor) = &layout.cursor
@@ -345,8 +544,46 @@ impl Element for TerminalElement {
             if let Some((scrollbar, _)) = &layout.scrollbar {
                 scrollbar.paint(window);
             }
+            if let Some(flash) = self.bell_flash {
+                window.paint_quad(fill(bounds, flash));
+            }
         });
     }
+}
+
+/// one underline per visible row of `link`, at the bottom of its cells
+fn link_underlines(
+    link: &Match,
+    display_offset: usize,
+    dims: &TerminalBounds,
+) -> Vec<Bounds<Pixels>> {
+    let (start, end) = (*link.start(), *link.end());
+    let last_column = dims.num_columns().saturating_sub(1);
+    (start.line.0..=end.line.0)
+        .filter_map(|line| {
+            let row = line + display_offset as i32;
+            if row < 0 || row as usize >= dims.num_lines() {
+                return None;
+            }
+            let first = if line == start.line.0 {
+                start.column.0
+            } else {
+                0
+            };
+            let last = if line == end.line.0 {
+                end.column.0
+            } else {
+                last_column
+            };
+            Some(Bounds::new(
+                point(
+                    dims.cell_width * first as f32,
+                    dims.line_height * (row + 1) as f32 - px(2.),
+                ),
+                size(dims.cell_width * (last + 1 - first) as f32, px(1.)),
+            ))
+        })
+        .collect()
 }
 
 impl IntoElement for TerminalElement {

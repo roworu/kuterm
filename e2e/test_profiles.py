@@ -18,7 +18,7 @@ def profile(name: str, **kwargs) -> dict:
 
 def profiled(app_factory, profiles: list, **settings) -> App:
     app = app_factory({"theme": {"mode": "dark"}, "window_title": ["number", {"text": " "}, "folder"],
-                       "profiles": profiles, **settings}, files={"themes/dark.jsonc": THEME})
+                       "profiles": profiles, **settings}, themes={"dark": THEME})
     app.mouse(450, 500)
     return app
 
@@ -72,9 +72,9 @@ def test_profile_theme_colors_its_tab(app_factory):
     other = unique_theme(0x20)
     app = app_factory({"theme": {"mode": "dark"}, "window_title": ["number"],
                        "profiles": [profile("plain"), profile("red", default=False,
-                                                              theme={"mode": "dark", "dark": "themes/other.jsonc"})],
+                                                              theme={"mode": "dark", "dark": "other"})],
                        "command_palette": {"enable": True}},
-                      files={"themes/dark.jsonc": THEME, "themes/other.jsonc": other},
+                      themes={"dark": THEME, "other": other},
                       commands={"commands": [{"name": "open red", "actions": [{"new_tab_with_profile": "red"}]}]})
     app.wait(lambda: close_to(dominant(app.shot()), C["terminal_background"]), msg="global theme")
     app.snap("default profile, global theme")
@@ -94,7 +94,7 @@ def test_profile_icon_is_kept(app_factory):
     """a profile icon stays whatever runs in the tab"""
     app = app_factory({"theme": {"mode": "dark"}, "hide_bar_for_one_tab": False, "tab_title": [{"text": "t"}],
                        "profiles": [profile("iconic", icon="")]},
-                      files={"themes/dark.jsonc": THEME},
+                      themes={"dark": THEME},
                       tab_icons={"groups": [{"icon": "", "commands": ["sleep"]}]})
     app.mouse(450, 500)
     h = app.bar_height()

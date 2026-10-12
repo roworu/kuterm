@@ -42,7 +42,7 @@ def test_cells_scale(app_factory, scale):
 @pytest.mark.parametrize("scale", SCALES)
 def test_tab_bar_scales(app_factory, scale):
     """the tab bar is 2 rems tall times the scale"""
-    app = scaled(app_factory, scale, {"hide_bar_for_one_tab": False}, files={"themes/dark.jsonc": {
+    app = scaled(app_factory, scale, {"hide_bar_for_one_tab": False}, themes={"dark": {
         "tab_bar_background": "#ff00ff", "tab_active_background": "#ff00ff"}})
     h = app.bar_height()
     app.wait(lambda: near(app.shot()[:, 5 * app.size()[0] // 6], (255, 0, 255), 3).any(), msg="tab bar")
@@ -87,7 +87,7 @@ def test_drag_selects_scaled_cells(app_factory, scale):
 def test_scrollbar_width_scales(app_factory, scale):
     """the scrollbar is its logical width times the scale"""
     app = scaled(app_factory, scale, {"terminal": {"scrollbar": {"enable": "on", "auto_hide": 0}}},
-                 files={"themes/dark.jsonc": {"scrollbar": "#ff00ff"}})
+                 themes={"dark": {"scrollbar": "#ff00ff"}})
     box = app.wait(lambda: mask_bbox(near(app.shot(), (255, 0, 255), 3)), msg="scrollbar")
     assert box[2] == app.size()[0]
     assert abs(box[2] - box[0] - app.scrollbar_width()) <= 1, (box, app.scrollbar_width())

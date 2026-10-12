@@ -16,8 +16,9 @@ PLAIN = {"tab_title": [{"text": "title"}], "tab_icon": {"dynamic": False, "defau
 
 
 def bar_app(app_factory, **settings) -> App:
-    base = {"theme": {"mode": "dark"}, "window_title": ["number"]}
-    app = app_factory({**base, **settings}, files={"themes/dark.jsonc": THEME})
+    # dividers are found by single pixels at the window middle, a thin one may miss them
+    base = {"theme": {"mode": "dark"}, "window_title": ["number"], "panes": {"divider_width": 4}}
+    app = app_factory({**base, **settings}, themes={"dark": THEME})
     # keep the pointer away from the bar, hover changes its colors
     app.mouse(450, 500)
     return app
@@ -132,7 +133,7 @@ def test_dynamic_tab_icon_follows_program(app_factory, dynamic):
     """tab_icon.dynamic shows the icon of the running program, false keeps the default one"""
     app = app_factory({"theme": {"mode": "dark"}, "hide_bar_for_one_tab": False, "tab_title": [{"text": "t"}],
                        "tab_icon": {"dynamic": dynamic, "default": "D"}},
-                      files={"themes/dark.jsonc": THEME},
+                      themes={"dark": THEME},
                       tab_icons={"groups": [{"icon": "", "commands": ["sleep"]}]})
     app.mouse(450, 500)
     h = app.bar_height()
@@ -273,6 +274,24 @@ def test_drag_tab_to_a_side_splits_the_pane(app_factory):
     app.snap("tab dragged to the right half split the pane")
 
 
+def test_focus_follows_mouse(app_factory):
+    """with focus_follows_mouse, moving the mouse over a pane focuses it, typing goes there"""
+    app = bar_app(app_factory, tab_width=200, focus_follows_mouse=True, **PLAIN)
+    time.sleep(1)
+    app.run("export WHO=first")
+    open_tabs(app, 2)
+    app.run("export WHO=second")
+    w, h = app.size()
+    # the first tab moves into a new right pane, which gets focus
+    app.drag((100, app.bar_height() // 2), (w * 3 // 4, h // 2))
+    app.wait(lambda: divider_shown(app, vertical=True), msg="no vertical divider between the panes")
+    app.mouse(w // 4, h // 2)
+    time.sleep(0.3)
+    app.run('echo "$WHO" > "$T2_TMP/who"')
+    assert app.wait_file("who").strip() == "second"
+    app.snap("mouse over the left pane focused it")
+
+
 def test_drag_tab_to_the_bottom_half_splits_the_pane(app_factory):
     """dragging a tab to the bottom half of the terminal splits it into two panes"""
     app = bar_app(app_factory, tab_width=200, **PLAIN)
@@ -392,7 +411,7 @@ _references: dict = {}
 def cut_app(app_factory, title: str, **settings) -> App:
     app = app_factory({"theme": {"mode": "dark"}, "window_title": ["number"], **CUT_BASE,
                        "tab_title": [{"text": title}], **settings},
-                      files={"themes/dark.jsonc": CUT_THEME})
+                      themes={"dark": CUT_THEME})
     app.mouse(450, 500)
     return app
 

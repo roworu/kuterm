@@ -13,17 +13,23 @@ use skrifa::{
     instance::{LocationRef, Size},
 };
 
-use super::{DropSide, LayoutNode, Pane, SplitAxis, Workspace, end_truncated::EndTruncated};
+use super::{
+    DropSide, LayoutNode, Pane, SplitAxis, Workspace, end_truncated::EndTruncated,
+    window::shows_tab_bar,
+};
 use crate::{
-    settings::{NewTabButton, Settings, TabIconPosition, TabTitleAlign},
+    settings::{Decorations, NewTabButton, Settings, TabIconPosition, TabTitleAlign},
     theme::Theme,
 };
 
 // tab bar text size in rems, the icon offset is scaled by it
 const TEXT_SIZE: f32 = 0.875;
 
-// width of the divider between two split panes
-const DIVIDER_WIDTH: f32 = 4.;
+// nerd font bell, shown on a background tab that rang
+const BELL_ICON: &str = "\u{f0f3}";
+
+// narrowest a divider is to grab, a thinner one is widened by an invisible handle
+const DIVIDER_GRAB: f32 = 6.;
 
 /// how far `icon` must move down, in ems, for its lowest point to stand on the baseline
 fn icon_drop(icon: &str) -> f32 {
@@ -209,9 +215,9 @@ impl Workspace {
         let settings = Settings::get(cx);
         let indicator = theme.text;
         let title = self.tab_title(pane, ix, cx);
-        let icon = self.pane(pane).expect("pane from caller").tabs[ix]
-            .icon
-            .clone();
+        let tab_state = &self.pane(pane).expect("pane from caller").tabs[ix];
+        let icon = tab_state.icon.clone();
+        let bell = tab_state.bell;
         tab(ix, title.clone(), icon.clone(), settings)
             .group("tab")
             .border_r_1()
@@ -259,6 +265,15 @@ impl Workspace {
                         this.move_tab_to_pane(dragged.pane, dragged.ix, pane, ix, window, cx);
                     },
                 ))
+            })
+            .when(bell, |tab| {
+                tab.child(
+                    div()
+                        .debug_selector(move || format!("tab-bell-{ix}"))
+                        .flex_none()
+                        .text_color(theme.text)
+                        .child(BELL_ICON),
+                )
             })
             .when(settings.show_tab_close_button, |tab| {
                 tab.child(
@@ -322,14 +337,18 @@ impl Workspace {
         let settings = Settings::get(cx);
         let theme = Theme::get(cx);
         let pane_id = pane.id;
-        let show_bar = !(settings.hide_bar_for_one_tab && pane.tabs.len() == 1);
+        let show_bar = shows_tab_bar(settings, pane.tabs.len());
+        let framed = settings.window.decorations == Decorations::Full;
         // fixed width tabs only take the room they need, so the button follows the last one.
-        // expanded tabs fill the row anyway, which puts the button at the right end
-        let hug_tabs = settings.new_tab_button == NewTabButton::AfterTabs && !settings.expand_tabs;
+        // expanded tabs fill the row anyway, which puts the button at the right end.
+        // without a frame the room after the tabs is left free for moving the window
+        let hug_tabs = (settings.new_tab_button == NewTabButton::AfterTabs || !framed)
+            && !settings.expand_tabs;
         let tab_row = tab_row(&pane.tab_scroll)
             .when(hug_tabs, |row| row.flex_initial())
             .children((0..pane.tabs.len()).map(|ix| self.render_tab(pane_id, ix, cx)));
         let new_tab = self.render_new_tab_button(pane_id, cx);
+        let drag_area = (!framed).then(|| self.render_drag_area(pane_id, cx));
         let bar = div()
             .flex()
             .flex_none()
@@ -338,9 +357,23 @@ impl Workspace {
             .border_b_1()
             .border_color(theme.border)
             .map(|bar| match settings.new_tab_button {
-                NewTabButton::Left => bar.child(new_tab).child(tab_row),
-                NewTabButton::Right | NewTabButton::AfterTabs => bar.child(tab_row).child(new_tab),
-            });
+                NewTabButton::Left => bar.child(new_tab).child(tab_row).children(drag_area),
+                NewTabButton::Right => bar.child(tab_row).children(drag_area).child(new_tab),
+                NewTabButton::AfterTabs => bar.child(tab_row).child(new_tab).children(drag_area),
+            })
+            .when(
+                settings.window.decorations == Decorations::Client
+                    && self.layout.corner_pane_id() == Some(pane_id),
+                |bar| bar.child(self.render_window_buttons(cx)),
+            );
+        // only a pane without focus next to others is dimmed
+        let dim =
+            if pane_id != self.focused && self.zoomed.is_none() && self.layout.pane_ids().len() > 1
+            {
+                settings.panes.dim_inactive
+            } else {
+                0.
+            };
         let zone = self
             .drop_zone
             .filter(|(id, _)| *id == pane_id)
@@ -379,6 +412,19 @@ impl Workspace {
             }))
             .when_some(zone, |terminal, side| {
                 terminal.child(drop_overlay(side, theme))
+            })
+            .when(dim > 0., |terminal| {
+                // deferred, since the cached terminal view would otherwise paint over it
+                terminal.child(
+                    div()
+                        .debug_selector(move || format!("pane-dim-{pane_id}"))
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .right_0()
+                        .bottom_0()
+                        .bg(gpui::black().opacity(dim)),
+                )
             });
         div()
             .id(("pane", pane_id))
@@ -394,6 +440,15 @@ impl Workspace {
                     this.focus_pane(pane_id, window, cx);
                 }),
             )
+            .when(settings.focus_follows_mouse, |pane| {
+                pane.on_mouse_move(
+                    cx.listener(move |this, event: &MouseMoveEvent, window, cx| {
+                        if event.pressed_button.is_none() && !cx.has_active_drag() {
+                            this.hover_pane(pane_id, window, cx);
+                        }
+                    }),
+                )
+            })
             .when(show_bar, |pane| pane.child(bar))
             .child(terminal)
             .into_any_element()
@@ -414,21 +469,37 @@ impl Workspace {
         let mut second_path = split_path.to_vec();
         second_path.push(true);
         let theme = Theme::get(cx);
-        let divider = div()
+        let width = Settings::get(cx).panes.divider_width;
+        let grab = width.max(DIVIDER_GRAB);
+        // centered on the divider, so it reaches into both panes
+        let handle = div()
             .id(format!("divider-{split_path:?}"))
-            .flex_none()
-            .bg(theme.border)
-            .map(|divider| match axis {
-                SplitAxis::Horizontal => divider
-                    .w(px(DIVIDER_WIDTH))
+            .debug_selector(|| "divider".into())
+            .absolute()
+            .map(|handle| match axis {
+                SplitAxis::Horizontal => handle
+                    .top_0()
                     .h_full()
+                    .w(px(grab))
+                    .left(px((width - grab) / 2.))
                     .cursor(CursorStyle::ResizeLeftRight),
-                SplitAxis::Vertical => divider
-                    .h(px(DIVIDER_WIDTH))
+                SplitAxis::Vertical => handle
+                    .left_0()
                     .w_full()
+                    .h(px(grab))
+                    .top(px((width - grab) / 2.))
                     .cursor(CursorStyle::ResizeUpDown),
             })
             .on_drag(SplitDrag, |_, _, _, cx| cx.new(|_| SplitDrag));
+        let divider = div()
+            .flex_none()
+            .relative()
+            .bg(theme.border)
+            .map(|divider| match axis {
+                SplitAxis::Horizontal => divider.w(px(width)).h_full(),
+                SplitAxis::Vertical => divider.h(px(width)).w_full(),
+            })
+            .child(handle);
         let path = split_path.to_vec();
         div()
             .flex()
@@ -531,12 +602,18 @@ impl Workspace {
         )
     }
 
-    /// command palette, about page or close tab dialog, centered near the top like in zed
+    /// command palette, about page, close tab or paste dialog, centered near the top like in zed
     fn render_overlay(&self) -> Option<AnyElement> {
-        let view = match (&self.palette, &self.about, &self.confirm_close) {
-            (Some(palette), _, _) => palette.clone().into_any_element(),
-            (_, Some(about), _) => about.clone().into_any_element(),
-            (_, _, Some(confirm)) => confirm.clone().into_any_element(),
+        let view = match (
+            &self.palette,
+            &self.about,
+            &self.confirm_close,
+            &self.confirm_paste,
+        ) {
+            (Some(palette), _, _, _) => palette.clone().into_any_element(),
+            (_, Some(about), _, _) => about.clone().into_any_element(),
+            (_, _, Some(confirm), _) => confirm.clone().into_any_element(),
+            (_, _, _, Some(paste)) => paste.clone().into_any_element(),
             _ => return None,
         };
         Some(
@@ -563,7 +640,10 @@ impl Render for Workspace {
         let theme = Theme::get(cx);
         // ui scales in rems of the ui font size
         window.set_rem_size(px(settings.ui_font_size));
-        let layout = self.render_layout(&self.layout, &[], cx);
+        let layout = match self.zoomed.and_then(|id| self.pane(id)) {
+            Some(pane) => self.render_pane(pane, cx),
+            None => self.render_layout(&self.layout, &[], cx),
+        };
         div()
             .key_context("Workspace")
             .on_action(cx.listener(Self::new_tab))
@@ -581,7 +661,7 @@ impl Render for Workspace {
             .size_full()
             .flex()
             .flex_col()
-            .bg(theme.terminal_background)
+            .bg(theme.terminal_background.opacity(settings.window.opacity))
             .font_family(settings.ui_font_family.clone())
             .text_size(rems(TEXT_SIZE))
             .child(layout)

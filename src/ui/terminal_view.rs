@@ -5,30 +5,52 @@ use std::{
     time::{Duration, Instant},
 };
 
-use alacritty_terminal::selection::SelectionType;
+use alacritty_terminal::{selection::SelectionType, term::TermMode};
 use gpui::{
-    App, ClipboardItem, Context, Entity, EventEmitter, ExternalPaths, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, KeyDownEvent, Modifiers, MouseDownEvent, MouseMoveEvent,
+    App, AppContext, BorrowAppContext, ClipboardItem, Context, DismissEvent, Entity, EventEmitter,
+    ExternalPaths, FocusHandle, Focusable, Hsla, InteractiveElement, IntoElement, KeyContext,
+    KeyDownEvent, KeyUpEvent, Modifiers, ModifiersChangedEvent, MouseDownEvent, MouseMoveEvent,
     MouseUpEvent, ParentElement, Pixels, Point, Render, ScrollDelta, ScrollWheelEvent, Styled,
     Subscription, Task, Window, actions, div, px,
 };
 
 use crate::{
-    settings::{Settings, SmoothScrollSettings},
-    terminal::{Event, MouseAction, MouseButton, Terminal},
-    ui::terminal_element::TerminalElement,
+    settings::{PatternAction, Settings, SmoothScrollSettings},
+    terminal::{
+        Event, KeyEventKind, Link, MouseAction, MouseButton, Terminal, TextPatterns, ViKey,
+        foreground_process,
+    },
+    ui::{
+        hints::{HintKey, Hints},
+        search_bar::SearchBar,
+        terminal_element::TerminalElement,
+    },
 };
 
-actions!(terminal, [Copy, Paste]);
+actions!(terminal, [Copy, Paste, Search, ShowHints, ToggleViMode]);
 
 /// clipboard change made from the view, so the workspace can notify about it
 pub enum ClipboardEvent {
     Copied(String),
     Pasted,
+    /// text that looks unsafe to paste, the workspace asks first
+    ConfirmPaste(String),
 }
 
-// default terminal scroll_multiplier
-const SCROLL_MULTIPLIER: f32 = 2.;
+// alpha of the default bell flash, enough to see without hiding the text
+const BELL_FLASH_OPACITY: f32 = 0.2;
+
+/// `links.patterns` with their regexes built, shared by every terminal
+#[derive(Default)]
+struct LinkPatterns(TextPatterns);
+
+impl gpui::Global for LinkPatterns {}
+
+/// `hints.patterns` with their regexes built, shared by every terminal
+#[derive(Default)]
+struct HintPatterns(TextPatterns);
+
+impl gpui::Global for HintPatterns {}
 
 /// glide of the viewport between two history offsets
 #[derive(Clone, Copy, Debug)]
@@ -71,6 +93,16 @@ pub struct TerminalView {
     blink: Option<Task<()>>,
     /// font size of this tab only, none follows settings
     font_size: Option<f32>,
+    /// when the bell rang, while its flash is still fading
+    bell_at: Option<Instant>,
+    /// open search bar, none while it is closed
+    search_bar: Option<(Entity<SearchBar>, Subscription)>,
+    /// link under the mouse while the link modifier is held
+    hovered_link: Option<Link>,
+    /// last mouse position over the terminal and the modifiers held then
+    last_mouse: Option<(Point<Pixels>, Modifiers)>,
+    /// labels shown in hints mode, none outside of it
+    hints: Option<Hints>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -79,10 +111,10 @@ impl TerminalView {
     pub fn new(terminal: Entity<Terminal>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus_handle = cx.focus_handle();
         let subscriptions = vec![
-            cx.subscribe(&terminal, |_, _, event: &Event, cx| {
-                if *event == Event::Wakeup {
-                    cx.notify();
-                }
+            cx.subscribe(&terminal, |this, _, event: &Event, cx| match event {
+                Event::Wakeup => cx.notify(),
+                Event::Bell => this.ring_bell(cx),
+                _ => {}
             }),
             cx.on_focus_in(&focus_handle, window, |this, _, cx| {
                 this.terminal.read(cx).focus_changed(true);
@@ -107,6 +139,11 @@ impl TerminalView {
             cursor_on: true,
             blink: None,
             font_size: None,
+            bell_at: None,
+            search_bar: None,
+            hovered_link: None,
+            last_mouse: None,
+            hints: None,
             _subscriptions: subscriptions,
         }
     }
@@ -119,7 +156,7 @@ impl TerminalView {
     /// terminal font size of this view
     pub fn font_size(&self, cx: &App) -> f32 {
         self.font_size
-            .unwrap_or(Settings::get(cx).terminal.font_size)
+            .unwrap_or(Settings::get(cx).terminal.font.size)
     }
 
     /// change font size of this view only, none goes back to settings
@@ -128,19 +165,50 @@ impl TerminalView {
         cx.notify();
     }
 
+    // a new ring restarts the flash
+    fn ring_bell(&mut self, cx: &mut Context<Self>) {
+        if Settings::get(cx).bell.visual.enable {
+            self.bell_at = Some(Instant::now());
+            cx.notify();
+        }
+    }
+
+    // fades with each frame until the duration is over
+    fn bell_flash(&mut self, cx: &App) -> Option<Hsla> {
+        let rang = self.bell_at?;
+        let visual = Settings::get(cx).bell.visual;
+        let t = rang.elapsed().as_secs_f32() * 1000. / visual.duration;
+        // a zero duration gives nan or infinity, which shows no flash
+        if !visual.enable || t.is_nan() || t >= 1. {
+            self.bell_at = None;
+            return None;
+        }
+        let color = visual.color.unwrap_or_else(|| {
+            let theme = self.terminal.read(cx).theme(cx);
+            theme.terminal_foreground.opacity(BELL_FLASH_OPACITY)
+        });
+        Some(color.opacity(1. - t))
+    }
+
     // shows the cursor and restarts its phase, so it stays visible while typing
     fn restart_blink(&mut self, cx: &mut Context<Self>) {
         self.cursor_on = true;
-        let interval =
-            Duration::from_secs_f32(Settings::get(cx).terminal.cursor_blink_interval / 1000.);
+        let settings = &Settings::get(cx).terminal;
+        let interval = Duration::from_secs_f32(settings.cursor_blink_interval / 1000.);
+        let timeout = Duration::from_secs_f32(settings.cursor_blink_timeout);
         self.blink = Some(cx.spawn(async move |this, cx| {
+            // counted in ticks, not wall time, so the test clock drives it too
+            let mut elapsed = Duration::ZERO;
             loop {
                 cx.background_executor().timer(interval).await;
+                elapsed += interval;
+                // every blink repaints the whole window, a still cursor lets an idle one sleep
+                let stop = !timeout.is_zero() && elapsed >= timeout;
                 let flipped = this.update(cx, |this, cx| {
-                    this.cursor_on = !this.cursor_on;
+                    this.cursor_on = stop || !this.cursor_on;
                     cx.notify();
                 });
-                if flipped.is_err() {
+                if flipped.is_err() || stop {
                     break;
                 }
             }
@@ -164,17 +232,150 @@ impl TerminalView {
         }
     }
 
-    fn key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
+    /// open the search bar, or focus it again when it is open
+    pub fn open_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let bar = match &self.search_bar {
+            Some((bar, _)) => bar.clone(),
+            None => {
+                let bar = cx.new(|cx| SearchBar::new(self.terminal.clone(), cx));
+                let subscription =
+                    cx.subscribe_in(&bar, window, |this, _, _: &DismissEvent, window, cx| {
+                        this.close_search(window, cx)
+                    });
+                self.search_bar = Some((bar.clone(), subscription));
+                bar
+            }
+        };
+        bar.focus_handle(cx).focus(window, cx);
+        cx.notify();
+    }
+
+    /// close the search bar, dropping its highlights
+    pub fn close_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.search_bar.take().is_some() {
+            self.terminal
+                .update(cx, |terminal, _| terminal.end_search());
+            self.focus_handle.focus(window, cx);
+            cx.notify();
+        }
+    }
+
+    /// open search bar, exposed for tests
+    #[cfg(test)]
+    pub(crate) fn search_bar(&self) -> Option<&Entity<SearchBar>> {
+        self.search_bar.as_ref().map(|(bar, _)| bar)
+    }
+
+    fn search(&mut self, _: &Search, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_search(window, cx);
+    }
+
+    /// label every pattern match on screen, typing a label runs its action
+    pub fn show_hints(&mut self, cx: &mut Context<Self>) {
+        if !cx.has_global::<HintPatterns>() {
+            cx.set_global(HintPatterns::default());
+        }
+        let terminal = self.terminal.clone();
+        let links = cx.update_global(|patterns: &mut HintPatterns, cx| {
+            patterns.0.update(&Settings::get(cx).hints.patterns);
+            terminal.update(cx, |terminal, _| terminal.visible_matches(&mut patterns.0))
+        });
+        self.hints = Hints::new(links, &Settings::get(cx).hints.alphabet);
+        cx.notify();
+    }
+
+    fn show_hints_action(&mut self, _: &ShowHints, _: &mut Window, cx: &mut Context<Self>) {
+        self.show_hints(cx);
+    }
+
+    /// start or end keyboard selection mode
+    pub fn toggle_vi_mode(&mut self, cx: &mut Context<Self>) {
+        self.terminal
+            .update(cx, |terminal, _| terminal.toggle_vi_mode());
+        cx.notify();
+    }
+
+    fn toggle_vi_mode_action(&mut self, _: &ToggleViMode, _: &mut Window, cx: &mut Context<Self>) {
+        self.toggle_vi_mode(cx);
+    }
+
+    /// shown hints, exposed for tests
+    #[cfg(test)]
+    pub(crate) fn hints(&self) -> Option<&Hints> {
+        self.hints.as_ref()
+    }
+
+    fn key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        // keys typed into the search bar bubble up through here
+        if !self.focus_handle.is_focused(window) {
+            return;
+        }
+        // hints mode takes every key, none reaches the program
+        if let Some(hints) = &mut self.hints {
+            cx.stop_propagation();
+            match hints.key(&event.keystroke.key) {
+                HintKey::Pending => {}
+                HintKey::Picked(link) => {
+                    self.hints = None;
+                    self.run_link(&link, cx);
+                }
+                HintKey::Cancel => self.hints = None,
+            }
+            cx.notify();
+            return;
+        }
+        // vi mode takes every key too
+        if self
+            .terminal
+            .read(cx)
+            .last_content
+            .mode
+            .contains(TermMode::VI)
+        {
+            cx.stop_propagation();
+            match self
+                .terminal
+                .update(cx, |terminal, _| terminal.vi_key(&event.keystroke))
+            {
+                ViKey::Handled | ViKey::Exit => {}
+                ViKey::Copy(text) => {
+                    let text = trim_copied(text, cx);
+                    cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
+                    cx.emit(ClipboardEvent::Copied(text));
+                }
+                ViKey::Search => self.open_search(window, cx),
+            }
+            cx.notify();
+            return;
+        }
         // let input handler receive layout-dependent characters, e.g. altgr on windows
         if event.prefer_character_input && event.keystroke.key_char.is_some() {
             return;
         }
         let option_as_meta = Settings::get(cx).terminal.option_as_meta;
+        let kind = if event.is_held {
+            KeyEventKind::Repeat
+        } else {
+            KeyEventKind::Press
+        };
         if self.terminal.update(cx, |term, _| {
-            term.try_keystroke(&event.keystroke, option_as_meta)
+            term.try_keystroke(&event.keystroke, kind, option_as_meta)
         }) {
             // input jumps to the bottom, a running glide would pull the view back up
             self.input_happened(cx);
+            cx.stop_propagation();
+        }
+    }
+
+    // releases only reach programs that asked for them through kitty's keyboard protocol
+    fn key_up(&mut self, event: &KeyUpEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.focus_handle.is_focused(window) {
+            return;
+        }
+        let option_as_meta = Settings::get(cx).terminal.option_as_meta;
+        if self.terminal.update(cx, |term, _| {
+            term.try_keystroke(&event.keystroke, KeyEventKind::Release, option_as_meta)
+        }) {
             cx.stop_propagation();
         }
     }
@@ -186,11 +387,12 @@ impl TerminalView {
             .last_content
             .terminal_bounds
             .line_height;
+        let multiplier = Settings::get(cx).terminal.scroll_multiplier;
         let lines = match event.delta {
-            ScrollDelta::Lines(delta) => (delta.y * SCROLL_MULTIPLIER) as i32,
+            ScrollDelta::Lines(delta) => (delta.y * multiplier) as i32,
             ScrollDelta::Pixels(delta) => {
                 // accumulate touchpad pixels until they add up to whole lines
-                self.scroll_px += delta.y * SCROLL_MULTIPLIER;
+                self.scroll_px += delta.y * multiplier;
                 let lines = (self.scroll_px / line_height) as i32;
                 self.scroll_px -= line_height * lines as f32;
                 lines
@@ -322,10 +524,116 @@ impl TerminalView {
         true
     }
 
+    /// link at a window position while the link modifier is held
+    fn link_at(
+        &mut self,
+        position: Point<Pixels>,
+        modifiers: &Modifiers,
+        cx: &mut Context<Self>,
+    ) -> Option<Link> {
+        if !Settings::get(cx).links.modifier.held(modifiers) {
+            return None;
+        }
+        if !cx.has_global::<LinkPatterns>() {
+            cx.set_global(LinkPatterns::default());
+        }
+        let terminal = self.terminal.clone();
+        cx.update_global(|patterns: &mut LinkPatterns, cx| {
+            patterns.0.update(&Settings::get(cx).links.patterns);
+            terminal.update(cx, |terminal, _| {
+                terminal.link_at(position, &mut patterns.0)
+            })
+        })
+    }
+
+    // underline follows the mouse, the modifier and output moving the text
+    fn update_hovered_link(&mut self, cx: &mut Context<Self>) {
+        let link = self
+            .last_mouse
+            .and_then(|(position, modifiers)| self.link_at(position, &modifiers, cx));
+        if link != self.hovered_link {
+            self.hovered_link = link;
+            cx.notify();
+        }
+    }
+
+    fn modifiers_changed(
+        &mut self,
+        event: &ModifiersChangedEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some((_, modifiers)) = &mut self.last_mouse {
+            *modifiers = event.modifiers;
+            self.update_hovered_link(cx);
+        }
+    }
+
+    /// run what a link or hint is for: open, copy, paste or a command
+    pub fn run_link(&mut self, link: &Link, cx: &mut Context<Self>) {
+        match &link.action {
+            PatternAction::Open => match Settings::get(cx).links.open_with.clone() {
+                Some(program) => {
+                    let target = link.target.clone();
+                    cx.background_spawn(async move {
+                        if let Err(error) =
+                            std::process::Command::new(&program).arg(target).status()
+                        {
+                            eprintln!("failed to run {program:?}: {error}");
+                        }
+                    })
+                    .detach();
+                }
+                None => cx.open_url(&link.target),
+            },
+            PatternAction::Copy => {
+                cx.write_to_clipboard(ClipboardItem::new_string(link.target.clone()));
+                cx.emit(ClipboardEvent::Copied(link.target.clone()));
+            }
+            PatternAction::Paste => {
+                self.input_happened(cx);
+                self.terminal
+                    .update(cx, |terminal, _| terminal.paste(&link.target));
+            }
+            PatternAction::Exec(command) => {
+                let shell_pid = self.terminal.read(cx).shell_pid;
+                let (command, target) = (command.clone(), link.target.clone());
+                cx.background_spawn(async move {
+                    let cwd = foreground_process(shell_pid).and_then(|process| process.cwd);
+                    let mut child = std::process::Command::new("/bin/sh");
+                    child.arg("-c").arg(&command).env("KUTERM_MATCH", target);
+                    if let Some(cwd) = cwd {
+                        child.current_dir(cwd);
+                    }
+                    if let Err(error) = child.status() {
+                        eprintln!("failed to run {command:?}: {error}");
+                    }
+                })
+                .detach();
+            }
+        }
+    }
+
+    /// link under the mouse, exposed for tests
+    #[cfg(test)]
+    pub(crate) fn hovered_link(&self) -> Option<&Link> {
+        self.hovered_link.as_ref()
+    }
+
     /// a press goes to the program when it asked for the mouse, otherwise a left click starts a
     /// selection: single click, double selects words, triple lines, shift extends. a right click
     /// copies the selection
     pub fn mouse_down(&mut self, event: &MouseDownEvent, cx: &mut Context<Self>) {
+        if self.hints.take().is_some() {
+            cx.notify();
+        }
+        // a click with the link modifier opens the link, even when the program owns the mouse
+        if event.button == gpui::MouseButton::Left
+            && let Some(link) = self.link_at(event.position, &event.modifiers, cx)
+        {
+            self.run_link(&link, cx);
+            return;
+        }
         if let Some(button) = MouseButton::from_gpui(event.button)
             && self.report_mouse(
                 event.position,
@@ -363,6 +671,10 @@ impl TerminalView {
     /// extend the selection while the button is held, even outside the terminal area,
     /// or report the motion to a program that asked for it
     pub fn mouse_move(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
+        self.last_mouse = Some((event.position, event.modifiers));
+        if event.pressed_button.is_none() {
+            self.update_hovered_link(cx);
+        }
         if self.selecting {
             self.terminal
                 .update(cx, |term, _| term.extend_selection(event.position));
@@ -412,7 +724,7 @@ impl TerminalView {
     }
 
     fn copy_selection(&mut self, cx: &mut Context<Self>) {
-        if let Some(text) = self.terminal.read(cx).selection_text() {
+        if let Some(text) = copied_text(self.terminal.read(cx), cx) {
             cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
             cx.emit(ClipboardEvent::Copied(text));
         }
@@ -420,10 +732,26 @@ impl TerminalView {
 
     fn paste(&mut self, _: &Paste, _: &mut Window, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-            self.input_happened(cx);
-            self.terminal.update(cx, |term, _| term.paste(&text));
-            cx.emit(ClipboardEvent::Pasted);
+            self.paste_text(text, cx);
         }
+    }
+
+    /// paste `text`, asking first through the workspace when paste protection finds it unsafe
+    pub fn paste_text(&mut self, text: String, cx: &mut Context<Self>) {
+        if Settings::get(cx).terminal.paste_protection
+            && self.terminal.read(cx).paste_is_unsafe(&text)
+        {
+            cx.emit(ClipboardEvent::ConfirmPaste(text));
+            return;
+        }
+        self.force_paste(&text, cx);
+    }
+
+    /// paste `text` without asking
+    pub fn force_paste(&mut self, text: &str, cx: &mut Context<Self>) {
+        self.input_happened(cx);
+        self.terminal.update(cx, |term, _| term.paste(text));
+        cx.emit(ClipboardEvent::Pasted);
     }
 
     /// type paths dropped from other apps, quoted for the shell
@@ -442,6 +770,26 @@ impl TerminalView {
         self.input_happened(cx);
         self.terminal.update(cx, |term, _| term.paste(&text));
     }
+}
+
+/// selected text as it goes into the clipboard, none when nothing is selected
+pub fn copied_text(terminal: &Terminal, cx: &App) -> Option<String> {
+    Some(trim_copied(terminal.selection_text()?, cx))
+}
+
+// trailing whitespace goes when settings say so
+fn trim_copied(text: String, cx: &App) -> String {
+    if !Settings::get(cx).terminal.copy_trim_trailing_whitespace {
+        return text;
+    }
+    trim_trailing_whitespace(&text)
+}
+
+fn trim_trailing_whitespace(text: &str) -> String {
+    text.split('\n')
+        .map(|line| line.trim_end_matches([' ', '\t']))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// path as one shell word, single quoted when it has characters the shell would expand
@@ -466,6 +814,22 @@ impl Focusable for TerminalView {
     }
 }
 
+impl TerminalView {
+    // "vi_mode" and "alt_screen" let keybindings apply only then
+    fn key_context(&self, cx: &App) -> KeyContext {
+        let mut context = KeyContext::new_with_defaults();
+        context.add("Terminal");
+        let mode = self.terminal.read(cx).last_content.mode;
+        if mode.contains(TermMode::VI) {
+            context.add("vi_mode");
+        }
+        if mode.contains(TermMode::ALT_SCREEN) {
+            context.add("alt_screen");
+        }
+        context
+    }
+}
+
 impl Render for TerminalView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let focused = self.focus_handle.is_focused(window) && window.is_window_active();
@@ -486,6 +850,10 @@ impl Render for TerminalView {
             term.sync();
             term.last_content.history_size
         });
+        // textures of images the program dropped go with them
+        for image in self.terminal.read(cx).take_dropped_images() {
+            cx.drop_image(image, Some(window));
+        }
         // output pushing lines into history scrolls the view too
         if history_size > self.history_size {
             self.show_scrollbar(cx);
@@ -502,15 +870,29 @@ impl Render for TerminalView {
         } else if self.blink.is_none() {
             self.restart_blink(cx);
         }
+        // output and scrolling move the text under a hovered link
+        if self.hovered_link.is_some() {
+            self.update_hovered_link(cx);
+        }
+        let bell_flash = self.bell_flash(cx);
+        if bell_flash.is_some() {
+            window.request_animation_frame();
+        }
         div()
             .id("terminal-view")
             .size_full()
             .track_focus(&self.focus_handle)
-            .key_context("Terminal")
+            .key_context(self.key_context(cx))
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::paste))
+            .on_action(cx.listener(Self::search))
+            .on_action(cx.listener(Self::show_hints_action))
+            .on_action(cx.listener(Self::toggle_vi_mode_action))
             .on_key_down(cx.listener(Self::key_down))
+            .on_key_up(cx.listener(Self::key_up))
+            .on_modifiers_changed(cx.listener(Self::modifiers_changed))
             .on_scroll_wheel(cx.listener(Self::scroll_wheel))
+            .relative()
             .child(TerminalElement::new(
                 self.terminal.clone(),
                 cx.entity(),
@@ -518,7 +900,23 @@ impl Render for TerminalView {
                 focused,
                 self.cursor_on,
                 self.scrollbar_visible(cx),
+                bell_flash,
+                self.hovered_link.as_ref().map(|link| link.range.clone()),
+                self.hints
+                    .as_ref()
+                    .map(|hints| {
+                        hints
+                            .shown()
+                            .map(|(link, label)| (*link.range.start(), label.to_string()))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
             ))
+            .children(
+                self.search_bar
+                    .as_ref()
+                    .map(|(bar, _)| div().absolute().top_2().right_4().child(bar.clone())),
+            )
     }
 }
 
@@ -554,7 +952,7 @@ mod tests {
     #[gpui::test]
     fn cursor_blinks_and_typing_shows_it(cx: &mut TestAppContext) {
         let (view, cx) = focused_view(
-            r#"{"terminal": {"cursor_blink": "on", "cursor_blink_interval": 400}}"#,
+            r#"{"terminal": {"cursor_blink": "on", "cursor_blink_interval": 400, "cursor_blink_timeout": 0}}"#,
             cx,
         );
         assert!(view.read_with(cx, |view, _| view.blink.is_some() && view.cursor_on));
@@ -573,6 +971,26 @@ mod tests {
     }
 
     #[gpui::test]
+    fn cursor_stops_blinking_after_timeout_and_typing_restarts_it(cx: &mut TestAppContext) {
+        let (view, cx) = focused_view(
+            r#"{"terminal": {"cursor_blink": "on", "cursor_blink_interval": 400, "cursor_blink_timeout": 1}}"#,
+            cx,
+        );
+        // 3 ticks reach the timeout, the last one leaves the cursor shown
+        cx.executor().advance_clock(Duration::from_millis(1250));
+        cx.run_until_parked();
+        assert!(view.read_with(cx, |view, _| view.cursor_on));
+        cx.executor().advance_clock(Duration::from_secs(3));
+        cx.run_until_parked();
+        assert!(view.read_with(cx, |view, _| view.cursor_on));
+
+        cx.simulate_keystrokes("a");
+        cx.executor().advance_clock(Duration::from_millis(450));
+        cx.run_until_parked();
+        assert!(!view.read_with(cx, |view, _| view.cursor_on));
+    }
+
+    #[gpui::test]
     fn cursor_does_not_blink_when_off(cx: &mut TestAppContext) {
         let (view, cx) = focused_view(r#"{"terminal": {"cursor_blink": "off"}}"#, cx);
         cx.executor().advance_clock(Duration::from_secs(3));
@@ -583,7 +1001,7 @@ mod tests {
     #[gpui::test]
     fn ctrl_wheel_changes_font_size_of_the_view(cx: &mut TestAppContext) {
         let (view, cx) = focused_view("{}", cx);
-        let settings_size = cx.update(|_, cx| Settings::get(cx).terminal.font_size);
+        let settings_size = cx.update(|_, cx| Settings::get(cx).terminal.font.size);
         let wheel = |y: f32, control: bool| ScrollWheelEvent {
             delta: ScrollDelta::Lines(gpui::point(0., y)),
             modifiers: Modifiers {
@@ -610,7 +1028,7 @@ mod tests {
         });
         assert_eq!(font_size(cx), settings_size - 1.);
         assert_eq!(
-            cx.update(|_, cx| Settings::get(cx).terminal.font_size),
+            cx.update(|_, cx| Settings::get(cx).terminal.font.size),
             settings_size
         );
     }
@@ -694,6 +1112,123 @@ mod tests {
     fn right_click_does_not_copy_without_right_click_copy(cx: &mut TestAppContext) {
         let (view, cx) = focused_view(r#"{"terminal": {"right_click_copy": false}}"#, cx);
         assert_eq!(select_and_right_click(&view, cx).as_deref(), Some("before"));
+    }
+
+    #[gpui::test]
+    fn scroll_multiplier_scales_wheel_steps(cx: &mut TestAppContext) {
+        let (view, cx) = focused_view(r#"{"terminal": {"scroll_multiplier": 0.5}}"#, cx);
+        let start = view.read_with(cx, |view, cx| view.font_size(cx));
+        // ctrl-wheel changes the size by one per event that adds up to a whole line
+        let wheel = ScrollWheelEvent {
+            delta: ScrollDelta::Lines(gpui::point(0., 1.)),
+            modifiers: Modifiers {
+                control: true,
+                ..Modifiers::default()
+            },
+            ..ScrollWheelEvent::default()
+        };
+        view.update_in(cx, |view, window, cx| view.scroll_wheel(&wheel, window, cx));
+        assert_eq!(view.read_with(cx, |view, cx| view.font_size(cx)), start);
+
+        cx.update(|_, cx| {
+            let mut settings = Settings::get(cx).clone();
+            settings.terminal.scroll_multiplier = 3.;
+            cx.set_global(settings);
+        });
+        view.update_in(cx, |view, window, cx| view.scroll_wheel(&wheel, window, cx));
+        assert_eq!(
+            view.read_with(cx, |view, cx| view.font_size(cx)),
+            start + 1.
+        );
+    }
+
+    #[test]
+    fn trailing_whitespace_is_trimmed_per_line() {
+        assert_eq!(
+            trim_trailing_whitespace("a b  \n\tc\t \n  \nd"),
+            "a b\n\tc\n\nd"
+        );
+        assert_eq!(trim_trailing_whitespace("line\n"), "line\n");
+    }
+
+    /// line the shell printed with a trailing space and tab, as copied with `json` settings
+    fn copied_padded_line(json: &str, cx: &mut TestAppContext) -> String {
+        let (view, cx) = focused_view(json, cx);
+        // a tab leaves a tab cell behind, so alacritty copies it with the space before it
+        view.update(cx, |view, cx| {
+            view.terminal.update(cx, |term, _| {
+                term.input(b"printf 'padded \\t\\n'\r".to_vec())
+            })
+        });
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            let copied = view.update(cx, |view, cx| {
+                view.terminal.update(cx, |term, _| {
+                    term.sync();
+                    term.select_all();
+                });
+                copied_text(view.terminal.read(cx), cx)
+            });
+            if let Some(line) = copied
+                .as_deref()
+                .and_then(|text| text.lines().find(|line| line.starts_with("padded")))
+            {
+                return line.to_string();
+            }
+            assert!(Instant::now() < deadline, "shell never printed");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
+    #[gpui::test]
+    fn copy_trims_trailing_whitespace(cx: &mut TestAppContext) {
+        let json = r#"{"terminal": {"copy_trim_trailing_whitespace": true}}"#;
+        assert_eq!(copied_padded_line(json, cx), "padded");
+    }
+
+    #[gpui::test]
+    fn copy_keeps_trailing_whitespace_without_trimming(cx: &mut TestAppContext) {
+        let json = r#"{"terminal": {"copy_trim_trailing_whitespace": false}}"#;
+        assert_eq!(copied_padded_line(json, cx), "padded \t");
+    }
+
+    #[gpui::test]
+    fn bell_starts_a_flash_only_when_visual_bell_is_on(cx: &mut TestAppContext) {
+        let (view, cx) = focused_view(r#"{"bell": {"visual": {"enable": true}}}"#, cx);
+        let terminal = view.read_with(cx, |view, _| view.terminal.clone());
+        terminal.update(cx, |_, cx| cx.emit(Event::Bell));
+        assert!(view.read_with(cx, |view, _| view.bell_at.is_some()));
+
+        cx.update(|_, cx| {
+            let mut settings = Settings::get(cx).clone();
+            settings.bell.visual.enable = false;
+            cx.set_global(settings);
+        });
+        view.update(cx, |view, _| view.bell_at = None);
+        terminal.update(cx, |_, cx| cx.emit(Event::Bell));
+        assert!(view.read_with(cx, |view, _| view.bell_at.is_none()));
+    }
+
+    #[gpui::test]
+    fn bell_flash_fades_and_ends(cx: &mut TestAppContext) {
+        let (view, cx) = focused_view(
+            r##"{"bell": {"visual": {"enable": true, "color": "#ff0000", "duration": 200}}}"##,
+            cx,
+        );
+        let flash = |cx: &mut VisualTestContext| view.update(cx, |view, cx| view.bell_flash(cx));
+        view.update(cx, |view, _| view.bell_at = Some(Instant::now()));
+        let first = flash(cx).expect("flash right after the bell");
+        assert!(first.a > 0.5 && first.a <= 1.);
+        view.update(cx, |view, _| {
+            view.bell_at = Some(Instant::now() - Duration::from_millis(150))
+        });
+        let later = flash(cx).expect("flash before the duration ends");
+        assert!(later.a < first.a && later.a > 0.);
+        view.update(cx, |view, _| {
+            view.bell_at = Some(Instant::now() - Duration::from_millis(250))
+        });
+        assert_eq!(flash(cx), None);
+        assert!(view.read_with(cx, |view, _| view.bell_at.is_none()));
     }
 
     #[test]

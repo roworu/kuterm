@@ -44,7 +44,7 @@ fn grid_point(
 }
 
 impl Terminal {
-    fn mouse_point(&self, position: Point<Pixels>) -> (AlacPoint, Side) {
+    pub(super) fn mouse_point(&self, position: Point<Pixels>) -> (AlacPoint, Side) {
         let content = &self.last_content;
         grid_point(position, &content.terminal_bounds, content.display_offset)
     }
@@ -219,6 +219,29 @@ mod tests {
         terminal.start_selection(cell(0, 2, false), SelectionType::Simple);
         terminal.extend_selection(cell(0, 2, false));
         assert_eq!(terminal.selection_text(), None);
+    }
+
+    #[test]
+    fn word_separators_split_double_click_words() {
+        let profile = profile(Shell::WithArguments {
+            program: "/bin/sh".into(),
+            args: vec!["-c".into(), "printf 'foo-bar baz'; sleep 5".into()],
+        });
+        let mut settings = TerminalSettings {
+            word_separators: " ".into(),
+            ..TerminalSettings::default()
+        };
+        let mut builder = spawn_with(&settings, &profile);
+        let terminal = &mut builder.terminal;
+        wait_for_text(terminal, "foo-bar baz");
+        terminal.start_selection(cell(0, 5, false), SelectionType::Semantic);
+        assert_eq!(terminal.selection_text().as_deref(), Some("foo-bar"));
+
+        // changed settings reach the running terminal
+        settings.word_separators = " -".into();
+        terminal.apply_settings(&settings);
+        terminal.start_selection(cell(0, 5, false), SelectionType::Semantic);
+        assert_eq!(terminal.selection_text().as_deref(), Some("bar"));
     }
 
     #[test]

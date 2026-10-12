@@ -1,24 +1,18 @@
-//! command palette commands, read from a jsonc file next to settings
-
-use std::path::PathBuf;
+//! command palette commands, the "commands" section of settings
 
 use gpui::{App, Global};
 use serde::Deserialize;
+use serde_json_lenient::Value;
 
-use super::{config_dir, load_file, parse_over};
-
-/// commented commands file written on first launch
-pub const DEFAULT_COMMANDS: &str = include_str!("../../assets/default_commands.jsonc");
+use super::config;
 
 /// one step of a command
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum CommandAction {
     About,
-    ReloadSettings,
-    ReloadThemes,
-    ReloadKeybindings,
-    ReloadAll,
+    /// read settings, the files they import and theme files again
+    ReloadConfig,
     NewTab,
     /// open a tab with the profile of this name
     NewTabWithProfile(String),
@@ -39,6 +33,21 @@ pub enum CommandAction {
     SplitUp,
     /// split the focused pane and move its active tab into a new pane below
     SplitDown,
+    /// close the focused pane with all its tabs
+    ClosePane,
+    FocusPaneLeft,
+    FocusPaneRight,
+    FocusPaneUp,
+    FocusPaneDown,
+    /// move the divider next to the focused pane that way
+    ResizePaneLeft,
+    ResizePaneRight,
+    ResizePaneUp,
+    ResizePaneDown,
+    /// show the focused pane alone, or all panes again
+    ZoomPane,
+    /// give all panes the same size
+    EqualizePanes,
     NextTab,
     PrevTab,
     /// switch to the tab at this 1 based position
@@ -49,6 +58,22 @@ pub enum CommandAction {
     Copy,
     /// paste the clipboard into the active tab
     Paste,
+    /// open the search bar of the active tab
+    Search,
+    /// label the matches of the hint patterns on screen
+    Hints,
+    /// start or end keyboard selection mode
+    ViMode,
+    /// scroll to the prompt above the view, from shell integration marks
+    JumpToPrevPrompt,
+    /// scroll to the prompt below the top of the view
+    JumpToNextPrompt,
+    /// select the output of the last command
+    SelectLastOutput,
+    /// copy the output of the last command
+    CopyLastOutput,
+    /// open the history in `scrollback_pager` in a new tab
+    OpenScrollback,
     /// scroll the active tab up into history by these many lines
     ScrollUp(i32),
     /// scroll the active tab down by these many lines
@@ -73,6 +98,8 @@ pub enum CommandAction {
     OpenSettings,
     /// text written to the active tab as if typed
     Type(String),
+    /// text sent to the program in the active tab right away, like escape sequences
+    SendText(String),
     /// show a notification with this text
     Notify(String),
     /// show a notification with this text once the program running in the tab finishes
@@ -116,19 +143,14 @@ impl Default for Commands {
 impl Global for Commands {}
 
 impl Commands {
-    /// `commands.jsonc` in the config dir
-    pub fn path() -> Option<PathBuf> {
-        Some(config_dir()?.join("commands.jsonc"))
-    }
-
-    /// parse commands over the bundled ones, a user list replaces the bundled one whole
+    /// parse settings with a "commands" section, a user list replaces the bundled one whole
     pub fn parse(json: &str) -> serde_json_lenient::Result<Self> {
-        parse_over(DEFAULT_COMMANDS, json)
+        Self::from_full(&config::combine(serde_json_lenient::from_str(json)?))
     }
 
-    /// load commands from their file, using defaults when it is missing or invalid
-    pub fn load() -> Self {
-        load_file(Self::path(), DEFAULT_COMMANDS, "commands", Self::parse)
+    /// commands from settings already merged over the bundled ones
+    pub fn from_full(full: &Value) -> serde_json_lenient::Result<Self> {
+        Self::deserialize(full)
     }
 
     /// commands loaded at startup or on the last reload
@@ -140,13 +162,12 @@ impl Commands {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::settings::tests::{temp_dir, with_config_home};
+    use crate::settings::DEFAULT_SETTINGS;
 
     #[test]
-    fn bundled_commands_are_commented_and_parse() {
-        assert!(DEFAULT_COMMANDS.contains("//"));
+    fn bundled_commands_parse() {
         assert_eq!(
-            Commands::parse(DEFAULT_COMMANDS).unwrap(),
+            Commands::parse(DEFAULT_SETTINGS).unwrap(),
             Commands::default()
         );
         assert!(!Commands::default().commands.is_empty());
@@ -156,8 +177,7 @@ mod tests {
     fn parses_every_action() {
         let commands = Commands::parse(
             r#"{"commands": [{"name": "all", "actions": [
-                "about", "reload_settings", "reload_themes", "reload_keybindings",
-                "reload_all", "new_tab", {"new_tab_with_profile": "dev"},
+                "about", "reload_config", "new_tab", {"new_tab_with_profile": "dev"},
                 "new_background_tab", {"new_background_tab_with_profile": "dev"}, "close_tab",
                 "close_tabs_to_right", "close_tabs_to_left",
                 "split_left", "split_right", "split_up", "split_down",
@@ -177,10 +197,7 @@ mod tests {
                 pinned: false,
                 actions: vec![
                     CommandAction::About,
-                    CommandAction::ReloadSettings,
-                    CommandAction::ReloadThemes,
-                    CommandAction::ReloadKeybindings,
-                    CommandAction::ReloadAll,
+                    CommandAction::ReloadConfig,
                     CommandAction::NewTab,
                     CommandAction::NewTabWithProfile("dev".into()),
                     CommandAction::NewBackgroundTab,
@@ -265,21 +282,41 @@ mod tests {
     }
 
     #[test]
-    fn load_creates_keeps_and_falls_back() {
-        let dir = temp_dir("commands_load");
-        with_config_home(&dir, || {
-            let path = Commands::path().unwrap();
-            assert_eq!(path, dir.join("kuterm/commands.jsonc"));
-            assert_eq!(Commands::load(), Commands::default());
-            assert_eq!(std::fs::read_to_string(&path).unwrap(), DEFAULT_COMMANDS);
-
-            let json = r#"{"commands": [{"name": "only", "actions": ["new_tab"]}]}"#;
-            std::fs::write(&path, json).unwrap();
-            assert_eq!(Commands::load().commands.len(), 1);
-
-            std::fs::write(&path, "{ broken").unwrap();
-            assert_eq!(Commands::load(), Commands::default());
-        });
-        let _ = std::fs::remove_dir_all(&dir);
+    fn new_actions_parse() {
+        let commands = Commands::parse(
+            r#"{"commands": [{"name": "all", "actions": [
+                "search", "hints", "vi_mode", "close_pane", "focus_pane_left", "focus_pane_right",
+                "focus_pane_up", "focus_pane_down", "resize_pane_left", "resize_pane_right",
+                "resize_pane_up", "resize_pane_down", "zoom_pane", "equalize_panes",
+                "jump_to_prev_prompt", "jump_to_next_prompt", "select_last_output",
+                "copy_last_output", "open_scrollback", {"send_text": "x"},
+            ]}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            commands.commands[0].actions,
+            vec![
+                CommandAction::Search,
+                CommandAction::Hints,
+                CommandAction::ViMode,
+                CommandAction::ClosePane,
+                CommandAction::FocusPaneLeft,
+                CommandAction::FocusPaneRight,
+                CommandAction::FocusPaneUp,
+                CommandAction::FocusPaneDown,
+                CommandAction::ResizePaneLeft,
+                CommandAction::ResizePaneRight,
+                CommandAction::ResizePaneUp,
+                CommandAction::ResizePaneDown,
+                CommandAction::ZoomPane,
+                CommandAction::EqualizePanes,
+                CommandAction::JumpToPrevPrompt,
+                CommandAction::JumpToNextPrompt,
+                CommandAction::SelectLastOutput,
+                CommandAction::CopyLastOutput,
+                CommandAction::OpenScrollback,
+                CommandAction::SendText("x".into()),
+            ]
+        );
     }
 }

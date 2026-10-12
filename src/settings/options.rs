@@ -65,6 +65,35 @@ impl From<CursorShape> for AlacCursorShape {
     }
 }
 
+/// how the cursor looks while the terminal is not focused
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum CursorUnfocused {
+    Hollow,
+    /// same shape as when focused
+    Same,
+    None,
+}
+
+/// slant of italic text
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum FontSlant {
+    Normal,
+    Italic,
+    Oblique,
+}
+
+impl From<FontSlant> for gpui::FontStyle {
+    fn from(slant: FontSlant) -> Self {
+        match slant {
+            FontSlant::Normal => gpui::FontStyle::Normal,
+            FontSlant::Italic => gpui::FontStyle::Italic,
+            FontSlant::Oblique => gpui::FontStyle::Oblique,
+        }
+    }
+}
+
 /// when the cursor blinks
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -148,6 +177,37 @@ pub enum ScrollbarPlacement {
     Right,
 }
 
+/// who draws the window frame
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum Decorations {
+    /// title bar and borders from the window manager
+    Full,
+    /// no frame, the tab bar moves the window
+    None,
+    /// no frame, window buttons sit in the tab bar
+    Client,
+}
+
+/// how the window opens
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum StartupMode {
+    Windowed,
+    Maximized,
+    Fullscreen,
+}
+
+/// when quitting asks first
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ConfirmQuit {
+    Always,
+    /// only while a program still runs in some tab
+    Running,
+    Never,
+}
+
 /// speed curve of a smooth scroll
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -173,6 +233,112 @@ impl ScrollEasing {
             }
         }
     }
+}
+
+/// what a program may do with the clipboard through osc 52
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ClipboardAccess {
+    Allow,
+    /// show a notification with allow and deny buttons
+    Ask,
+    Deny,
+}
+
+/// when search tells upper and lower case apart
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SearchCase {
+    /// only when the query has an upper case letter
+    Smart,
+    Sensitive,
+    Insensitive,
+}
+
+// written as "smart", true or false
+impl<'de> Deserialize<'de> for SearchCase {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Bool(bool),
+            Name(String),
+        }
+        match Raw::deserialize(deserializer)? {
+            Raw::Bool(true) => Ok(Self::Sensitive),
+            Raw::Bool(false) => Ok(Self::Insensitive),
+            Raw::Name(name) if name == "smart" => Ok(Self::Smart),
+            Raw::Name(name) => Err(serde::de::Error::custom(format!(
+                "unknown case_sensitive {name:?}, use \"smart\", true or false"
+            ))),
+        }
+    }
+}
+
+/// key held to underline links under the mouse and open them with a click
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum LinkModifier {
+    Ctrl,
+    Alt,
+    Shift,
+    /// windows key, cmd on macos
+    #[serde(alias = "cmd")]
+    Super,
+}
+
+impl LinkModifier {
+    /// true when exactly this modifier is held
+    pub fn held(&self, modifiers: &gpui::Modifiers) -> bool {
+        let wanted = match self {
+            LinkModifier::Ctrl => modifiers.control,
+            LinkModifier::Alt => modifiers.alt,
+            LinkModifier::Shift => modifiers.shift,
+            LinkModifier::Super => modifiers.platform,
+        };
+        wanted && modifiers.number_of_modifiers() == 1
+    }
+}
+
+/// what happens with text a link or hint pattern matched
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum PatternAction {
+    /// open with `links.open_with`, or the system opener
+    Open,
+    Copy,
+    /// type it into the terminal
+    Paste,
+    /// run a shell command with the text in $KUTERM_MATCH, in the folder of the tab
+    Exec(String),
+}
+
+/// when notifications programs send are shown
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProgramNotifications {
+    Always,
+    /// only while the tab is not the one in front of a focused window
+    Unfocused,
+    Never,
+}
+
+/// whether tabs of the last session open again on launch
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum RestoreSession {
+    Always,
+    Never,
+    /// a notification asks
+    Ask,
+}
+
+/// how other programs can drive kuterm
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum RemoteControl {
+    Off,
+    /// a unix socket in the runtime folder, for `kuterm msg`
+    Socket,
 }
 
 #[cfg(test)]

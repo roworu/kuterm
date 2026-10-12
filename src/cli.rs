@@ -6,20 +6,24 @@ use std::sync::OnceLock;
 
 use serde_json_lenient::Value;
 
-use crate::settings::{Commands, Keybindings, Pins, Settings, TabIcons, ThemeMode};
-use crate::theme::Theme;
+use crate::settings::{Pins, Settings, ThemeMode, WindowSize};
 
 pub const USAGE: &str = "usage: kuterm [options]
+       kuterm msg <command>        drive a running kuterm, see kuterm msg --help
 
 options:
   --recreate-confs            delete config files and write defaults
   --config-file <path>        settings file to use instead of settings.jsonc
-  --keybindings-file <path>   keybindings file to use instead of keybindings.jsonc
-  --tab-icons-file <path>     tab icons file to use instead of tab_icons.jsonc
+  --keybindings-file <path>   keybindings file, overrides the keybindings section
+  --tab-icons-file <path>     tab icons file, overrides the tab_icons section
   --dark-theme-file <path>    dark theme file, overrides settings
   --light-theme-file <path>   light theme file, overrides settings
   --theme-mode <mode>         system, dark or light, overrides settings
-  -h, --help                  print this help";
+  --single-instance           open a window in the running kuterm when there is one
+  -h, --help                  print this help
+
+--single-instance reaches a running kuterm through its socket, it needs
+\"remote_control\": \"socket\" in its settings";
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Cli {
@@ -31,6 +35,9 @@ pub struct Cli {
     pub dark_theme_file: Option<PathBuf>,
     pub light_theme_file: Option<PathBuf>,
     pub theme_mode: Option<ThemeMode>,
+    pub single_instance: bool,
+    /// arguments of `kuterm msg`, none when not run as a client
+    pub msg: Option<Vec<String>>,
 }
 
 static CLI: OnceLock<Cli> = OnceLock::new();
@@ -39,13 +46,20 @@ impl Cli {
     /// parse arguments without the program name
     pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Self, String> {
         let mut cli = Self::default();
-        let mut args = args.into_iter();
+        let mut args = args.into_iter().peekable();
+        // everything after "msg" belongs to the message
+        if args.peek().is_some_and(|arg| arg == "msg") {
+            args.next();
+            cli.msg = Some(args.map(|arg| arg.to_string_lossy().into_owned()).collect());
+            return Ok(cli);
+        }
         while let Some(arg) = args.next() {
             let arg = arg.to_string_lossy().into_owned();
             let mut value = || args.next().ok_or_else(|| format!("{arg} needs a value"));
             match arg.as_str() {
                 "-h" | "--help" => cli.help = true,
                 "--recreate-confs" => cli.recreate_confs = true,
+                "--single-instance" => cli.single_instance = true,
                 "--config-file" => cli.config_file = Some(absolute(value()?)?),
                 "--keybindings-file" => cli.keybindings_file = Some(absolute(value()?)?),
                 "--tab-icons-file" => cli.tab_icons_file = Some(absolute(value()?)?),
@@ -80,34 +94,21 @@ impl Cli {
         if let Some(mode) = self.theme_mode {
             theme.mode = mode;
         }
+        // absolute paths have a slash, so they are read as files, not theme names
         if let Some(path) = &self.dark_theme_file {
-            theme.dark = Some(path.clone());
+            theme.dark = Some(path.to_string_lossy().into_owned());
         }
         if let Some(path) = &self.light_theme_file {
-            theme.light = Some(path.clone());
+            theme.light = Some(path.to_string_lossy().into_owned());
         }
     }
 
     /// delete config files, so loading them writes defaults again
     pub fn remove_configs(&self) {
-        // settings file is recreated too, so theme files come from defaults plus overrides
-        let mut settings = Settings::default();
-        self.apply(&mut settings);
-        let themes = [settings.theme.dark, settings.theme.light]
+        for path in [Settings::path(), Pins::path(), WindowSize::path()]
             .into_iter()
             .flatten()
-            .map(|path| Theme::resolve(&path));
-        let files = [
-            Settings::path(),
-            Keybindings::path(),
-            TabIcons::path(),
-            Commands::path(),
-            Pins::path(),
-        ]
-        .into_iter()
-        .flatten()
-        .chain(themes);
-        for path in files {
+        {
             if let Err(error) = std::fs::remove_file(&path)
                 && error.kind() != std::io::ErrorKind::NotFound
             {
@@ -125,6 +126,7 @@ fn absolute(path: OsString) -> Result<PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::settings::Config;
     use crate::settings::tests::{temp_dir, with_config_home};
 
     const PATH_OPTIONS: [&str; 5] = [
@@ -287,8 +289,8 @@ mod tests {
         let mut settings = Settings::default();
         cli.apply(&mut settings);
         assert_eq!(settings.theme.mode, ThemeMode::Light);
-        assert_eq!(settings.theme.dark, Some("/d.jsonc".into()));
-        assert_eq!(settings.theme.light, Some("/l.jsonc".into()));
+        assert_eq!(settings.theme.dark.as_deref(), Some("/d.jsonc"));
+        assert_eq!(settings.theme.light.as_deref(), Some("/l.jsonc"));
         // only theme is touched
         let expected = Settings {
             theme: settings.theme.clone(),
@@ -315,20 +317,10 @@ mod tests {
     }
 
     #[test]
-    fn recreate_removes_default_config_and_theme_files() {
+    fn recreate_removes_settings_and_pins() {
         let dir = temp_dir("cli_recreate_defaults");
         with_config_home(&dir, || {
-            let defaults = Settings::default();
-            let themes: Vec<PathBuf> = [defaults.theme.dark.clone(), defaults.theme.light.clone()]
-                .into_iter()
-                .flatten()
-                .map(|p| Theme::resolve(&p))
-                .collect();
-            let files: Vec<PathBuf> = [Settings::path(), Keybindings::path(), TabIcons::path()]
-                .into_iter()
-                .map(Option::unwrap)
-                .chain(themes)
-                .collect();
+            let files = [Settings::path().unwrap(), Pins::path().unwrap()];
             for file in &files {
                 std::fs::create_dir_all(file.parent().unwrap()).unwrap();
                 std::fs::write(file, "broken").unwrap();
@@ -343,40 +335,26 @@ mod tests {
             assert!(keep.exists());
 
             // loading writes defaults again
-            assert_eq!(Settings::load(), Settings::default());
-            assert_eq!(Keybindings::load(), Keybindings::default());
-            assert_eq!(TabIcons::load(), TabIcons::default());
+            assert_eq!(Config::load().config, Ok(Config::default()));
             assert!(Settings::path().unwrap().exists());
-            assert!(Keybindings::path().unwrap().exists());
-            assert!(TabIcons::path().unwrap().exists());
         });
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn recreate_uses_cli_theme_overrides_not_defaults() {
+    fn recreate_keeps_theme_files_from_the_command_line() {
         let dir = temp_dir("cli_recreate_overrides");
         with_config_home(&dir, || {
             let custom_light = dir.join("elsewhere").join("light.jsonc");
             std::fs::create_dir_all(custom_light.parent().unwrap()).unwrap();
             std::fs::write(&custom_light, "x").unwrap();
-            let default_light = Settings::default().theme.light.map(|p| Theme::resolve(&p));
-            if let Some(path) = &default_light {
-                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-                std::fs::write(path, "x").unwrap();
-            }
 
             let arg = custom_light.to_string_lossy().into_owned();
             parse(&["--light-theme-file", &arg])
                 .unwrap()
                 .remove_configs();
-            assert!(!custom_light.exists());
-            // default light theme is not the one in use, so it stays
-            if let Some(path) = &default_light
-                && *path != custom_light
-            {
-                assert!(path.exists(), "{path:?} removed though overridden");
-            }
+            // the user's own file, not one kuterm wrote
+            assert!(custom_light.exists());
         });
         let _ = std::fs::remove_dir_all(&dir);
     }
