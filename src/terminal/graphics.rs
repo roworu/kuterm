@@ -172,9 +172,11 @@ impl Graphics {
     fn clear(&mut self, images: bool) {
         self.placements.clear();
         if images {
-            for id in self.order.clone() {
-                self.remove_image(id);
-            }
+            // all at once, removing one by one walks the order for every image
+            self.dropped
+                .extend(self.images.drain().map(|(_, image)| image.render));
+            self.order.clear();
+            self.memory = 0;
         }
     }
 }

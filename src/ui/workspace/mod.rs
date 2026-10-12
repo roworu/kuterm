@@ -195,6 +195,19 @@ impl LayoutNode {
         }
     }
 
+    /// pane id and index of the tab whose view has this id
+    fn find_tab(&self, id: EntityId) -> Option<(usize, usize)> {
+        match self {
+            Self::Leaf(pane) => pane
+                .tabs
+                .iter()
+                .position(|tab| tab.view.entity_id() == id)
+                .map(|ix| (pane.id, ix)),
+            Self::Split { first, second, .. } => first.find_tab(id).or_else(|| second.find_tab(id)),
+            Self::Empty => None,
+        }
+    }
+
     fn contains(&self, id: usize) -> bool {
         match self {
             Self::Leaf(pane) => pane.id == id,
@@ -733,13 +746,8 @@ impl Workspace {
 
     /// pane and tab index of the tab with this view id
     fn find_id(&self, id: EntityId) -> Option<(usize, usize)> {
-        self.layout.panes().into_iter().find_map(|pane| {
-            let ix = pane
-                .tabs
-                .iter()
-                .position(|tab| tab.view.entity_id() == id)?;
-            Some((pane.id, ix))
-        })
+        // runs on every output wakeup, so it walks the tree without collecting panes
+        self.layout.find_tab(id)
     }
 
     fn find_view(&self, view: &Entity<TerminalView>) -> Option<(usize, usize)> {
@@ -986,13 +994,22 @@ impl Workspace {
         terminal.update(cx, |terminal, _| terminal.input(input));
     }
 
-    /// terminal of the tab at `ix` in pane `pane_id`
-    fn terminal_at(&self, pane_id: usize, ix: usize, cx: &App) -> Entity<Terminal> {
+    /// view of the tab at `ix` in pane `pane_id`
+    fn view_at(&self, pane_id: usize, ix: usize) -> Entity<TerminalView> {
         self.pane(pane_id).expect("pane from caller").tabs[ix]
             .view
-            .read(cx)
-            .terminal()
             .clone()
+    }
+
+    /// last tab of the focused pane, where background tabs are added
+    fn last_tab_of_focused(&self) -> Option<(usize, usize)> {
+        let count = self.focused_pane().tabs.len();
+        Some((self.focused, count.saturating_sub(1)))
+    }
+
+    /// terminal of the tab at `ix` in pane `pane_id`
+    fn terminal_at(&self, pane_id: usize, ix: usize, cx: &App) -> Entity<Terminal> {
+        self.view_at(pane_id, ix).read(cx).terminal().clone()
     }
 
     /// write input to the tab at `ix` in pane `pane_id`, holding it back until a fresh shell is ready
@@ -1219,34 +1236,8 @@ impl Workspace {
 
     /// close every tab of the focused pane, asking once when programs still run in them
     fn request_close_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.confirm_close.is_some() {
-            return;
-        }
-        let pane_id = self.focused;
         let count = self.focused_pane().tabs.len();
-        let ids: Vec<EntityId> = self
-            .focused_pane()
-            .tabs
-            .iter()
-            .map(|tab| tab.view.entity_id())
-            .collect();
-        let names: Vec<String> = if Settings::get(cx).close_running_tab_warn {
-            (0..count)
-                .filter_map(|ix| self.running_program(pane_id, ix, cx))
-                .collect()
-        } else {
-            Vec::new()
-        };
-        if names.is_empty() {
-            self.close_tabs(&ids, window, cx);
-        } else {
-            self.open_confirm(
-                side_close_message(&names),
-                CloseTarget::Tabs(ids),
-                window,
-                cx,
-            );
-        }
+        self.request_close_range(self.focused, 0..count, window, cx);
     }
 
     /// every tab with its title and folder, for remote control
@@ -1278,9 +1269,7 @@ impl Workspace {
         let settings = Settings::get(cx);
         let mut profile = match profile {
             Some(name) => settings
-                .profiles
-                .iter()
-                .find(|profile| profile.name == name)
+                .profile(name)
                 .cloned()
                 .ok_or_else(|| format!("no profile named {name:?}"))?,
             None => settings.default_profile().clone(),
@@ -1353,8 +1342,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let settings = Settings::get(cx);
-        let Some(profile) = settings.profiles.iter().find(|p| p.name == name).cloned() else {
+        let Some(profile) = Settings::get(cx).profile(name).cloned() else {
             self.show_notification(format!("no profile named {name:?}"), None, cx);
             return false;
         };
@@ -1395,15 +1383,8 @@ impl Workspace {
             ix + 1,
             self.tab_title(pane_id, ix, cx)
         );
-        let view = self.pane(pane_id).expect("pane from caller").tabs[ix]
-            .view
-            .clone();
-        self.open_confirm(
-            message,
-            CloseTarget::Tabs(vec![view.entity_id()]),
-            window,
-            cx,
-        );
+        let id = self.view_at(pane_id, ix).entity_id();
+        self.open_confirm(message, CloseTarget::Tabs(vec![id]), window, cx);
     }
 
     /// close every tab on one side of `ix` in `pane_id`, asking once when programs still run in them
@@ -1415,21 +1396,25 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.confirm_close.is_some() {
-            return;
-        }
         let count = self.pane(pane_id).expect("pane from caller").tabs.len();
         let range = if right { ix + 1..count } else { 0..ix };
-        if range.is_empty() {
+        self.request_close_range(pane_id, range, window, cx);
+    }
+
+    /// close the tabs in `range` of `pane_id`, asking once when programs still run in them
+    fn request_close_range(
+        &mut self,
+        pane_id: usize,
+        range: std::ops::Range<usize>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.confirm_close.is_some() || range.is_empty() {
             return;
         }
         let ids: Vec<EntityId> = range
             .clone()
-            .map(|ix| {
-                self.pane(pane_id).expect("pane from caller").tabs[ix]
-                    .view
-                    .entity_id()
-            })
+            .map(|ix| self.view_at(pane_id, ix).entity_id())
             .collect();
         let names: Vec<String> = if Settings::get(cx).close_running_tab_warn {
             range
@@ -1440,14 +1425,14 @@ impl Workspace {
         };
         if names.is_empty() {
             self.close_tabs(&ids, window, cx);
-            return;
+        } else {
+            self.open_confirm(
+                side_close_message(&names),
+                CloseTarget::Tabs(ids),
+                window,
+                cx,
+            );
         }
-        self.open_confirm(
-            side_close_message(&names),
-            CloseTarget::Tabs(ids),
-            window,
-            cx,
-        );
     }
 
     /// close the tabs with these views, skipping any that are already gone
@@ -1730,17 +1715,11 @@ impl Workspace {
                 CommandAction::NewBackgroundTab => {
                     let profile = Settings::get(cx).default_profile().clone();
                     self.add_profile_tab(self.focused, &profile, false, window, cx);
-                    let pane = self.focused;
-                    target = self
-                        .pane(pane)
-                        .map(|p| (pane, p.tabs.len().saturating_sub(1)));
+                    target = self.last_tab_of_focused();
                 }
                 CommandAction::NewBackgroundTabWithProfile(name) => {
                     if self.add_named_profile_tab(self.focused, name, false, window, cx) {
-                        let pane = self.focused;
-                        target = self
-                            .pane(pane)
-                            .map(|p| (pane, p.tabs.len().saturating_sub(1)));
+                        target = self.last_tab_of_focused();
                     }
                 }
                 CommandAction::CloseTab => {
@@ -1825,30 +1804,19 @@ impl Workspace {
                 }
                 CommandAction::Paste => {
                     if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-                        let view = self.pane(pane).expect("pane from target").tabs[ix]
-                            .view
-                            .clone();
-                        view.update(cx, |view, cx| view.paste_text(text, cx));
+                        self.view_at(pane, ix)
+                            .update(cx, |view, cx| view.paste_text(text, cx));
                     }
                 }
-                CommandAction::Search => {
-                    let view = self.pane(pane).expect("pane from target").tabs[ix]
-                        .view
-                        .clone();
-                    view.update(cx, |view, cx| view.open_search(window, cx));
-                }
-                CommandAction::Hints => {
-                    let view = self.pane(pane).expect("pane from target").tabs[ix]
-                        .view
-                        .clone();
-                    view.update(cx, |view, cx| view.show_hints(cx));
-                }
-                CommandAction::ViMode => {
-                    let view = self.pane(pane).expect("pane from target").tabs[ix]
-                        .view
-                        .clone();
-                    view.update(cx, |view, cx| view.toggle_vi_mode(cx));
-                }
+                CommandAction::Search => self
+                    .view_at(pane, ix)
+                    .update(cx, |view, cx| view.open_search(window, cx)),
+                CommandAction::Hints => self
+                    .view_at(pane, ix)
+                    .update(cx, |view, cx| view.show_hints(cx)),
+                CommandAction::ViMode => self
+                    .view_at(pane, ix)
+                    .update(cx, |view, cx| view.toggle_vi_mode(cx)),
                 CommandAction::JumpToPrevPrompt | CommandAction::JumpToNextPrompt => {
                     let up = *action == CommandAction::JumpToPrevPrompt;
                     self.terminal_at(pane, ix, cx)
@@ -1917,10 +1885,7 @@ impl Workspace {
                 }
                 CommandAction::Notify(text) => self.show_notification(text.clone(), None, cx),
                 CommandAction::NotifyWhenDone(text) => {
-                    let view = self.pane(pane).expect("pane from target").tabs[ix]
-                        .view
-                        .clone();
-                    self.notify_when_done(view, text.clone(), cx);
+                    self.notify_when_done(self.view_at(pane, ix), text.clone(), cx);
                 }
             }
         }
@@ -2178,12 +2143,10 @@ impl Workspace {
 
     // none step goes back to the size from settings
     fn change_font_size(&self, pane: usize, ix: usize, step: Option<f32>, cx: &mut Context<Self>) {
-        self.pane(pane).expect("pane from target").tabs[ix]
-            .view
-            .update(cx, |view, cx| {
-                let size = step.map(|step| view.font_size(cx) + step);
-                view.set_font_size(size, cx);
-            });
+        self.view_at(pane, ix).update(cx, |view, cx| {
+            let size = step.map(|step| view.font_size(cx) + step);
+            view.set_font_size(size, cx);
+        });
     }
 
     fn open_settings(&mut self, cx: &mut Context<Self>) {

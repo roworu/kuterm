@@ -235,72 +235,6 @@ impl ScrollEasing {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn easing_starts_at_0_and_ends_at_1() {
-        for easing in [
-            ScrollEasing::Linear,
-            ScrollEasing::EaseOut,
-            ScrollEasing::EaseInOut,
-        ] {
-            assert_eq!(easing.apply(0.), 0., "{easing:?}");
-            assert_eq!(easing.apply(1.), 1., "{easing:?}");
-            // out of range time is clamped
-            assert_eq!(easing.apply(-1.), 0., "{easing:?}");
-            assert_eq!(easing.apply(2.), 1., "{easing:?}");
-            let mut last = 0.;
-            for step in 1..=100 {
-                let value = easing.apply(step as f32 / 100.);
-                assert!(value >= last, "{easing:?} goes back at {step}");
-                last = value;
-            }
-        }
-        assert_eq!(ScrollEasing::Linear.apply(0.5), 0.5);
-        assert!(ScrollEasing::EaseOut.apply(0.25) > 0.25);
-        assert!(ScrollEasing::EaseInOut.apply(0.25) < 0.25);
-        assert_eq!(ScrollEasing::EaseInOut.apply(0.5), 0.5);
-    }
-
-    #[test]
-    fn cursor_blink_follows_mode() {
-        for app_asks in [false, true] {
-            assert!(CursorBlink::On.active(app_asks));
-            assert!(!CursorBlink::Off.active(app_asks));
-            assert_eq!(CursorBlink::App.active(app_asks), app_asks);
-        }
-    }
-
-    #[test]
-    fn line_height_values() {
-        assert_eq!(LineHeight::Comfortable.value(), 1.618);
-        assert_eq!(LineHeight::Standard.value(), 1.3);
-        assert_eq!(LineHeight::Custom(2.0).value(), 2.0);
-    }
-
-    #[test]
-    fn cursor_shapes_map_to_alacritty() {
-        assert_eq!(
-            AlacCursorShape::from(CursorShape::Block),
-            AlacCursorShape::Block
-        );
-        assert_eq!(
-            AlacCursorShape::from(CursorShape::Bar),
-            AlacCursorShape::Beam
-        );
-        assert_eq!(
-            AlacCursorShape::from(CursorShape::Underline),
-            AlacCursorShape::Underline
-        );
-        assert_eq!(
-            AlacCursorShape::from(CursorShape::Hollow),
-            AlacCursorShape::HollowBlock
-        );
-    }
-}
-
 /// what a program may do with the clipboard through osc 52
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -405,4 +339,70 @@ pub enum RemoteControl {
     Off,
     /// a unix socket in the runtime folder, for `kuterm msg`
     Socket,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn easing_starts_at_0_and_ends_at_1() {
+        for easing in [
+            ScrollEasing::Linear,
+            ScrollEasing::EaseOut,
+            ScrollEasing::EaseInOut,
+        ] {
+            assert_eq!(easing.apply(0.), 0., "{easing:?}");
+            assert_eq!(easing.apply(1.), 1., "{easing:?}");
+            // out of range time is clamped
+            assert_eq!(easing.apply(-1.), 0., "{easing:?}");
+            assert_eq!(easing.apply(2.), 1., "{easing:?}");
+            let mut last = 0.;
+            for step in 1..=100 {
+                let value = easing.apply(step as f32 / 100.);
+                assert!(value >= last, "{easing:?} goes back at {step}");
+                last = value;
+            }
+        }
+        assert_eq!(ScrollEasing::Linear.apply(0.5), 0.5);
+        assert!(ScrollEasing::EaseOut.apply(0.25) > 0.25);
+        assert!(ScrollEasing::EaseInOut.apply(0.25) < 0.25);
+        assert_eq!(ScrollEasing::EaseInOut.apply(0.5), 0.5);
+    }
+
+    #[test]
+    fn cursor_blink_follows_mode() {
+        for app_asks in [false, true] {
+            assert!(CursorBlink::On.active(app_asks));
+            assert!(!CursorBlink::Off.active(app_asks));
+            assert_eq!(CursorBlink::App.active(app_asks), app_asks);
+        }
+    }
+
+    #[test]
+    fn line_height_values() {
+        assert_eq!(LineHeight::Comfortable.value(), 1.618);
+        assert_eq!(LineHeight::Standard.value(), 1.3);
+        assert_eq!(LineHeight::Custom(2.0).value(), 2.0);
+    }
+
+    #[test]
+    fn cursor_shapes_map_to_alacritty() {
+        assert_eq!(
+            AlacCursorShape::from(CursorShape::Block),
+            AlacCursorShape::Block
+        );
+        assert_eq!(
+            AlacCursorShape::from(CursorShape::Bar),
+            AlacCursorShape::Beam
+        );
+        assert_eq!(
+            AlacCursorShape::from(CursorShape::Underline),
+            AlacCursorShape::Underline
+        );
+        assert_eq!(
+            AlacCursorShape::from(CursorShape::Hollow),
+            AlacCursorShape::HollowBlock
+        );
+    }
 }

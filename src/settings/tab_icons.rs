@@ -111,6 +111,7 @@ mod tests {
             r#"{"groups": [{"commands": ["x"]}]}"#,
             r#"{"groups": [{"icon": 1, "commands": ["x"]}]}"#,
             r#"{"interpreters": "node"}"#,
+            r#"{"wrappers": "sudo"}"#,
         ] {
             assert!(
                 TabIcons::parse(json).is_err(),

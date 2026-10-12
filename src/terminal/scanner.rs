@@ -105,7 +105,14 @@ impl Scanner {
             self.state = match (self.state, byte) {
                 (State::Ground, 0x1b) => State::Escape,
                 (State::Ground, _) => {
+                    // plain text is most of the output, so it is copied up to the next escape
+                    let end = input[ix..]
+                        .iter()
+                        .position(|&b| b == 0x1b)
+                        .map_or(input.len(), |at| ix + at);
                     out.push(byte);
+                    out.extend_from_slice(&input[ix..end]);
+                    ix = end;
                     State::Ground
                 }
                 (State::Escape, b'_')
@@ -213,10 +220,16 @@ impl Scanner {
         if self.overflow {
             return;
         }
-        let payload = String::from_utf8_lossy(&self.payload).into_owned();
-        let Some((code, rest)) = payload.split_once(';') else {
+        // titles and colors come often and are alacritty's, so only known codes are decoded
+        let Some(at) = self.payload.iter().position(|&b| b == b';') else {
             return;
         };
+        if !matches!(&self.payload[..at], b"133" | b"7" | b"9" | b"777") {
+            return;
+        }
+        let payload = String::from_utf8_lossy(&self.payload).into_owned();
+        let (code, rest) = payload.split_at(at);
+        let rest = &rest[1..];
         match code {
             "133" => {
                 let mut parts = rest.split(';');

@@ -1,7 +1,10 @@
 //! the windows of the app: opening workspace windows, plus answering remote control
 //! requests about them
 
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    path::PathBuf,
+    sync::{Arc, LazyLock},
+};
 
 use gpui::{App, AppContext, TitlebarOptions, WindowBounds, WindowHandle, WindowOptions, px, size};
 
@@ -13,13 +16,14 @@ use crate::{
     },
 };
 
-fn icon() -> Arc<image::RgbaImage> {
+// decoded once, every new window shares it
+static ICON: LazyLock<Arc<image::RgbaImage>> = LazyLock::new(|| {
     Arc::new(
         image::load_from_memory(include_bytes!("../../assets/logo/icon_256.png"))
             .expect("failed to load bundled icon")
             .into_rgba8(),
     )
-}
+});
 
 /// open a workspace window, its first tab in `folder` when given
 pub fn open_workspace_window(
@@ -37,7 +41,7 @@ pub fn open_workspace_window(
             ..Default::default()
         }),
         app_id: Some("kuterm".into()),
-        icon: Some(icon()),
+        icon: Some(ICON.clone()),
         ..Default::default()
     };
     match cx.open_window(options, |window, cx| {

@@ -25,17 +25,27 @@ fn color_sgr(color: Color, base: u8) -> String {
     }
 }
 
+const STYLES: [(Flags, &str); 6] = [
+    (Flags::BOLD, "1"),
+    (Flags::DIM, "2"),
+    (Flags::ITALIC, "3"),
+    (Flags::UNDERLINE, "4"),
+    (Flags::INVERSE, "7"),
+    (Flags::STRIKEOUT, "9"),
+];
+
+// what `cell_sgr` reads from a cell, so equal cells need no new sgr
+fn style_key(cell: &Cell) -> (Flags, Color, Color) {
+    let flags = STYLES
+        .iter()
+        .fold(Flags::empty(), |all, (flag, _)| all | *flag);
+    (cell.flags & flags, cell.fg, cell.bg)
+}
+
 // sgr that turns a reset style into the style of `cell`
 fn cell_sgr(cell: &Cell) -> String {
     let mut params = vec!["0".to_string()];
-    for (flag, code) in [
-        (Flags::BOLD, "1"),
-        (Flags::DIM, "2"),
-        (Flags::ITALIC, "3"),
-        (Flags::UNDERLINE, "4"),
-        (Flags::INVERSE, "7"),
-        (Flags::STRIKEOUT, "9"),
-    ] {
+    for (flag, code) in STYLES {
         if cell.flags.contains(flag) {
             params.push(code.into());
         }
@@ -61,15 +71,21 @@ impl Terminal {
                 })
                 .map_or(0, |column| column + 1);
             let mut style = String::new();
+            let mut last_key = None;
             for column in 0..end {
                 let cell = &row[Column(column)];
                 if cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
                     continue;
                 }
-                let sgr = cell_sgr(cell);
-                if sgr != style {
-                    out.push_str(&sgr);
-                    style = sgr;
+                // the whole history goes through here, so sgr is only built on style changes
+                let key = style_key(cell);
+                if last_key != Some(key) {
+                    last_key = Some(key);
+                    let sgr = cell_sgr(cell);
+                    if sgr != style {
+                        out.push_str(&sgr);
+                        style = sgr;
+                    }
                 }
                 out.push(cell.c);
                 for &c in cell.zerowidth().unwrap_or_default() {

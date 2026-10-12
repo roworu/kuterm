@@ -173,9 +173,7 @@ impl Workspace {
                 let settings = Settings::get(cx);
                 // a profile renamed or removed since falls back to the default one
                 let mut profile = settings
-                    .profiles
-                    .iter()
-                    .find(|profile| profile.name == tab.profile)
+                    .profile(&tab.profile)
                     .unwrap_or_else(|| settings.default_profile())
                     .clone();
                 if let Some(cwd) = tab.cwd.clone().filter(|cwd| cwd.is_dir()) {
