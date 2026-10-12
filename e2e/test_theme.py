@@ -95,6 +95,14 @@ def test_theme_file(app_factory, mode):
     check_palette(app, as_rgb(theme))
 
 
+def test_theme_name_from_themes_folder(app_factory):
+    """a name not in "themes" is looked up as a file in the themes folder"""
+    theme = unique_theme(0x61)
+    app = app_factory({"theme": {"mode": "dark", "dark": "nord-ish"}}, script=PALETTE,
+                      files={"themes/nord-ish.jsonc": theme})
+    check_palette(app, as_rgb(theme))
+
+
 @pytest.mark.parametrize("content", ["{", '{"ansi": ["#fff"]}', '{"cursor": "red"}'])
 def test_broken_theme_file_falls_back_to_bundled(app_factory, content):
     """an invalid theme file prints an error and paints the bundled theme"""

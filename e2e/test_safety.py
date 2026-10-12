@@ -4,7 +4,10 @@ import base64
 import os
 import time
 
-from harness import BASH, SCRIPT_PREAMBLE, App, bundled_theme, close_to, count, dominant, get_clipboard, set_clipboard
+import pytest
+
+from harness import (BASH, SCRIPT_PREAMBLE, App, as_rgb, bundled_theme, close_to, count, dominant, get_clipboard,
+                     mask_bbox, near, set_clipboard, unique_theme)
 
 FEATURE = "safety"
 
@@ -82,6 +85,117 @@ def test_programs_can_copy_to_the_clipboard(app_factory):
     while get_clipboard() != "copied by a program" and time.monotonic() < deadline:
         time.sleep(0.2)
     assert get_clipboard() == "copied by a program"
+
+
+ASK_THEME = unique_theme(0xa5)
+ASK = as_rgb(ASK_THEME)
+
+
+def notification_buttons(app: App) -> list:
+    """centers of the answer buttons in the bottom right notification, left to right"""
+    img = app.shot()
+    box = mask_bbox(near(img[300:, 400:], ASK["tab_bar_background"]))
+    if box is None:
+        return []
+    x0, y0, x1, y1 = box[0] + 400 + 3, box[1] + 300 + 3, box[2] + 400 - 3, box[3] + 300 - 3
+    # the notification has its own border, inside it only the buttons are outlined
+    mask = near(img[y0:y1, x0:x1], ASK["border"])
+    columns = mask.any(axis=0).nonzero()[0]
+    rows = mask.any(axis=1).nonzero()[0]
+    if len(columns) == 0:
+        return []
+    spans, start = [], columns[0]
+    for a, b in zip(columns, columns[1:]):
+        if b - a > 3:
+            spans.append((start, a))
+            start = b
+    spans.append((start, columns[-1]))
+    y = y0 + (rows[0] + rows[-1]) // 2
+    return [(x0 + (a + b) // 2, y) for a, b in spans if b - a > 10]
+
+
+def test_clipboard_ask_waits_for_allow(app_factory):
+    """with clipboard.write "ask" an osc 52 copy waits for the allow button of a notification"""
+    data = base64.b64encode(b"asked copy").decode()
+    app = app_factory({"theme": {"mode": "dark"}, "terminal": {"clipboard": {"write": "ask"}}},
+                      themes={"dark": ASK_THEME}, script=f"step 1; printf '\\033]52;c;{data}\\007'")
+    set_clipboard("before")
+    app.click(450, 300)
+    app.step(1)
+    buttons = app.wait(lambda: len(notification_buttons(app)) == 2 and notification_buttons(app),
+                       msg="allow and deny buttons")
+    app.snap("program asks to copy")
+    time.sleep(0.5)
+    assert get_clipboard() == "before"
+    app.click(*buttons[0])
+    app.wait(lambda: get_clipboard() == "asked copy", msg=f"clipboard, got {get_clipboard()!r}")
+
+
+def test_clipboard_ask_deny_keeps_clipboard(app_factory):
+    """the deny button drops the copy"""
+    data = base64.b64encode(b"denied copy").decode()
+    app = app_factory({"theme": {"mode": "dark"}, "terminal": {"clipboard": {"write": "ask"}}},
+                      themes={"dark": ASK_THEME}, script=f"step 1; printf '\\033]52;c;{data}\\007'")
+    set_clipboard("before")
+    app.click(450, 300)
+    app.step(1)
+    buttons = app.wait(lambda: len(notification_buttons(app)) == 2 and notification_buttons(app),
+                       msg="allow and deny buttons")
+    app.click(*buttons[1])
+    app.wait(lambda: not notification_buttons(app), msg="notification gone")
+    time.sleep(0.5)
+    assert get_clipboard() == "before"
+
+
+def test_clipboard_read_allowed_by_settings(app_factory, report_note):
+    """clipboard.read "allow" answers an osc 52 read with the clipboard"""
+    app = app_factory({"theme": {"mode": "dark"}, "window_title": ["title"],
+                       "terminal": {"clipboard": {"read": "allow"}}},
+                      script=QUERY.format(sequence="\\033]52;c;?\\007"))
+    set_clipboard("shared text")
+    got = replied(app)
+    report_note("reply to osc 52 read", repr(got))
+    assert base64.b64encode(b"shared text").decode() in got
+
+
+PASTE_PROBE = ("stty raw -echo; step 1; "
+               'timeout --foreground 3 cat > "$T2_TMP/got"; stty sane; touch "$T2_TMP/done"')
+
+
+def dialog_shown(app: App) -> bool:
+    """the paste dialog panel near the top of the window"""
+    return near(app.shot()[60:300, 250:650], ASK["tab_bar_background"]).sum() > 5000
+
+
+@pytest.mark.parametrize("answer", ["y", "Escape"], ids=["paste", "cancel"])
+def test_paste_protection_asks_before_multiline_paste(app_factory, answer):
+    """without bracketed paste, pasting lines asks first with a preview, y pastes, escape drops it"""
+    app = app_factory({"theme": {"mode": "dark"}}, themes={"dark": ASK_THEME}, script=PASTE_PROBE)
+    set_clipboard("echo one\necho two\n")
+    time.sleep(0.5)
+    app.step(1)
+    time.sleep(0.3)
+    app.key("ctrl+shift+v")
+    app.wait(lambda: dialog_shown(app), msg="paste dialog")
+    app.snap("paste dialog with a preview")
+    app.key(answer)
+    app.wait_file("done", timeout=10)
+    # bytes, read_text would turn the carriage returns into newlines
+    got = app.file("got").read_bytes().decode(errors="replace")
+    assert ("echo one\recho two\r" in got) == (answer == "y"), repr(got)
+
+
+def test_paste_protection_off_pastes_right_away(app_factory):
+    """paste_protection false pastes lines without asking"""
+    app = app_factory({"theme": {"mode": "dark"}, "terminal": {"paste_protection": False}},
+                      themes={"dark": ASK_THEME}, script=PASTE_PROBE)
+    set_clipboard("echo one\necho two\n")
+    time.sleep(0.5)
+    app.step(1)
+    time.sleep(0.3)
+    app.key("ctrl+shift+v")
+    app.wait_file("done", timeout=10)
+    assert "echo one\recho two\r" in app.file("got").read_bytes().decode(errors="replace")
 
 
 def test_title_is_not_reported_back(app_factory, report_note):

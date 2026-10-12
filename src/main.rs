@@ -1,25 +1,28 @@
 mod cli;
+mod remote;
 mod settings;
 mod terminal;
 mod theme;
 mod ui;
 
-use std::{borrow::Cow, sync::Arc};
+use std::borrow::Cow;
 
 use futures::{StreamExt, channel::mpsc::unbounded};
 
-use gpui::{App, AppContext, TitlebarOptions, WindowBounds, WindowOptions, px, size};
+use gpui::App;
 use gpui_platform::application;
 
 use crate::{
     cli::{Cli, USAGE},
-    settings::{Config, ConfigFiles, Pins, Settings},
+    remote::Request,
+    settings::{Config, ConfigFiles, Pins, RemoteControl, Settings},
     theme::Theme,
     ui::{
         text_input,
+        windows::{handle_request, open_workspace_window},
         workspace::{
-            Hide, HideOthers, NewTab, Quit, ShowAll, Workspace, app_menus, background_appearance,
-            dock_menu, open_urls, startup_bounds, window_decorations, with_workspace,
+            Hide, HideOthers, NewTab, Quit, RemoteSocket, ShowAll, app_menus, dock_menu, open_urls,
+            with_workspace,
         },
     },
 };
@@ -76,6 +79,12 @@ fn init(cx: &mut App) {
     Theme::apply(cx.window_appearance(), cx);
     cx.bind_keys(config.keybindings.bindings());
     cx.bind_keys(text_input::bindings());
+    if Settings::get(cx).remote_control == RemoteControl::Socket {
+        #[cfg(unix)]
+        if let Some(path) = remote::listen(cx, handle_request) {
+            cx.set_global(RemoteSocket(path));
+        }
+    }
     // app wide, they work with no window focused
     cx.on_action(|_: &Hide, cx| cx.hide());
     cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
@@ -100,7 +109,27 @@ fn main() {
             println!("{USAGE}");
             return;
         }
-        Ok(cli) => cli.init(),
+        Ok(Cli {
+            msg: Some(args), ..
+        }) => {
+            if args.iter().any(|arg| arg == "-h" || arg == "--help") {
+                println!("{}", remote::MSG_USAGE);
+                return;
+            }
+            std::process::exit(remote::run_msg(&args));
+        }
+        Ok(cli) => {
+            // a running kuterm takes over, this process has nothing left to do
+            if cli.single_instance {
+                let request = Request::NewWindow {
+                    cwd: std::env::current_dir().ok(),
+                };
+                if remote::send(&request).is_ok_and(|reply| reply.ok) {
+                    return;
+                }
+            }
+            cli.init()
+        }
         Err(error) => {
             eprintln!("{error}\n\n{USAGE}");
             std::process::exit(2);
@@ -115,7 +144,13 @@ fn main() {
     });
     app.run(move |cx: &mut App| {
         init(cx);
-        cx.on_window_closed(|cx, _| cx.quit()).detach();
+        // the app ends with its last window
+        cx.on_window_closed(|cx, _| {
+            if cx.windows().is_empty() {
+                cx.quit();
+            }
+        })
+        .detach();
         cx.spawn(async move |cx| {
             while let Some(urls) = urls_rx.next().await {
                 cx.update(|cx| open_urls(&urls, cx));
@@ -123,28 +158,9 @@ fn main() {
         })
         .detach();
 
-        let settings = Settings::get(cx);
-        cx.open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(startup_bounds(cx))),
-                window_background: background_appearance(settings),
-                window_decorations: Some(window_decorations(settings)),
-                window_min_size: Some(size(px(400.), px(250.))),
-                titlebar: Some(TitlebarOptions {
-                    title: Some(settings.default_title.clone().into()),
-                    ..Default::default()
-                }),
-                app_id: Some("kuterm".into()),
-                icon: Some(Arc::new(
-                    image::load_from_memory(include_bytes!("../assets/logo/icon_256.png"))
-                        .expect("failed to load bundled icon")
-                        .into_rgba8(),
-                )),
-                ..Default::default()
-            },
-            |window, cx| cx.new(|cx| Workspace::new(window, cx)),
-        )
-        .expect("failed to open window");
+        if open_workspace_window(None, cx).is_none() {
+            std::process::exit(1);
+        }
         cx.activate(true);
     });
 }

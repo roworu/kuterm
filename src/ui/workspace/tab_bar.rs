@@ -28,8 +28,8 @@ const TEXT_SIZE: f32 = 0.875;
 // nerd font bell, shown on a background tab that rang
 const BELL_ICON: &str = "\u{f0f3}";
 
-// width of the divider between two split panes
-const DIVIDER_WIDTH: f32 = 4.;
+// narrowest a divider is to grab, a thinner one is widened by an invisible handle
+const DIVIDER_GRAB: f32 = 6.;
 
 /// how far `icon` must move down, in ems, for its lowest point to stand on the baseline
 fn icon_drop(icon: &str) -> f32 {
@@ -366,6 +366,14 @@ impl Workspace {
                     && self.layout.corner_pane_id() == Some(pane_id),
                 |bar| bar.child(self.render_window_buttons(cx)),
             );
+        // only a pane without focus next to others is dimmed
+        let dim =
+            if pane_id != self.focused && self.zoomed.is_none() && self.layout.pane_ids().len() > 1
+            {
+                settings.panes.dim_inactive
+            } else {
+                0.
+            };
         let zone = self
             .drop_zone
             .filter(|(id, _)| *id == pane_id)
@@ -404,6 +412,19 @@ impl Workspace {
             }))
             .when_some(zone, |terminal, side| {
                 terminal.child(drop_overlay(side, theme))
+            })
+            .when(dim > 0., |terminal| {
+                // deferred, since the cached terminal view would otherwise paint over it
+                terminal.child(
+                    div()
+                        .debug_selector(move || format!("pane-dim-{pane_id}"))
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .right_0()
+                        .bottom_0()
+                        .bg(gpui::black().opacity(dim)),
+                )
             });
         div()
             .id(("pane", pane_id))
@@ -448,21 +469,37 @@ impl Workspace {
         let mut second_path = split_path.to_vec();
         second_path.push(true);
         let theme = Theme::get(cx);
-        let divider = div()
+        let width = Settings::get(cx).panes.divider_width;
+        let grab = width.max(DIVIDER_GRAB);
+        // centered on the divider, so it reaches into both panes
+        let handle = div()
             .id(format!("divider-{split_path:?}"))
-            .flex_none()
-            .bg(theme.border)
-            .map(|divider| match axis {
-                SplitAxis::Horizontal => divider
-                    .w(px(DIVIDER_WIDTH))
+            .debug_selector(|| "divider".into())
+            .absolute()
+            .map(|handle| match axis {
+                SplitAxis::Horizontal => handle
+                    .top_0()
                     .h_full()
+                    .w(px(grab))
+                    .left(px((width - grab) / 2.))
                     .cursor(CursorStyle::ResizeLeftRight),
-                SplitAxis::Vertical => divider
-                    .h(px(DIVIDER_WIDTH))
+                SplitAxis::Vertical => handle
+                    .left_0()
                     .w_full()
+                    .h(px(grab))
+                    .top(px((width - grab) / 2.))
                     .cursor(CursorStyle::ResizeUpDown),
             })
             .on_drag(SplitDrag, |_, _, _, cx| cx.new(|_| SplitDrag));
+        let divider = div()
+            .flex_none()
+            .relative()
+            .bg(theme.border)
+            .map(|divider| match axis {
+                SplitAxis::Horizontal => divider.w(px(width)).h_full(),
+                SplitAxis::Vertical => divider.h(px(width)).w_full(),
+            })
+            .child(handle);
         let path = split_path.to_vec();
         div()
             .flex()
@@ -565,12 +602,18 @@ impl Workspace {
         )
     }
 
-    /// command palette, about page or close tab dialog, centered near the top like in zed
+    /// command palette, about page, close tab or paste dialog, centered near the top like in zed
     fn render_overlay(&self) -> Option<AnyElement> {
-        let view = match (&self.palette, &self.about, &self.confirm_close) {
-            (Some(palette), _, _) => palette.clone().into_any_element(),
-            (_, Some(about), _) => about.clone().into_any_element(),
-            (_, _, Some(confirm)) => confirm.clone().into_any_element(),
+        let view = match (
+            &self.palette,
+            &self.about,
+            &self.confirm_close,
+            &self.confirm_paste,
+        ) {
+            (Some(palette), _, _, _) => palette.clone().into_any_element(),
+            (_, Some(about), _, _) => about.clone().into_any_element(),
+            (_, _, Some(confirm), _) => confirm.clone().into_any_element(),
+            (_, _, _, Some(paste)) => paste.clone().into_any_element(),
             _ => return None,
         };
         Some(
@@ -597,7 +640,10 @@ impl Render for Workspace {
         let theme = Theme::get(cx);
         // ui scales in rems of the ui font size
         window.set_rem_size(px(settings.ui_font_size));
-        let layout = self.render_layout(&self.layout, &[], cx);
+        let layout = match self.zoomed.and_then(|id| self.pane(id)) {
+            Some(pane) => self.render_pane(pane, cx),
+            None => self.render_layout(&self.layout, &[], cx),
+        };
         div()
             .key_context("Workspace")
             .on_action(cx.listener(Self::new_tab))

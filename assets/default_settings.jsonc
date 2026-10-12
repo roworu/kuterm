@@ -81,10 +81,66 @@
     "copy": true,
     // notify when text is pasted
     "paste": true,
+    // notifications programs send with osc 9 or osc 777, like "printf '\\e]9;done\\a'":
+    //   "always"    - always, as a system notification too while the window is not focused
+    //   "unfocused" - only while the tab is not in front of a focused window
+    //   "never"     - never
+    "from_programs": "unfocused",
+  },
+
+  // open the tabs and splits of the last session on launch, each in the folder its shell
+  // was in. programs that ran in them are not started again:
+  //   "always" - every launch
+  //   "ask"    - a notification asks
+  //   "never"  - start with one new tab
+  // the session is kept in session.json in the state folder
+  "restore_session": "never",
+
+  // images programs show with kitty's graphics protocol, like "kitten icat" or yazi. they
+  // scroll with the text and are drawn over cell backgrounds
+  "graphics": {
+    "enable": true,
+    // megabytes of decoded images each tab keeps, the oldest go first, from 1 to 4096
+    "max_memory_mb": 320,
+  },
+
+  // let other programs drive kuterm:
+  //   "off"    - no
+  //   "socket" - through a unix socket in $XDG_RUNTIME_DIR, used by "kuterm msg new-tab",
+  //              "kuterm msg send-text", "kuterm msg list-tabs" and
+  //              "kuterm --single-instance". shells started by kuterm get its path in
+  //              $KUTERM_SOCKET
+  "remote_control": "off",
+
+  // the "open_scrollback" action writes the history of the active tab, colors kept, to a
+  // temp file and opens it with this command in a new tab, the file goes last
+  "scrollback_pager": ["less", "-R", "+G"],
+
+  // shell integration: shells mark their prompts and commands and tell their folder.
+  // prompts can then be jumped to, the output of the last command selected or copied, and
+  // new tabs and splits open in the folder of the shell
+  "shell_integration": {
+    // load kuterm's integration scripts into bash, zsh and fish started by a profile without
+    // arguments, like "system" or { "program": "zsh" }. other shells can print the marks
+    // themselves (osc 133 and osc 7)
+    "inject": true,
+    // notify when a command took longer than this many seconds and its tab is not in front,
+    // 0 never notifies
+    "notify_after": 10,
   },
 
   // focus a split pane when the mouse moves over it, without clicking
   "focus_follows_mouse": false,
+
+  // split panes, made with the "split_*" actions or by dragging a tab onto a pane edge
+  "panes": {
+    // pixels between two panes, from 0 to 20, dividers can be dragged
+    "divider_width": 1,
+    // darken panes without focus, from 0 (off) to 1
+    "dim_inactive": 0.0,
+    // the shell a split starts opens in the folder of the tab that was split
+    "split_inherits_cwd": true,
+  },
 
   // what happens when a program rings the bell, like a shell on a failed tab completion
   "bell": {
@@ -105,14 +161,62 @@
     "tab_indicator": true,
   },
 
+  // search in the history of a tab, opened with the "search" key (ctrl-shift-f by default).
+  // enter goes to the match above, shift-enter to the one below, escape closes it.
+  // these are the starting options, the buttons of the search bar change them
+  "search": {
+    // tell upper and lower case apart: "smart" only when the query has an upper case letter,
+    // true always, false never
+    "case_sensitive": "smart",
+    // read the query as a regular expression, like "err(or)?\\b"
+    "regex": false,
+    // match whole words only
+    "whole_word": false,
+  },
+
+  // links in the terminal: osc 8 hyperlinks that programs like ls --hyperlink print, and text
+  // matched by "patterns". holding the modifier underlines the link under the mouse, a click
+  // with it held opens it
+  "links": {
+    // "ctrl", "alt", "shift" or "super" (windows key, cmd on macos)
+    "modifier": "ctrl",
+    // program that opens links, like "firefox". null uses the system opener (xdg-open, open)
+    "open_with": null,
+    // regexes tried on the line under the mouse, the list replaces this one.
+    // "action" is what a click does:
+    //   "open"                  - open with "open_with"
+    //   "copy"                  - copy the text to the clipboard
+    //   "paste"                 - type the text into the terminal
+    //   { "exec": "code -g \"$KUTERM_MATCH\"" } - run a shell command, the text is in $KUTERM_MATCH
+    "patterns": [
+      { "regex": "(https?|ftp|file)://[^\\s<>\"'`(){}\\[\\]]*[^\\s<>\"'`(){}\\[\\].,;:!?]", "action": "open" },
+    ],
+  },
+
+  // hints: the "hints" key (ctrl-shift-e by default) puts a short label on every match of
+  // these patterns on screen, typing a label runs the action of its pattern, escape cancels
+  "hints": {
+    // letters labels are made of, at least two different ones
+    "alphabet": "asdfghjkl",
+    // like "links.patterns", with a "name" to tell them apart. the list replaces this one.
+    // "\\b" here is written "(?-u:\\b)", the regex engine only knows ascii word boundaries
+    "patterns": [
+      { "name": "url", "regex": "(https?|ftp|file)://[^\\s<>\"'`(){}\\[\\]]*[^\\s<>\"'`(){}\\[\\].,;:!?]", "action": "open" },
+      { "name": "path", "regex": "(~|\\.{1,2})?(/[\\w.+@-]+)+/?", "action": "copy" },
+      { "name": "hash", "regex": "(?-u:\\b)[0-9a-f]{7,40}(?-u:\\b)", "action": "copy" },
+      { "name": "ip", "regex": "(?-u:\\b)[0-9]{1,3}(\\.[0-9]{1,3}){3}(:[0-9]+)?(?-u:\\b)", "action": "copy" },
+    ],
+  },
+
   "theme": {
     // which theme to use, applied right away when the system switches:
     //   "system" - follow system dark/light preference
     //   "dark"   - always dark
     //   "light"  - always light
     "mode": "system",
-    // theme for each mode: a name from "themes" below, or a path to a theme file with the
-    // same keys, like "themes/mine.jsonc" (relative paths are resolved from this folder).
+    // theme for each mode: a name from "themes" below, a name of a file in the "themes"
+    // folder next to this file, like "nord" for themes/nord.jsonc, or a path to a theme file
+    // with the same keys, like "~/mine.jsonc" (relative paths are resolved from this folder).
     // null uses the bundled theme
     "dark": "dark",
     "light": "light",
@@ -139,6 +243,9 @@
         "cursor": "#74ade8",
         "selection": "#3e4451",
         "scrollbar": "#4e5666",
+        // background of search matches, and of the one search is on
+        "search_match": "#4b4a3a",
+        "search_match_active": "#8a6a2a",
         "bright_foreground": "#dce0e5",
         "dim_foreground": "#636d83",
 
@@ -172,6 +279,9 @@
         "cursor": "#526fff",
         "selection": "#e5e5e6",
         "scrollbar": "#c4c4c7",
+        // background of search matches, and of the one search is on
+        "search_match": "#f3e7b5",
+        "search_match_active": "#f0c35a",
         "bright_foreground": "#202227",
         "dim_foreground": "#a0a1a7",
 
@@ -330,6 +440,16 @@
       //   "ease_in_out" - soft start and soft stop
       "easing": "ease_out",
     },
+    // what programs may do with the clipboard through osc 52 escape sequences, even over ssh:
+    //   "allow" - right away
+    //   "ask"   - show a notification with allow and deny buttons
+    //   "deny"  - never
+    // reading lets a program see anything copied before, like passwords, so it is denied
+    "clipboard": { "write": "allow", "read": "deny" },
+    // ask before pasting text with a newline while the program did not turn on bracketed
+    // paste, since a shell runs it right away, or text with control characters like escape.
+    // with bracketed paste on, control characters are always removed from pasted text
+    "paste_protection": true,
   },
 
   // what new tabs start with. ctrl-shift-t and a click on "+" open the default profile,
@@ -381,6 +501,44 @@
     "copy": "ctrl-shift-c",
     // paste from clipboard into the terminal
     "paste": "ctrl-shift-v",
+    // search the history of the active tab
+    "search": "ctrl-shift-f",
+    // label links, paths, hashes and other "hints.patterns" matches on screen, typing a
+    // label runs its action
+    "hints": "ctrl-shift-e",
+    // split the focused pane, moving its active tab to the new pane on that side
+    "split_left": null,
+    "split_right": null,
+    "split_up": null,
+    "split_down": null,
+    // close the focused pane with all its tabs
+    "close_pane": null,
+    // move focus to the pane on that side
+    "focus_pane_left": null,
+    "focus_pane_right": null,
+    "focus_pane_up": null,
+    "focus_pane_down": null,
+    // move the divider next to the focused pane that way
+    "resize_pane_left": null,
+    "resize_pane_right": null,
+    "resize_pane_up": null,
+    "resize_pane_down": null,
+    // show the focused pane alone, again to show all panes
+    "zoom_pane": null,
+    // give all panes the same size
+    "equalize_panes": null,
+    // scroll to the prompt above or below, needs shell integration
+    "jump_to_prev_prompt": "ctrl-shift-up",
+    "jump_to_next_prompt": "ctrl-shift-down",
+    // select or copy what the last command printed, needs shell integration
+    "select_last_output": null,
+    "copy_last_output": null,
+    // open the history of the active tab in "scrollback_pager"
+    "open_scrollback": null,
+    // keyboard selection mode: hjkl, w/b/e, 0/$, gg/G, ctrl-u/ctrl-d move, v, V and ctrl-v
+    // select, / searches and n/N go to the next match, y copies, escape leaves.
+    // a number before a motion repeats it, like 5j
+    "vi_mode": "ctrl-shift-space",
     // open command palette
     "command_palette": "ctrl-shift-p",
     // toggle fullscreen
@@ -421,6 +579,23 @@
     "activate_tab_9": "alt-9",
   },
 
+  // more keys, added after "keybindings" so they win over them. each entry has "keys", an
+  // "action" and, optionally, "when" the keys work:
+  //   "action": any action name of "keybindings", like "new_tab"
+  //             "unbind" - the keys do nothing in kuterm and reach the terminal program
+  //             a command palette action, like { "send_text": "\u001b[2J" } that sends
+  //             text to the program right away, or { "new_tab_with_profile": "dev" }
+  //   "when":   "terminal", "search" (the search bar), "palette", "vi_mode" or "alt_screen"
+  //             (full screen programs like vim). left out works everywhere
+  // keys pressed one after another, like "ctrl-a c", wait 1 second for the next one.
+  // example:
+  //   [
+  //     { "keys": "ctrl-a c", "action": "new_tab" },
+  //     { "keys": "ctrl-shift-k", "action": { "send_text": "\u001b[2J" } },
+  //     { "keys": "ctrl-shift-t", "action": "unbind", "when": "alt_screen" },
+  //   ]
+  "keymap": [],
+
   // command palette commands. the palette opens with the "command_palette" key (ctrl-shift-p by
   // default), typing filters commands by name, enter or a click runs the picked one. recently run
   // commands are listed first, this can be turned off with "command_palette.show_recent".
@@ -449,12 +624,26 @@
   //   "split_right"                      - split the focused pane, moving its active tab right
   //   "split_up"                         - split the focused pane, moving its active tab above
   //   "split_down"                       - split the focused pane, moving its active tab below
+  //   "close_pane"                       - close the focused pane with all its tabs
+  //   "focus_pane_left"                  - focus the pane on the left, also _right, _up, _down
+  //   "resize_pane_left"                 - move the divider of the focused pane left, also
+  //                                        _right, _up, _down
+  //   "zoom_pane"                        - show the focused pane alone, again to show all
+  //   "equalize_panes"                   - give all panes the same size
   //   "next_tab"                         - switch to the tab on the right
   //   "prev_tab"                         - switch to the tab on the left
   //   { "activate_tab": 2 }              - switch to the tab at this 1 based position
   //   "pick_tab"                         - list the open tabs in the palette, pick one to switch to it
   //   "copy"                             - copy the active tab's selection to the clipboard
   //   "paste"                            - paste the clipboard into the active tab
+  //   "search"                           - open the search bar of the active tab
+  //   "hints"                            - label matches of "hints.patterns" on screen
+  //   "vi_mode"                          - start or end keyboard selection mode
+  //   "jump_to_prev_prompt"              - scroll to the prompt above, needs shell integration
+  //   "jump_to_next_prompt"              - scroll to the prompt below
+  //   "select_last_output"               - select what the last command printed
+  //   "copy_last_output"                 - copy what the last command printed
+  //   "open_scrollback"                  - open the history in "scrollback_pager" in a new tab
   //   { "scroll_up": 10 }                - scroll the active tab up by this many lines
   //   { "scroll_down": 10 }              - scroll the active tab down by this many lines
   //   "scroll_top"                       - scroll the active tab to the top of its history
@@ -467,6 +656,7 @@
   //   "reset_font_size"                  - set the active tab font back to its size from settings
   //   "open_settings"                    - open settings.jsonc in the system text editor
   //   { "type": "ls\n" }                 - type text into the active tab, "\n" presses enter
+  //   { "send_text": "\u001b[A" }         - send text to the program right away, escapes too
   //   { "notify": "hi" }                 - show a notification inside the window
   //   { "notify_when_done": "built" }    - show a notification once the program running in the
   //                                        tab finishes, clicking it switches to that tab
@@ -482,6 +672,12 @@
     { "name": "copy selection", "category": "edit", "actions": ["copy"] },
     { "name": "paste", "category": "edit", "actions": ["paste"] },
     { "name": "select all", "category": "edit", "actions": ["select_all"] },
+    { "name": "search", "category": "edit", "actions": ["search"] },
+    { "name": "hints", "category": "edit", "actions": ["hints"] },
+    { "name": "keyboard selection", "category": "edit", "actions": ["vi_mode"] },
+    { "name": "copy last output", "category": "edit", "actions": ["copy_last_output"] },
+    { "name": "open history in pager", "category": "view", "actions": ["open_scrollback"] },
+    { "name": "select last output", "category": "edit", "actions": ["select_last_output"] },
     { "name": "clear history", "category": "edit", "actions": ["clear"] },
 
     { "name": "create new", "category": "tabs", "actions": ["new_tab"] },
@@ -492,6 +688,9 @@
     { "name": "split right", "category": "tabs", "actions": ["split_right"] },
     { "name": "split up", "category": "tabs", "actions": ["split_up"] },
     { "name": "split down", "category": "tabs", "actions": ["split_down"] },
+    { "name": "close pane", "category": "panes", "actions": ["close_pane"] },
+    { "name": "zoom pane", "category": "panes", "actions": ["zoom_pane"] },
+    { "name": "equalize panes", "category": "panes", "actions": ["equalize_panes"] },
     { "name": "switch to left", "category": "tabs", "actions": ["prev_tab"] },
     { "name": "switch to right", "category": "tabs", "actions": ["next_tab"] },
     { "name": "go to tab", "category": "tabs", "actions": ["pick_tab"] },
@@ -600,6 +799,7 @@
   // like { "linux": { "terminal": { "font": { "size": 14 } } } }
   "os": {
     "macos": {
+      "links": { "modifier": "super" },
       // macos apps use cmd keys, the shell never gets them, so ctrl-w, ctrl-t, ctrl-c... keep
       // reaching it
       "keybindings": {
@@ -607,6 +807,11 @@
         "close_tab": "cmd-w",
         "copy": "cmd-c",
         "paste": "cmd-v",
+        "search": "cmd-f",
+        "hints": "cmd-shift-e",
+        "vi_mode": "cmd-shift-space",
+        "jump_to_prev_prompt": "cmd-up",
+        "jump_to_next_prompt": "cmd-down",
         "command_palette": "cmd-shift-p",
         "toggle_fullscreen": "ctrl-cmd-f",
         "quit": "cmd-q",

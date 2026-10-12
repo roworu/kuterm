@@ -15,7 +15,7 @@ use alacritty_terminal::{
     event::{Event as AlacTermEvent, EventListener},
     event_loop::{EventLoop, Notifier},
     sync::FairMutex,
-    term::Config,
+    term::{Config, Osc52},
     tty,
     vte::ansi::CursorStyle,
 };
@@ -57,8 +57,16 @@ pub(super) fn term_config(settings: &TerminalSettings) -> Config {
             0 => crate::settings::MAX_HISTORY_LENGTH,
             lines => lines,
         },
+        // a block tells the vi mode cursor apart from the shell's one
+        vi_mode_cursor_style: Some(CursorStyle {
+            shape: alacritty_terminal::vte::ansi::CursorShape::Block,
+            blinking: false,
+        }),
         semantic_escape_chars: settings.word_separators.clone(),
-        ..Config::default()
+        // `clipboard` settings decide in `process_event`, so asking is possible
+        osc52: Osc52::CopyPaste,
+        // programs turn it on themselves with `CSI > flags u`
+        kitty_keyboard: true,
     }
 }
 
@@ -129,8 +137,23 @@ impl TerminalBuilder {
 
         let pty = tty::new(&pty_options, TerminalBounds::default().into(), window_id)
             .context("failed to open pty")?;
+        let scan_events = super::scanner::ScanEvents::default();
+        // settings may change these right after, the bundled ones hold until then
+        let defaults = crate::settings::Settings::default().graphics;
+        let graphics = Arc::new(std::sync::Mutex::new(super::graphics::Graphics::new(
+            defaults.enable,
+            defaults.max_memory_mb,
+        )));
+        let cell_size = Arc::new(super::graphics::CellSize::default());
         #[cfg(unix)]
-        let shell_pid = pty.child().id();
+        let pty = super::scanner::ScannedPty::new(
+            pty,
+            scan_events.clone(),
+            super::graphics::GraphicsParser::new(graphics.clone(), cell_size.clone()),
+        )
+        .context("failed to open pty")?;
+        #[cfg(unix)]
+        let shell_pid = pty.child_id();
         #[cfg(windows)]
         let shell_pid = pty.child_watcher().pid().map_or(0, |pid| pid.get());
 
@@ -155,6 +178,16 @@ impl TerminalBuilder {
             shell_pid,
             theme_settings: profile.theme.clone(),
             theme: None,
+            clipboard: settings.clipboard,
+            clipboard_requests: HashMap::new(),
+            next_clipboard_request: 0,
+            search: None,
+            vi: Default::default(),
+            scan_events,
+            reported_cwd: None,
+            command_started: None,
+            graphics,
+            cell_size,
             _event_loop_task: Task::ready(()),
         };
 

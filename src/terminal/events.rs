@@ -1,12 +1,13 @@
 //! reacting to events reported by alacritty's event loop
 
 use alacritty_terminal::event::Event as AlacTermEvent;
-use gpui::{ClipboardItem, Context};
+use gpui::Context;
 
-use super::{Event, Terminal};
+use super::{ClipboardRequest, Event, Terminal};
+use crate::settings::ClipboardAccess;
 
 impl Terminal {
-    pub(super) fn process_event(&mut self, event: AlacTermEvent, cx: &mut Context<Self>) {
+    pub(crate) fn process_event(&mut self, event: AlacTermEvent, cx: &mut Context<Self>) {
         match event {
             AlacTermEvent::Title(title) => {
                 self.title = title;
@@ -17,14 +18,12 @@ impl Terminal {
                 cx.emit(Event::TitleChanged);
             }
             AlacTermEvent::ClipboardStore(_, data) => {
-                cx.write_to_clipboard(ClipboardItem::new_string(data))
+                let access = self.clipboard.write;
+                self.request_clipboard(access, ClipboardRequest::Write(data), cx);
             }
             AlacTermEvent::ClipboardLoad(_, format) => {
-                let text = cx
-                    .read_from_clipboard()
-                    .and_then(|item| item.text())
-                    .unwrap_or_default();
-                self.write_to_pty(format(&text).into_bytes());
+                let access = self.clipboard.read;
+                self.request_clipboard(access, ClipboardRequest::Read(format), cx);
             }
             AlacTermEvent::PtyWrite(out) => self.write_to_pty(out.into_bytes()),
             AlacTermEvent::TextAreaSizeRequest(format) => {
@@ -43,9 +42,37 @@ impl Terminal {
                 self.write_to_pty(format(color).into_bytes());
             }
             AlacTermEvent::Exit | AlacTermEvent::ChildExit(_) => cx.emit(Event::CloseTerminal),
-            AlacTermEvent::Wakeup => cx.emit(Event::Wakeup),
+            AlacTermEvent::Wakeup => {
+                for event in self.handle_scan_events() {
+                    cx.emit(event);
+                }
+                cx.emit(Event::Wakeup);
+            }
             AlacTermEvent::Bell => cx.emit(Event::Bell),
             AlacTermEvent::MouseCursorDirty | AlacTermEvent::CursorBlinkingChange => {}
+        }
+    }
+
+    // a denied read gets no reply, like a terminal without osc 52
+    fn request_clipboard(
+        &mut self,
+        access: ClipboardAccess,
+        request: ClipboardRequest,
+        cx: &mut Context<Self>,
+    ) {
+        match access {
+            ClipboardAccess::Allow => self.use_clipboard(request, cx),
+            ClipboardAccess::Deny => {}
+            ClipboardAccess::Ask => {
+                let id = self.next_clipboard_request;
+                self.next_clipboard_request += 1;
+                let text = match &request {
+                    ClipboardRequest::Write(text) => Some(text.clone()),
+                    ClipboardRequest::Read(_) => None,
+                };
+                self.clipboard_requests.insert(id, request);
+                cx.emit(Event::ClipboardAsk { id, text });
+            }
         }
     }
 }

@@ -2,7 +2,10 @@
 
 use alacritty_terminal::{
     selection::SelectionRange,
-    term::cell::{Cell, Flags},
+    term::{
+        cell::{Cell, Flags},
+        search::Match,
+    },
     vte::ansi::{Color, NamedColor},
 };
 use gpui::{
@@ -143,16 +146,25 @@ impl LayoutRect {
     }
 }
 
+/// search matches to highlight, sorted top to bottom, and the one search is on
+pub(super) struct SearchHighlights<'a> {
+    pub(super) matches: &'a [Match],
+    pub(super) active: Option<&'a Match>,
+}
+
 pub(super) fn layout_grid(
     cells: &[IndexedCell],
     display_offset: usize,
     selection: Option<SelectionRange>,
+    search: SearchHighlights,
     style: &GridStyle,
     theme: &Theme,
 ) -> (Vec<LayoutRect>, Vec<BatchedTextRun>, Vec<BoxGlyph>) {
     let mut rects: Vec<LayoutRect> = Vec::new();
     let mut runs: Vec<BatchedTextRun> = Vec::new();
     let mut glyphs: Vec<BoxGlyph> = Vec::new();
+    // cells come in grid order, so the match a cell may be in only moves forward
+    let mut next_match = 0;
 
     for indexed in cells {
         let cell = &indexed.cell;
@@ -165,8 +177,23 @@ pub(super) fn layout_grid(
         }
 
         let selected = selection.is_some_and(|range| range.contains(indexed.point));
+        while search
+            .matches
+            .get(next_match)
+            .is_some_and(|m| *m.end() < indexed.point)
+        {
+            next_match += 1;
+        }
+        let matched = search
+            .matches
+            .get(next_match)
+            .is_some_and(|m| m.contains(&indexed.point));
         let background = if selected {
             Some(theme.selection)
+        } else if search.active.is_some_and(|m| m.contains(&indexed.point)) {
+            Some(theme.search_match_active)
+        } else if matched {
+            Some(theme.search_match)
         } else {
             (!is_default_background(&bg)).then(|| theme.convert_color(&bg))
         };
@@ -463,7 +490,11 @@ mod tests {
                 cell: indexed.cell.clone(),
             })
             .collect();
-        layout_grid(&cells, 0, selection, style, theme)
+        let search = SearchHighlights {
+            matches: &[],
+            active: None,
+        };
+        layout_grid(&cells, 0, selection, search, style, theme)
     }
 
     /// rects and runs of a real 40x3 alacritty term after feeding it `bytes`
@@ -714,5 +745,59 @@ mod tests {
             layout_styled("a\u{2500}\u{2588}", None, &plain_style(&fonts), &theme);
         assert!(glyphs.is_empty());
         assert_eq!(runs[0].text, "a\u{2500}\u{2588}");
+    }
+
+    #[test]
+    fn search_matches_get_their_backgrounds_under_the_selection() {
+        use alacritty_terminal::index::{Column, Line, Point};
+
+        let theme = Theme::default();
+        let fonts = fonts();
+        let mut term = Term::new(Config::default(), &TermSize::new(40, 3), VoidListener);
+        let mut parser: Processor = Processor::new();
+        parser.advance(&mut term, b"aa bb aa cc");
+        let cells: Vec<IndexedCell> = term
+            .renderable_content()
+            .display_iter
+            .map(|indexed| IndexedCell {
+                point: indexed.point,
+                cell: indexed.cell.clone(),
+            })
+            .collect();
+        let at = |column| Point::new(Line(0), Column(column));
+        let matches = [at(0)..=at(1), at(6)..=at(7)];
+        let search = SearchHighlights {
+            matches: &matches,
+            active: Some(&matches[1]),
+        };
+        let (rects, _, _) = layout_grid(&cells, 0, None, search, &plain_style(&fonts), &theme);
+        let spans: Vec<(i32, usize, Hsla)> = rects
+            .iter()
+            .map(|rect| (rect.column, rect.num_of_cells, rect.color))
+            .collect();
+        assert_eq!(
+            spans,
+            [
+                (0, 2, theme.search_match),
+                (6, 2, theme.search_match_active)
+            ]
+        );
+
+        // the selection wins over a match
+        let selection = SelectionRange::new(at(0), at(0), false);
+        let search = SearchHighlights {
+            matches: &matches,
+            active: None,
+        };
+        let (rects, _, _) = layout_grid(
+            &cells,
+            0,
+            Some(selection),
+            search,
+            &plain_style(&fonts),
+            &theme,
+        );
+        assert_eq!(rects[0].color, theme.selection);
+        assert_eq!((rects[1].column, rects[1].color), (1, theme.search_match));
     }
 }

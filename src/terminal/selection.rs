@@ -44,7 +44,7 @@ fn grid_point(
 }
 
 impl Terminal {
-    fn mouse_point(&self, position: Point<Pixels>) -> (AlacPoint, Side) {
+    pub(super) fn mouse_point(&self, position: Point<Pixels>) -> (AlacPoint, Side) {
         let content = &self.last_content;
         grid_point(position, &content.terminal_bounds, content.display_offset)
     }

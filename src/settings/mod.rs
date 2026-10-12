@@ -11,18 +11,22 @@ mod window_size;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
+use alacritty_terminal::term::search::RegexSearch;
 use gpui::{App, CursorHideMode, Global, Hsla};
 use serde::Deserialize;
 use serde_json_lenient::Value;
 
 pub use commands::{Command, CommandAction, Commands};
+#[cfg(test)]
+pub(crate) use config::combine as config_combine;
 pub(crate) use config::defaults as bundled_settings;
 pub use config::{Config, ConfigFiles};
 pub use keybindings::Keybindings;
 pub use options::{
-    ConfirmQuit, CursorBlink, CursorShape, CursorUnfocused, Decorations, FontSlant, LineHeight,
-    NewTabButton, ScrollEasing, ScrollbarEnable, ScrollbarPlacement, Shell, StartupMode,
-    TabIconPosition, TabTitleAlign, TabTitleBlock, ThemeMode,
+    ClipboardAccess, ConfirmQuit, CursorBlink, CursorShape, CursorUnfocused, Decorations,
+    FontSlant, LineHeight, LinkModifier, NewTabButton, PatternAction, ProgramNotifications,
+    RemoteControl, RestoreSession, ScrollEasing, ScrollbarEnable, ScrollbarPlacement, SearchCase,
+    Shell, StartupMode, TabIconPosition, TabTitleAlign, TabTitleBlock, ThemeMode,
 };
 pub use pins::Pins;
 pub use tab_icons::TabIcons;
@@ -56,6 +60,78 @@ pub struct Settings {
     /// hovering a pane focuses it
     pub focus_follows_mouse: bool,
     pub bell: BellSettings,
+    pub search: SearchSettings,
+    pub links: LinkSettings,
+    pub hints: HintSettings,
+    pub panes: PaneSettings,
+    pub shell_integration: ShellIntegrationSettings,
+    /// program and arguments the history is opened with, the file goes last
+    pub scrollback_pager: Vec<String>,
+    pub restore_session: RestoreSession,
+    pub remote_control: RemoteControl,
+    pub graphics: GraphicsSettings,
+}
+
+/// images programs show with kitty's graphics protocol
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+pub struct GraphicsSettings {
+    pub enable: bool,
+    /// megabytes of decoded images each tab keeps, the oldest go first
+    pub max_memory_mb: usize,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+pub struct ShellIntegrationSettings {
+    /// load kuterm's integration scripts into bash, zsh and fish
+    pub inject: bool,
+    /// seconds a command runs before its end is notified while its tab is not seen,
+    /// 0 never notifies
+    pub notify_after: f32,
+}
+
+/// split panes
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+pub struct PaneSettings {
+    /// pixels between two panes
+    pub divider_width: f32,
+    /// how much panes without focus are darkened, from 0 to 1
+    pub dim_inactive: f32,
+    /// a shell a split starts opens in the folder of the tab that was split
+    pub split_inherits_cwd: bool,
+}
+
+/// urls and other text found by patterns, and osc 8 hyperlinks, opened with modifier and click
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct LinkSettings {
+    pub modifier: LinkModifier,
+    /// program links are opened with, the system opener when none
+    pub open_with: Option<String>,
+    pub patterns: Vec<TextPattern>,
+}
+
+/// text matched by a regex, with what to do with it
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct TextPattern {
+    #[serde(default)]
+    pub name: Option<String>,
+    pub regex: String,
+    pub action: PatternAction,
+}
+
+/// labels over matches on screen, typing a label runs the action of its pattern
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct HintSettings {
+    /// letters labels are made of
+    pub alphabet: String,
+    pub patterns: Vec<TextPattern>,
+}
+
+/// how the search bar starts out, its buttons change it for one search
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+pub struct SearchSettings {
+    pub case_sensitive: SearchCase,
+    pub regex: bool,
+    pub whole_word: bool,
 }
 
 impl Default for Settings {
@@ -113,6 +189,8 @@ pub struct NotificationSettings {
     pub copy: bool,
     /// notify when text is pasted
     pub paste: bool,
+    /// show notifications programs send with osc 9 and osc 777
+    pub from_programs: ProgramNotifications,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -212,6 +290,16 @@ pub struct TerminalSettings {
     pub hide_mouse_when_typing: bool,
     pub scrollbar: ScrollbarSettings,
     pub smooth_scroll: SmoothScrollSettings,
+    pub clipboard: ClipboardSettings,
+    /// ask before pasting text that would run right away or has control characters
+    pub paste_protection: bool,
+}
+
+/// what programs may do with the clipboard through osc 52
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+pub struct ClipboardSettings {
+    pub write: ClipboardAccess,
+    pub read: ClipboardAccess,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -357,6 +445,14 @@ const OPACITY_RANGE: (f32, f32) = (0., 1.);
 // a window smaller than this is useless, bigger ones don't fit any screen
 const COLUMNS_RANGE: (f32, f32) = (10., 1000.);
 const ROWS_RANGE: (f32, f32) = (2., 500.);
+
+// a wider divider wastes room, 0 still leaves a grab handle
+const DIVIDER_WIDTH_RANGE: (f32, f32) = (0., 20.);
+const DIM_INACTIVE_RANGE: (f32, f32) = (0., 1.);
+// a few megabytes hold some images, more than this is a lot for one tab
+const GRAPHICS_MEMORY_RANGE: (f32, f32) = (1., 4096.);
+// Duration panics on negative or huge seconds, a day is already "never"
+const NOTIFY_AFTER_RANGE: (f32, f32) = (0., 86400.);
 
 // Duration panics on negative or huge seconds, an hour is already "until clicked"
 const NOTIFICATION_TIMEOUT_RANGE: (f32, f32) = (0., 3600.);
@@ -536,6 +632,27 @@ impl Settings {
             BELL_DURATION_RANGE,
         )
         .unwrap_or(defaults.bell.visual.duration);
+        let panes = &mut settings.panes;
+        panes.divider_width = limit(
+            "panes.divider_width",
+            panes.divider_width,
+            DIVIDER_WIDTH_RANGE,
+        )
+        .unwrap_or(defaults.panes.divider_width);
+        panes.dim_inactive = limit("panes.dim_inactive", panes.dim_inactive, DIM_INACTIVE_RANGE)
+            .unwrap_or(defaults.panes.dim_inactive);
+        settings.shell_integration.notify_after = limit(
+            "shell_integration.notify_after",
+            settings.shell_integration.notify_after,
+            NOTIFY_AFTER_RANGE,
+        )
+        .unwrap_or(defaults.shell_integration.notify_after);
+        settings.graphics.max_memory_mb = limit(
+            "graphics.max_memory_mb",
+            settings.graphics.max_memory_mb as f32,
+            GRAPHICS_MEMORY_RANGE,
+        )
+        .map_or(defaults.graphics.max_memory_mb, |mb| mb as usize);
         let window = &mut settings.window;
         window.padding.x = limit("window.padding.x", window.padding.x, PADDING_RANGE)
             .unwrap_or(defaults.window.padding.x);
@@ -547,6 +664,42 @@ impl Settings {
             .map_or(defaults.window.columns, |columns| columns as u32);
         window.rows = limit("window.rows", window.rows as f32, ROWS_RANGE)
             .map_or(defaults.window.rows, |rows| rows as u32);
+        for (name, patterns) in [
+            ("links.patterns", &mut settings.links.patterns),
+            ("hints.patterns", &mut settings.hints.patterns),
+        ] {
+            patterns.retain(|pattern| {
+                let error = RegexSearch::new(&pattern.regex).err();
+                if let Some(error) = &error {
+                    eprintln!(
+                        "{name} {:?} is not a valid regex, skipped: {error}",
+                        pattern.regex
+                    );
+                }
+                error.is_none()
+            });
+        }
+        let alphabet = &mut settings.hints.alphabet;
+        let mut letters: Vec<char> = alphabet.chars().collect();
+        letters.dedup();
+        // labels need at least two different letters, and spaces would be invisible
+        if letters.len() != alphabet.chars().count()
+            || letters.len() < 2
+            || letters.iter().any(|c| c.is_whitespace() || c.is_control())
+        {
+            eprintln!(
+                "hints.alphabet {alphabet:?} needs two or more different letters, using the default"
+            );
+            *alphabet = defaults.hints.alphabet;
+        }
+        if settings
+            .scrollback_pager
+            .first()
+            .is_none_or(|program| program.is_empty())
+        {
+            eprintln!("scrollback_pager needs a program, using the default");
+            settings.scrollback_pager = defaults.scrollback_pager;
+        }
         if settings.profiles.is_empty() {
             eprintln!("profiles is empty, using the default profiles");
             settings.profiles = defaults.profiles;
@@ -2693,5 +2846,29 @@ mod window_settings {
         ] {
             assert!(Settings::parse(json).is_err(), "{json}");
         }
+    }
+}
+
+#[cfg(test)]
+mod clipboard_settings {
+    use super::{ClipboardAccess, Settings};
+
+    #[test]
+    fn clipboard_access_and_paste_protection_parse() {
+        let settings = Settings::parse(
+            r#"{"terminal": {"clipboard": {"write": "ask", "read": "allow"}, "paste_protection": false}}"#,
+        )
+        .unwrap();
+        assert_eq!(settings.terminal.clipboard.write, ClipboardAccess::Ask);
+        assert_eq!(settings.terminal.clipboard.read, ClipboardAccess::Allow);
+        assert!(!settings.terminal.paste_protection);
+        // a partial block keeps the other value
+        let settings = Settings::parse(r#"{"terminal": {"clipboard": {"read": "deny"}}}"#).unwrap();
+        assert_eq!(settings.terminal.clipboard.read, ClipboardAccess::Deny);
+        assert_eq!(
+            settings.terminal.clipboard.write,
+            Settings::default().terminal.clipboard.write
+        );
+        assert!(Settings::parse(r#"{"terminal": {"clipboard": {"read": "maybe"}}}"#).is_err());
     }
 }

@@ -21,6 +21,8 @@ pub struct Theme {
     pub cursor: Hsla,
     pub selection: Hsla,
     pub scrollbar: Hsla,
+    pub search_match: Hsla,
+    pub search_match_active: Hsla,
     pub danger_button: Hsla,
     pub danger_button_text: Hsla,
     /// 8 normal colors followed by 8 bright colors
@@ -81,12 +83,24 @@ impl Theme {
         if let Some(path) = Self::path_of(name) {
             return Self::read(&path, dark);
         }
-        let colors = settings
-            .themes
-            .get(name)
-            .ok_or_else(|| format!("unknown theme {name:?}, add it to \"theme.themes\""))?;
+        let Some(colors) = settings.themes.get(name) else {
+            return match Self::folder_file(name) {
+                Some(path) => Self::read(&path, dark),
+                None => Err(format!(
+                    "unknown theme {name:?}, add it to \"theme.themes\" or as {name}.jsonc in the themes folder"
+                )),
+            };
+        };
         Self::from_value(colors.clone(), dark)
             .map_err(|error| format!("invalid theme {name:?}: {error}"))
+    }
+
+    // `themes/<name>.jsonc` or `.json` next to settings.jsonc, for names not in `themes`
+    fn folder_file(name: &str) -> Option<PathBuf> {
+        ["jsonc", "json"]
+            .into_iter()
+            .map(|extension| Self::resolve(Path::new(&format!("themes/{name}.{extension}"))))
+            .find(|path| path.exists())
     }
 
     /// load dark or light theme set in settings, using the bundled one when not set or invalid
@@ -120,7 +134,15 @@ impl Theme {
         [&settings.theme.dark, &settings.theme.light]
             .into_iter()
             .chain(profiles)
-            .filter_map(|name| Self::path_of(name.as_deref()?))
+            .filter_map(|name| {
+                let name = name.as_deref()?;
+                Self::path_of(name).or_else(|| {
+                    // a theme file in the themes folder is watched too
+                    (!settings.theme.themes.contains_key(name))
+                        .then(|| Self::folder_file(name))
+                        .flatten()
+                })
+            })
             .collect()
     }
 
@@ -353,6 +375,20 @@ mod tests {
             .unwrap();
             let file = theme_settings(r#"{"dark": "themes/mine.jsonc"}"#);
             assert_eq!(Theme::load(&file, true).border, rgb(0x040506).into());
+            // a bare name not in "themes" is a file of the themes folder
+            let folder = theme_settings(r#"{"dark": "mine"}"#);
+            assert_eq!(Theme::load(&folder, true).border, rgb(0x040506).into());
+            std::fs::write(
+                config.join("themes/other.json"),
+                r##"{"border": "#070809"}"##,
+            )
+            .unwrap();
+            let folder = theme_settings(r#"{"dark": "other"}"#);
+            assert_eq!(Theme::load(&folder, true).border, rgb(0x070809).into());
+            // "themes" wins over the folder
+            let both =
+                theme_settings(r##"{"dark": "mine", "themes": {"mine": {"border": "#0a0a0a"}}}"##);
+            assert_eq!(Theme::load(&both, true).border, rgb(0x0a0a0a).into());
 
             // absolute paths are used as is, a json extension alone makes it a file too
             let abs = dir.join("abs.jsonc");

@@ -9,6 +9,7 @@ use serde_json_lenient::Value;
 use crate::settings::{Pins, Settings, ThemeMode, WindowSize};
 
 pub const USAGE: &str = "usage: kuterm [options]
+       kuterm msg <command>        drive a running kuterm, see kuterm msg --help
 
 options:
   --recreate-confs            delete config files and write defaults
@@ -18,7 +19,11 @@ options:
   --dark-theme-file <path>    dark theme file, overrides settings
   --light-theme-file <path>   light theme file, overrides settings
   --theme-mode <mode>         system, dark or light, overrides settings
-  -h, --help                  print this help";
+  --single-instance           open a window in the running kuterm when there is one
+  -h, --help                  print this help
+
+--single-instance reaches a running kuterm through its socket, it needs
+\"remote_control\": \"socket\" in its settings";
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Cli {
@@ -30,6 +35,9 @@ pub struct Cli {
     pub dark_theme_file: Option<PathBuf>,
     pub light_theme_file: Option<PathBuf>,
     pub theme_mode: Option<ThemeMode>,
+    pub single_instance: bool,
+    /// arguments of `kuterm msg`, none when not run as a client
+    pub msg: Option<Vec<String>>,
 }
 
 static CLI: OnceLock<Cli> = OnceLock::new();
@@ -38,13 +46,20 @@ impl Cli {
     /// parse arguments without the program name
     pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Self, String> {
         let mut cli = Self::default();
-        let mut args = args.into_iter();
+        let mut args = args.into_iter().peekable();
+        // everything after "msg" belongs to the message
+        if args.peek().is_some_and(|arg| arg == "msg") {
+            args.next();
+            cli.msg = Some(args.map(|arg| arg.to_string_lossy().into_owned()).collect());
+            return Ok(cli);
+        }
         while let Some(arg) = args.next() {
             let arg = arg.to_string_lossy().into_owned();
             let mut value = || args.next().ok_or_else(|| format!("{arg} needs a value"));
             match arg.as_str() {
                 "-h" | "--help" => cli.help = true,
                 "--recreate-confs" => cli.recreate_confs = true,
+                "--single-instance" => cli.single_instance = true,
                 "--config-file" => cli.config_file = Some(absolute(value()?)?),
                 "--keybindings-file" => cli.keybindings_file = Some(absolute(value()?)?),
                 "--tab-icons-file" => cli.tab_icons_file = Some(absolute(value()?)?),

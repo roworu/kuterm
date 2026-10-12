@@ -6,12 +6,15 @@ mod grid;
 mod input_handler;
 mod scrollbar;
 
-use alacritty_terminal::{term::TermMode, vte::ansi::CursorShape};
+use alacritty_terminal::{index::Point as AlacPoint, term::search::Match, vte::ansi::CursorShape};
+use std::sync::Arc;
+
 use gpui::{
-    App, Bounds, ContentMask, CursorStyle, DispatchPhase, Element, ElementId, Entity, FocusHandle,
-    Font, FontFallbacks, FontFeatures, FontWeight, GlobalElementId, Hitbox, HitboxBehavior, Hsla,
-    InspectorElementId, IntoElement, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, Pixels, Point, Size, Style, TextRun, Window, fill, point, px, relative, size,
+    App, Bounds, ContentMask, Corners, CursorStyle, DispatchPhase, Element, ElementId, Entity,
+    FocusHandle, Font, FontFallbacks, FontFeatures, FontWeight, GlobalElementId, Hitbox,
+    HitboxBehavior, Hsla, InspectorElementId, IntoElement, LayoutId, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, Pixels, Point, RenderImage, ShapedLine, Size, Style, TextRun,
+    Window, fill, point, px, relative, size,
 };
 
 use crate::{
@@ -22,7 +25,9 @@ use crate::{
     ui::terminal_view::TerminalView,
 };
 use cursor::CursorLayout;
-use grid::{BatchedTextRun, BoxGlyph, GridStyle, LayoutRect, TerminalFonts, layout_grid};
+use grid::{
+    BatchedTextRun, BoxGlyph, GridStyle, LayoutRect, SearchHighlights, TerminalFonts, layout_grid,
+};
 use input_handler::TerminalInputHandler;
 use scrollbar::ScrollbarLayout;
 
@@ -85,6 +90,14 @@ pub struct LayoutState {
     scrollbar: Option<(ScrollbarLayout, Hitbox)>,
     dimensions: TerminalBounds,
     font_size: Pixels,
+    /// underline of the hovered link, relative to the grid origin
+    link_underlines: Vec<Bounds<Pixels>>,
+    link_color: Hsla,
+    /// hint labels with their boxes, relative to the grid origin
+    hint_labels: Vec<(Bounds<Pixels>, ShapedLine)>,
+    /// images with where they go, relative to the grid origin
+    images: Vec<(Bounds<Pixels>, Arc<RenderImage>)>,
+    hint_background: Hsla,
 }
 
 pub struct TerminalElement {
@@ -98,10 +111,15 @@ pub struct TerminalElement {
     scrollbar_visible: bool,
     /// fading bell flash painted over the terminal
     bell_flash: Option<Hsla>,
+    /// cells of the link under the mouse, underlined
+    link: Option<Match>,
+    /// hint labels and the cell each one starts at
+    hints: Vec<(AlacPoint, String)>,
 }
 
 impl TerminalElement {
     /// create element that paints given terminal
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         terminal: Entity<Terminal>,
         terminal_view: Entity<TerminalView>,
@@ -110,6 +128,8 @@ impl TerminalElement {
         cursor_on: bool,
         scrollbar_visible: bool,
         bell_flash: Option<Hsla>,
+        link: Option<Match>,
+        hints: Vec<(AlacPoint, String)>,
     ) -> Self {
         Self {
             terminal,
@@ -119,6 +139,8 @@ impl TerminalElement {
             cursor_on,
             scrollbar_visible,
             bell_flash,
+            link,
+            hints,
         }
     }
 
@@ -153,7 +175,7 @@ impl TerminalElement {
     }
 
     // window level listeners, so a drag keeps selecting after leaving the terminal area
-    fn register_mouse_listeners(&self, hitbox: Hitbox, report_motion: bool, window: &mut Window) {
+    fn register_mouse_listeners(&self, hitbox: Hitbox, window: &mut Window) {
         let view = self.terminal_view.clone();
         let down_hitbox = hitbox.clone();
         window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
@@ -166,10 +188,10 @@ impl TerminalElement {
         });
         let view = self.terminal_view.clone();
         window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
-            // moves without a button only matter to programs tracking all motion
+            // moves without a button matter to programs tracking all motion and to links
             if phase == DispatchPhase::Bubble
                 && !cx.has_active_drag()
-                && (event.pressed_button.is_some() || (report_motion && hitbox.is_hovered(window)))
+                && (event.pressed_button.is_some() || hitbox.is_hovered(window))
             {
                 view.update(cx, |view, cx| view.mouse_move(event, cx));
             }
@@ -285,6 +307,10 @@ impl Element for TerminalElement {
             &content.cells,
             content.display_offset,
             content.selection,
+            SearchHighlights {
+                matches: &content.search_matches,
+                active: content.active_match.as_ref(),
+            },
             &style,
             theme,
         );
@@ -349,6 +375,60 @@ impl Element for TerminalElement {
             )
         });
 
+        let link_underlines = self
+            .link
+            .as_ref()
+            .map(|link| link_underlines(link, content.display_offset, &dimensions))
+            .unwrap_or_default();
+        let link_color = theme.terminal_foreground;
+        let images = content
+            .images
+            .iter()
+            .map(|(start, image)| {
+                let row = start.line.0 + content.display_offset as i32;
+                let bounds = Bounds::new(
+                    point(cell_width * start.column.0 as f32, line_height * row as f32),
+                    match image.pixels {
+                        Some((width, height)) => size(px(width as f32), px(height as f32)),
+                        None => size(
+                            cell_width * image.cols as f32,
+                            line_height * image.rows as f32,
+                        ),
+                    },
+                );
+                (bounds, image.image.clone())
+            })
+            .collect();
+        let hint_labels = self
+            .hints
+            .iter()
+            .filter_map(|(start, label)| {
+                let row = start.line.0 + content.display_offset as i32;
+                if row < 0 || row as usize >= dimensions.num_lines() || label.is_empty() {
+                    return None;
+                }
+                let text = window.text_system().shape_line(
+                    label.clone().into(),
+                    font_size,
+                    &[TextRun {
+                        len: label.len(),
+                        font: fonts.bold.clone(),
+                        color: theme.terminal_background,
+                        background_color: None,
+                        underline: None,
+                        strikethrough: None,
+                    }],
+                    Some(cell_width),
+                );
+                let bounds = Bounds::new(
+                    point(cell_width * start.column.0 as f32, line_height * row as f32),
+                    size(cell_width * label.chars().count() as f32, line_height),
+                );
+                Some((bounds, text))
+            })
+            .collect();
+        let hint_background = theme.cursor;
+
         // inserted after the terminal hitbox so it sits on top and clicks on it skip selection
         let hitbox = window.insert_hitbox(bounds, HitboxBehavior::Normal);
         let scrollbar = scrollbar.map(|scrollbar| {
@@ -366,6 +446,11 @@ impl Element for TerminalElement {
             scrollbar,
             dimensions,
             font_size,
+            link_underlines,
+            link_color,
+            hint_labels,
+            hint_background,
+            images,
         }
     }
 
@@ -379,14 +464,13 @@ impl Element for TerminalElement {
         window: &mut Window,
         cx: &mut App,
     ) {
-        window.set_cursor_style(CursorStyle::IBeam, &layout.hitbox);
-        let report_motion = self
-            .terminal
-            .read(cx)
-            .last_content
-            .mode
-            .contains(TermMode::MOUSE_MOTION);
-        self.register_mouse_listeners(layout.hitbox.clone(), report_motion, window);
+        let cursor = if layout.link_underlines.is_empty() {
+            CursorStyle::IBeam
+        } else {
+            CursorStyle::PointingHand
+        };
+        window.set_cursor_style(cursor, &layout.hitbox);
+        self.register_mouse_listeners(layout.hitbox.clone(), window);
         if let Some((scrollbar, hitbox)) = &layout.scrollbar {
             window.set_cursor_style(CursorStyle::Arrow, hitbox);
             self.register_scrollbar_listeners(*scrollbar, hitbox.clone(), window);
@@ -410,6 +494,19 @@ impl Element for TerminalElement {
             for rect in &layout.rects {
                 rect.paint(origin, &layout.dimensions, window);
             }
+            // over cell backgrounds, under the text
+            for (image_bounds, image) in &layout.images {
+                window
+                    .paint_image(
+                        bounds,
+                        *image_bounds + origin,
+                        Corners::default(),
+                        image.clone(),
+                        0,
+                        false,
+                    )
+                    .ok();
+            }
             for run in &mut layout.batched_text_runs {
                 run.paint(
                     origin + layout.glyph_offset,
@@ -421,6 +518,22 @@ impl Element for TerminalElement {
             }
             for glyph in &layout.box_glyphs {
                 glyph.paint(origin, &layout.dimensions, window);
+            }
+            for underline in &layout.link_underlines {
+                window.paint_quad(fill(*underline + origin, layout.link_color));
+            }
+            for (bounds, text) in &layout.hint_labels {
+                let bounds = *bounds + origin;
+                window.paint_quad(fill(bounds, layout.hint_background));
+                text.paint(
+                    bounds.origin,
+                    layout.dimensions.line_height,
+                    gpui::TextAlign::Left,
+                    None,
+                    window,
+                    cx,
+                )
+                .ok();
             }
             // layout is kept while hidden, the input handler still needs its bounds for ime
             if let Some(cursor) = &layout.cursor
@@ -436,6 +549,41 @@ impl Element for TerminalElement {
             }
         });
     }
+}
+
+/// one underline per visible row of `link`, at the bottom of its cells
+fn link_underlines(
+    link: &Match,
+    display_offset: usize,
+    dims: &TerminalBounds,
+) -> Vec<Bounds<Pixels>> {
+    let (start, end) = (*link.start(), *link.end());
+    let last_column = dims.num_columns().saturating_sub(1);
+    (start.line.0..=end.line.0)
+        .filter_map(|line| {
+            let row = line + display_offset as i32;
+            if row < 0 || row as usize >= dims.num_lines() {
+                return None;
+            }
+            let first = if line == start.line.0 {
+                start.column.0
+            } else {
+                0
+            };
+            let last = if line == end.line.0 {
+                end.column.0
+            } else {
+                last_column
+            };
+            Some(Bounds::new(
+                point(
+                    dims.cell_width * first as f32,
+                    dims.line_height * (row + 1) as f32 - px(2.),
+                ),
+                size(dims.cell_width * (last + 1 - first) as f32, px(1.)),
+            ))
+        })
+        .collect()
 }
 
 impl IntoElement for TerminalElement {

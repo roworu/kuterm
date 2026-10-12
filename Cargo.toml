@@ -28,11 +28,17 @@ gpui = { git = "https://github.com/zed-industries/zed", rev = "cd8c4674188613e32
 gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "cd8c4674188613e32c219ace84a5cd62f5d8f708", features = ["wayland", "x11", "font-kit"] }
 alacritty_terminal = { git = "https://github.com/zed-industries/alacritty", rev = "4c129667ce56611becdc82de6e28218c80e2e88f" }
 anyhow = "1"
+# images of kitty's graphics protocol come in base64
+base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["png"] }
 futures = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json_lenient = "0.2"
 skrifa = "0.47"
+
+[target.'cfg(unix)'.dependencies]
+# alacritty's pty traits take its poller, the pty is wrapped to scan its output
+polling = "3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"

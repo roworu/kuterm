@@ -126,6 +126,48 @@ def test_paste_is_bracketed_only_when_asked(app_factory, bracketed):
     assert "hi" in got
 
 
+@pytest.mark.parametrize("flags,keys,expected", [
+    ("1", ["ctrl+i", "Tab"], "\x1b[105;5u\t"),
+    ("1", ["Escape", "ctrl+shift+a"], "\x1b[27u\x1b[97;6u"),
+    # gpui's x11 backend loses key releases of xdotool keys, the unit tests cover them there
+    pytest.param("3", ["ctrl+a"], "\x1b[97;5u\x1b[97;5:3u", marks=pytest.mark.wayland_only),
+], ids=["ctrl-i_vs_tab", "escape_and_ctrl-shift-a", "release_events"])
+def test_kitty_keyboard_protocol(app_factory, flags, keys, expected):
+    """a program that turns on kitty's keyboard protocol gets keys it can tell apart"""
+    app = app_factory({"theme": {"mode": "dark"}},
+                      script=f"stty raw -echo; printf '\\033[>{flags}u'; step 1; "
+                             'timeout --foreground 2 cat > "$T2_TMP/got"; stty sane; touch "$T2_TMP/done"')
+    time.sleep(0.5)
+    app.step(1)
+    time.sleep(0.3)
+    for key in keys:
+        app.key(key)
+    app.wait_file("done", timeout=10)
+    got = app.file("got").read_bytes().decode(errors="replace")
+    assert got == expected, repr(got)
+
+
+def test_keymap_send_text_chord_and_unbind(app_factory):
+    """keymap entries: a chord opens a tab, send_text types escapes, unbind lets a key through"""
+    app = app_factory({"theme": {"mode": "dark"}, "window_title": ["number"],
+                       "keymap": [{"keys": "ctrl-a c", "action": "new_tab"},
+                                  {"keys": "ctrl-shift-k", "action": {"send_text": "\u001b[2Jsent"}},
+                                  {"keys": "ctrl-shift-w", "action": "unbind"}]},
+                      script="stty raw -echo; step 1; "
+                             'timeout --foreground 3 cat > "$T2_TMP/got"; stty sane; touch "$T2_TMP/done"')
+    time.sleep(0.5)
+    app.step(1)
+    time.sleep(0.3)
+    app.key("ctrl+shift+k", "ctrl+shift+w")
+    app.wait_file("done", timeout=10)
+    got = app.file("got").read_bytes().decode(errors="replace")
+    assert got == "\x1b[2Jsent", repr(got)
+    # ctrl-shift-w no longer closes the only tab, which would quit
+    assert app.alive()
+    app.key("ctrl+a", "c")
+    app.wait_title("2")
+
+
 def test_mouse_selection_and_copy(app_factory):
     """dragging selects text in the selection color, ctrl-shift-c copies it"""
     app = keyed(app_factory)

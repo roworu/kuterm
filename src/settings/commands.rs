@@ -33,6 +33,21 @@ pub enum CommandAction {
     SplitUp,
     /// split the focused pane and move its active tab into a new pane below
     SplitDown,
+    /// close the focused pane with all its tabs
+    ClosePane,
+    FocusPaneLeft,
+    FocusPaneRight,
+    FocusPaneUp,
+    FocusPaneDown,
+    /// move the divider next to the focused pane that way
+    ResizePaneLeft,
+    ResizePaneRight,
+    ResizePaneUp,
+    ResizePaneDown,
+    /// show the focused pane alone, or all panes again
+    ZoomPane,
+    /// give all panes the same size
+    EqualizePanes,
     NextTab,
     PrevTab,
     /// switch to the tab at this 1 based position
@@ -43,6 +58,22 @@ pub enum CommandAction {
     Copy,
     /// paste the clipboard into the active tab
     Paste,
+    /// open the search bar of the active tab
+    Search,
+    /// label the matches of the hint patterns on screen
+    Hints,
+    /// start or end keyboard selection mode
+    ViMode,
+    /// scroll to the prompt above the view, from shell integration marks
+    JumpToPrevPrompt,
+    /// scroll to the prompt below the top of the view
+    JumpToNextPrompt,
+    /// select the output of the last command
+    SelectLastOutput,
+    /// copy the output of the last command
+    CopyLastOutput,
+    /// open the history in `scrollback_pager` in a new tab
+    OpenScrollback,
     /// scroll the active tab up into history by these many lines
     ScrollUp(i32),
     /// scroll the active tab down by these many lines
@@ -67,6 +98,8 @@ pub enum CommandAction {
     OpenSettings,
     /// text written to the active tab as if typed
     Type(String),
+    /// text sent to the program in the active tab right away, like escape sequences
+    SendText(String),
     /// show a notification with this text
     Notify(String),
     /// show a notification with this text once the program running in the tab finishes
@@ -246,5 +279,44 @@ mod tests {
         ] {
             assert!(Commands::parse(json).is_err(), "{json} should be invalid");
         }
+    }
+
+    #[test]
+    fn new_actions_parse() {
+        let commands = Commands::parse(
+            r#"{"commands": [{"name": "all", "actions": [
+                "search", "hints", "vi_mode", "close_pane", "focus_pane_left", "focus_pane_right",
+                "focus_pane_up", "focus_pane_down", "resize_pane_left", "resize_pane_right",
+                "resize_pane_up", "resize_pane_down", "zoom_pane", "equalize_panes",
+                "jump_to_prev_prompt", "jump_to_next_prompt", "select_last_output",
+                "copy_last_output", "open_scrollback", {"send_text": "x"},
+            ]}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            commands.commands[0].actions,
+            vec![
+                CommandAction::Search,
+                CommandAction::Hints,
+                CommandAction::ViMode,
+                CommandAction::ClosePane,
+                CommandAction::FocusPaneLeft,
+                CommandAction::FocusPaneRight,
+                CommandAction::FocusPaneUp,
+                CommandAction::FocusPaneDown,
+                CommandAction::ResizePaneLeft,
+                CommandAction::ResizePaneRight,
+                CommandAction::ResizePaneUp,
+                CommandAction::ResizePaneDown,
+                CommandAction::ZoomPane,
+                CommandAction::EqualizePanes,
+                CommandAction::JumpToPrevPrompt,
+                CommandAction::JumpToNextPrompt,
+                CommandAction::SelectLastOutput,
+                CommandAction::CopyLastOutput,
+                CommandAction::OpenScrollback,
+                CommandAction::SendText("x".into()),
+            ]
+        );
     }
 }
