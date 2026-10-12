@@ -19,9 +19,9 @@ use crate::{
     theme::Theme,
     ui::{
         text_input,
-        windows::{handle_request, open_workspace_window},
+        windows::open_workspace_window,
         workspace::{
-            Hide, HideOthers, NewTab, Quit, RemoteSocket, ShowAll, app_menus, dock_menu, open_urls,
+            Hide, HideOthers, NewTab, Quit, ShowAll, app_menus, dock_menu, open_urls,
             with_workspace,
         },
     },
@@ -81,8 +81,8 @@ fn init(cx: &mut App) {
     cx.bind_keys(text_input::bindings());
     if Settings::get(cx).remote_control == RemoteControl::Socket {
         #[cfg(unix)]
-        if let Some(path) = remote::listen(cx, handle_request) {
-            cx.set_global(RemoteSocket(path));
+        if let Some(path) = remote::listen(cx, ui::windows::handle_request) {
+            cx.set_global(ui::workspace::RemoteSocket(path));
         }
     }
     // app wide, they work with no window focused
