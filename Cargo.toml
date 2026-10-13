@@ -34,7 +34,7 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 futures = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json_lenient = "0.2"
-skrifa = "0.47"
+skrifa = "0.48"
 
 [target.'cfg(unix)'.dependencies]
 # alacritty's pty traits take its poller, the pty is wrapped to scan its output
