@@ -32,7 +32,7 @@ multiple-versions = "allow"
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
-allow-git = ["https://github.com/proptest-rs/proptest"]
+allow-git = ["https://github.com/proptest-rs/proptest", "https://github.com/roworu/zed"]
 
 [sources.allow-org]
 github = ["zed-industries"]
