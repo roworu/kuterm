@@ -70,7 +70,7 @@ def test_default_profile_opens_on_new_tab(app_factory):
 def test_profile_theme_colors_its_tab(app_factory):
     """a profile theme colors its own tabs, others keep the global theme"""
     other = unique_theme(0x20)
-    app = app_factory({"theme": {"mode": "dark"}, "window_title": ["number"],
+    app = app_factory({"theme": {"mode": "dark"}, "window_title": ["number"], "tab_width": 200,
                        "profiles": [profile("plain"), profile("red", default=False,
                                                               theme={"mode": "dark", "dark": "other"})],
                        "command_palette": {"enable": True}},
@@ -84,10 +84,21 @@ def test_profile_theme_colors_its_tab(app_factory):
     app.key("Return")
     app.wait_title("2")
     app.wait(lambda: close_to(dominant(app.shot()), as_rgb(other)["terminal_background"]), msg="profile theme")
+    h = app.bar_height()
+
+    def tabs_are(first: tuple, second: tuple) -> bool:
+        img = app.shot()
+        return close_to(dominant(img[2 : h - 2, 10:190]), first) and close_to(dominant(img[2 : h - 2, 210:390]), second)
+
+    app.wait(lambda: tabs_are(C["tab_bar_background"], as_rgb(other)["terminal_background"]),
+             msg="active profile tab in its background")
     app.snap("profile tab, its own theme")
     app.key("alt+1")
     app.wait_title("1")
     app.wait(lambda: close_to(dominant(app.shot()), C["terminal_background"]), msg="global theme again")
+    app.wait(lambda: tabs_are(C["tab_active_background"], as_rgb(other)["terminal_background"]),
+             msg="inactive profile tab in its background")
+    app.snap("profile tab stays in its theme while inactive")
 
 
 def test_profile_icon_is_kept(app_factory):

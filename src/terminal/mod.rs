@@ -152,6 +152,11 @@ impl Terminal {
         self.theme.as_ref().unwrap_or_else(|| Theme::get(cx))
     }
 
+    /// theme of the profile, none when the tab uses the global theme
+    pub fn profile_theme(&self) -> Option<&Theme> {
+        self.theme.as_ref()
+    }
+
     /// load the profile theme for this system appearance, its names come from `themes`
     pub fn apply_theme(&mut self, appearance: WindowAppearance, themes: &ThemeSettings) {
         self.theme = self

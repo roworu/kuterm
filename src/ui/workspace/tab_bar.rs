@@ -237,11 +237,14 @@ impl Workspace {
 
     fn render_tab(&self, pane: usize, ix: usize, cx: &Context<Self>) -> Stateful<Div> {
         let is_active = self.pane(pane).is_some_and(|state| ix == state.active);
-        let theme = Theme::get(cx);
         let settings = Settings::get(cx);
-        let indicator = theme.text;
         let title = tab_title::spin(&self.tab_title(pane, ix, cx), self.spinner_frame);
         let tab_state = &self.pane(pane).expect("pane from caller").tabs[ix];
+        // a tab with a profile theme takes its colors, so profiles are easy to tell apart
+        let terminal = tab_state.view.read(cx).terminal().read(cx);
+        let profile_theme = terminal.profile_theme();
+        let theme = terminal.theme(cx);
+        let indicator = theme.text;
         let icon = tab_state.icon.clone();
         let icon_at = tab_state.icon_at.clone();
         let bell = tab_state.bell;
@@ -249,7 +252,11 @@ impl Workspace {
             .group("tab")
             .border_r_1()
             .border_color(theme.border)
-            .when(is_active, |tab| tab.bg(theme.tab_active_background))
+            // the terminal background, not the bright tab colors, so the tab blends with its pane
+            .when_some(profile_theme, |tab, theme| tab.bg(theme.terminal_background))
+            .when(is_active && profile_theme.is_none(), |tab| {
+                tab.bg(theme.tab_active_background)
+            })
             .text_color(if is_active {
                 theme.text
             } else {
