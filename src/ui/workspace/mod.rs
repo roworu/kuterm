@@ -21,7 +21,8 @@ use futures::{
 };
 use gpui::{
     Action, App, Bounds, ClipboardItem, Context, DismissEvent, Entity, EntityId, Focusable,
-    ManagedView, Pixels, Point, ScrollHandle, Subscription, Task, Window, actions, prelude::*,
+    ManagedView, Pixels, Point, ScrollHandle, Subscription, Task, Window, WindowAppearance,
+    actions, prelude::*,
 };
 
 pub use app_menu::{app_menus, dock_menu, open_urls};
@@ -36,7 +37,7 @@ use crate::{
         Shell, TabIconSettings, TabIcons, TabTitleBlock,
     },
     terminal::{Event, Terminal, TerminalBuilder, foreground_process, with_shell_integration},
-    theme::Theme,
+    theme::{self, Theme},
     ui::{
         command_palette::{
             About, CloseConfirmed, CloseTarget, CommandPalette, ConfirmClose, ConfirmPaste,
@@ -538,6 +539,8 @@ pub struct Workspace {
     quitting: bool,
     /// writes the window size once resizing stops
     _size_save: Task<()>,
+    /// appearance the themes were last picked for
+    appearance: WindowAppearance,
 }
 
 // modified time and size of each file, none for missing ones
@@ -695,6 +698,7 @@ impl Workspace {
             _config_watch: config_watch,
             quitting: false,
             _size_save: Task::ready(()),
+            appearance: theme::appearance(window, cx),
         };
         // the window manager's close button goes through here, false keeps the window open
         let workspace = cx.weak_entity();
@@ -703,8 +707,12 @@ impl Workspace {
                 .update(cx, |this, cx| this.should_close_window(window, cx))
                 .unwrap_or(true)
         });
+        // gpui also calls this on frame changes, which change no colors
         cx.observe_window_appearance(window, |this: &mut Self, window, cx| {
-            this.reload_themes(window, cx);
+            let appearance = theme::appearance(window, cx);
+            if this.appearance != appearance {
+                this.reload_themes(window, cx);
+            }
         })
         .detach();
         cx.observe_window_bounds(window, |this: &mut Self, window, cx| {
@@ -846,10 +854,11 @@ impl Workspace {
                 return;
             }
         };
+        let appearance = self.appearance;
         let terminal = cx.new(|cx| {
             let mut terminal = builder.subscribe(cx);
             let settings = Settings::get(cx);
-            terminal.apply_theme(window.appearance(), &settings.theme);
+            terminal.apply_theme(appearance, &settings.theme);
             terminal.configure_graphics(settings.graphics.enable, settings.graphics.max_memory_mb);
             terminal
         });
@@ -1612,11 +1621,13 @@ impl Workspace {
 
     /// read theme files again and recolor the ui and every terminal
     fn reload_themes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        Theme::apply(window.appearance(), cx);
+        let appearance = theme::appearance(window, cx);
+        self.appearance = appearance;
+        Theme::apply(appearance, cx);
         for tab in self.layout.panes().into_iter().flat_map(|pane| &pane.tabs) {
             let terminal = tab.view.read(cx).terminal().clone();
             terminal.update(cx, |terminal, cx| {
-                terminal.apply_theme(window.appearance(), &Settings::get(cx).theme)
+                terminal.apply_theme(appearance, &Settings::get(cx).theme)
             });
         }
         // terminal views may be cached, force redraw everything with new colors

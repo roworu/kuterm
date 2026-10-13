@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use alacritty_terminal::vte::ansi::{Color, NamedColor};
-use gpui::{App, Global, Hsla, WindowAppearance, rgb};
+use gpui::{App, Global, Hsla, Window, WindowAppearance, rgb};
 use serde::Deserialize;
 use serde_json_lenient::Value;
 
@@ -39,6 +39,69 @@ impl Default for Theme {
 }
 
 impl Global for Theme {}
+
+// linux windows report light until gpui hears from the desktop portal, which comes after the
+// first frames. a dark scheme read from the portal at startup stands in until they say dark,
+// so a dark desktop never sees a light frame
+struct StartupDark;
+
+impl Global for StartupDark {}
+
+/// color scheme being read from the desktop portal while the app starts
+pub struct PortalAppearance {
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    dark: std::sync::mpsc::Receiver<bool>,
+}
+
+impl PortalAppearance {
+    /// start reading on another thread, other platforms know the appearance right away
+    pub fn read() -> Self {
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+        {
+            use ashpd::desktop::settings::{ColorScheme, Settings};
+            let (tx, dark) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let scheme = futures::executor::block_on(async {
+                    Settings::new().await.ok()?.color_scheme().await.ok()
+                });
+                if let Some(scheme) = scheme {
+                    tx.send(scheme == ColorScheme::PreferDark).ok();
+                }
+            });
+            Self { dark }
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+        Self {}
+    }
+
+    /// wait a little for the answer and return the appearance to start with, a dark one is
+    /// used until windows report it
+    pub fn wait(self, cx: &mut App) -> WindowAppearance {
+        // the portal answers in a few ms, a missing one should not hold the window back
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+        if self
+            .dark
+            .recv_timeout(std::time::Duration::from_millis(100))
+            == Ok(true)
+        {
+            cx.set_global(StartupDark);
+            return WindowAppearance::Dark;
+        }
+        cx.window_appearance()
+    }
+}
+
+/// appearance of `window` that themes follow
+pub fn appearance(window: &Window, cx: &mut App) -> WindowAppearance {
+    let reported = window.appearance();
+    if cx.has_global::<StartupDark>() {
+        if reported == WindowAppearance::Light {
+            return WindowAppearance::Dark;
+        }
+        cx.remove_global::<StartupDark>();
+    }
+    reported
+}
 
 impl Theme {
     // colors of the bundled theme for dark or light mode, they live in the bundled settings
@@ -498,5 +561,26 @@ mod tests {
                 value["cursor"].as_str().unwrap().to_lowercase()
             );
         }
+    }
+
+    #[gpui::test]
+    fn startup_dark_stands_in_for_light(cx: &mut gpui::TestAppContext) {
+        struct Empty;
+        impl gpui::Render for Empty {
+            fn render(
+                &mut self,
+                _: &mut Window,
+                _: &mut gpui::Context<Self>,
+            ) -> impl gpui::IntoElement {
+                gpui::Empty
+            }
+        }
+        let (_, cx) = cx.add_window_view(|_, _| Empty);
+        // test windows report light like linux ones before the portal answers
+        cx.update(|window, cx| {
+            assert_eq!(appearance(window, cx), WindowAppearance::Light);
+            cx.set_global(StartupDark);
+            assert_eq!(appearance(window, cx), WindowAppearance::Dark);
+        });
     }
 }

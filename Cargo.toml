@@ -32,6 +32,8 @@ anyhow = "1"
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["png"] }
 futures = "0.3"
+# finds escapes in pty output, already in the tree through alacritty
+memchr = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json_lenient = "0.2"
 skrifa = "0.47"
@@ -39,6 +41,10 @@ skrifa = "0.47"
 [target.'cfg(unix)'.dependencies]
 # alacritty's pty traits take its poller, the pty is wrapped to scan its output
 polling = "3"
+
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
+# reads the color scheme before the first frame, gpui learns it only later
+ashpd = { version = "0.13", default-features = false, features = ["async-io", "settings"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
