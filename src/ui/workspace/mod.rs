@@ -21,7 +21,7 @@ use futures::{
 };
 use gpui::{
     Action, App, Bounds, ClipboardItem, Context, DismissEvent, Entity, EntityId, Focusable,
-    ManagedView, Pixels, Point, ScrollHandle, Subscription, Task, Window, WindowAppearance,
+    ManagedView, Pixels, Point, ScrollHandle, Size, Subscription, Task, Window, WindowAppearance,
     actions, prelude::*,
 };
 
@@ -33,10 +33,13 @@ pub use window::{background_appearance, startup_bounds, window_decorations};
 use crate::{
     cli::Cli,
     settings::{
-        Command, CommandAction, Commands, Config, ConfigFiles, ConfirmQuit, Profile, Settings,
-        Shell, TabIconSettings, TabIcons, TabTitleBlock,
+        Command, CommandAction, Commands, Config, ConfigFiles, ConfirmQuit, Profile,
+        RestoreSession, Settings, Shell, TabIconSettings, TabIcons, TabTitleBlock,
     },
-    terminal::{Event, Terminal, TerminalBuilder, foreground_process, with_shell_integration},
+    terminal::{
+        Event, Terminal, TerminalBounds, TerminalBuilder, foreground_process,
+        with_shell_integration,
+    },
     theme::{self, Theme},
     ui::{
         command_palette::{
@@ -554,16 +557,55 @@ fn file_stamps(paths: &[PathBuf]) -> Vec<Option<(SystemTime, u64)>> {
         .collect()
 }
 
+/// spawn `profile` in a pty, with shell integration and the remote socket added
+fn spawn_profile(
+    profile: &Profile,
+    bounds: TerminalBounds,
+    window_id: u64,
+    cx: &App,
+) -> anyhow::Result<TerminalBuilder> {
+    let settings = Settings::get(cx);
+    let mut profile = if settings.shell_integration.inject {
+        with_shell_integration(profile)
+    } else {
+        profile.clone()
+    };
+    // so `kuterm msg` run in the tab reaches this kuterm
+    if let Some(socket) = cx.try_global::<RemoteSocket>() {
+        profile
+            .env
+            .entry("KUTERM_SOCKET".into())
+            .or_insert_with(|| socket.0.to_string_lossy().into_owned());
+    }
+    TerminalBuilder::new(&settings.terminal, &profile, bounds, window_id)
+}
+
 impl Workspace {
     /// create workspace with one terminal tab
     #[cfg(test)]
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        Self::with_start(None, window, cx)
+        Self::with_start(None, None, window, cx)
     }
 
-    /// create a workspace, its first tab in `folder` when given, else last session or a new tab
+    /// spawn the shell of a new window's first tab before the window exists, so it starts
+    /// while gpu setup runs. none when the window brings the last session back instead
+    pub fn spawn_first_tab(window_size: Size<Pixels>, cx: &App) -> Option<TerminalBuilder> {
+        let settings = Settings::get(cx);
+        if cx.windows().is_empty() && settings.restore_session == RestoreSession::Always {
+            return None;
+        }
+        let bounds = window::startup_grid(window_size, cx);
+        // the window id is not known yet. it only fills WINDOWID, and gpui's id is no x11 id
+        spawn_profile(settings.default_profile(), bounds, 0, cx)
+            .inspect_err(|error| eprintln!("failed to spawn terminal: {error:#}"))
+            .ok()
+    }
+
+    /// create a workspace, its first tab in `folder` when given, else last session or a new
+    /// tab, running the `first` shell when one was spawned already
     pub fn with_start(
         folder: Option<PathBuf>,
+        first: Option<TerminalBuilder>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -727,7 +769,13 @@ impl Workspace {
             // is not listed yet
             let alone = cx.windows().is_empty();
             if !(alone && this.open_session(window, cx)) {
-                this.add_tab(window, cx);
+                match first {
+                    Some(builder) => {
+                        let profile = Settings::get(cx).default_profile().clone();
+                        this.add_builder_tab(this.focused, builder, &profile, true, window, cx);
+                    }
+                    None => this.add_tab(window, cx),
+                }
             }
         }
         // config problems from launch, printed before any window could show them
@@ -833,27 +881,27 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let window_id = window.window_handle().window_id().as_u64();
-        let settings = Settings::get(cx);
-        let mut profile = if settings.shell_integration.inject {
-            with_shell_integration(profile)
-        } else {
-            profile.clone()
-        };
-        // so `kuterm msg` run in the tab reaches this kuterm
-        if let Some(socket) = cx.try_global::<RemoteSocket>() {
-            profile
-                .env
-                .entry("KUTERM_SOCKET".into())
-                .or_insert_with(|| socket.0.to_string_lossy().into_owned());
-        }
-        let profile = &profile;
-        let builder = match TerminalBuilder::new(&settings.terminal, profile, window_id) {
+        let builder = match spawn_profile(profile, TerminalBounds::default(), window_id, cx) {
             Ok(builder) => builder,
             Err(error) => {
                 eprintln!("failed to spawn terminal: {error:#}");
                 return;
             }
         };
+        self.add_builder_tab(pane_id, builder, profile, activate, window, cx);
+    }
+
+    /// show the shell of `builder`, spawned from `profile`, in a new tab of pane `pane_id`,
+    /// switching to it when `activate`
+    fn add_builder_tab(
+        &mut self,
+        pane_id: usize,
+        builder: TerminalBuilder,
+        profile: &Profile,
+        activate: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let appearance = self.appearance;
         let terminal = cx.new(|cx| {
             let mut terminal = builder.subscribe(cx);
@@ -4776,6 +4824,30 @@ mod tests {
         cx.run_until_parked();
         let b = grid_bounds(&ws, cx);
         assert_eq!((b.num_columns(), b.num_lines()), (83, 27));
+        // the shell spawned before the window gets the same grid
+        let early = cx.update(|_, cx| window::startup_grid(bounds.size, cx));
+        assert_eq!((early.num_columns(), early.num_lines()), (83, 27));
+    }
+
+    #[gpui::test]
+    fn first_tab_runs_the_shell_spawned_before_the_window(cx: &mut TestAppContext) {
+        let settings = window_settings(r#"{"columns": 50, "rows": 10, "remember_size": false}"#);
+        let (_ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        let bounds = cx.update(|_, cx| startup_bounds(cx));
+        let first = cx
+            .update(|_, cx| Workspace::spawn_first_tab(bounds.size, cx))
+            .expect("failed to spawn shell");
+        let (pid, grid) = (
+            first.terminal.shell_pid,
+            first.terminal.last_content.terminal_bounds,
+        );
+        assert_eq!((grid.num_columns(), grid.num_lines()), (50, 10));
+        let (ws, cx) =
+            cx.add_window_view(|window, cx| Workspace::with_start(None, Some(first), window, cx));
+        cx.run_until_parked();
+        let tabs = ws.update(cx, |ws, _| ws.focused_pane().tabs.len());
+        assert_eq!(tabs, 1);
+        assert_eq!(terminal(&ws, cx, 0).read_with(cx, |t, _| t.shell_pid), pid);
     }
 
     #[gpui::test]
@@ -4791,6 +4863,8 @@ mod tests {
         assert!(cx.debug_bounds("drag-area").is_some(), "tab bar is hidden");
         let b = grid_bounds(&ws, cx);
         assert_eq!((b.num_columns(), b.num_lines()), (50, 10));
+        let early = cx.update(|_, cx| window::startup_grid(bounds.size, cx));
+        assert_eq!((early.num_columns(), early.num_lines()), (50, 10));
     }
 
     #[gpui::test]

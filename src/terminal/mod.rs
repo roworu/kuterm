@@ -426,8 +426,8 @@ mod tests {
     }
 
     pub(super) fn spawn_with(settings: &TerminalSettings, profile: &Profile) -> TerminalBuilder {
-        let mut builder =
-            TerminalBuilder::new(settings, profile, 0).expect("failed to spawn shell");
+        let mut builder = TerminalBuilder::new(settings, profile, TerminalBounds::default(), 0)
+            .expect("failed to spawn shell");
         // 80x24 grid, a real window would size it in prepaint
         builder.terminal.set_size(TerminalBounds::new(
             px(20.),

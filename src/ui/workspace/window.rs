@@ -3,13 +3,14 @@
 use std::time::Duration;
 
 use gpui::{
-    App, Bounds, Context, MouseButton, Pixels, Size, Window, WindowBackgroundAppearance,
+    App, Bounds, Context, MouseButton, Pixels, Point, Size, Window, WindowBackgroundAppearance,
     WindowBounds, WindowDecorations, div, prelude::*, px, rems, size,
 };
 
 use super::Workspace;
 use crate::{
     settings::{Decorations, ScrollbarEnable, Settings, StartupMode, WindowSize},
+    terminal::TerminalBounds,
     theme::Theme,
     ui::terminal_element::cell_size,
 };
@@ -68,11 +69,9 @@ pub(super) fn apply_startup_mode(window: &mut Window, cx: &App) {
     });
 }
 
-/// window size that fits `window.columns` by `window.rows` cells of one tab
-fn grid_window_size(cx: &App) -> Size<Pixels> {
-    let settings = Settings::get(cx);
+/// space around the grid of a window with one tab: padding, scrollbar and tab bar
+fn grid_margin(settings: &Settings) -> Size<Pixels> {
     let window = &settings.window;
-    let cell = cell_size(px(settings.terminal.font.size), cx);
     let scrollbar = &settings.terminal.scrollbar;
     let scrollbar_width = match scrollbar.enable {
         ScrollbarEnable::Off => 0.,
@@ -85,9 +84,34 @@ fn grid_window_size(cx: &App) -> Size<Pixels> {
         0.
     };
     size(
-        (cell.width * window.columns as f32 + px(2. * window.padding.x + scrollbar_width)).ceil(),
-        (cell.height * window.rows as f32 + px(2. * window.padding.y + tab_bar)).ceil(),
+        px(2. * window.padding.x + scrollbar_width),
+        px(2. * window.padding.y + tab_bar),
     )
+}
+
+/// window size that fits `window.columns` by `window.rows` cells of one tab
+fn grid_window_size(cx: &App) -> Size<Pixels> {
+    let settings = Settings::get(cx);
+    let window = &settings.window;
+    let cell = cell_size(px(settings.terminal.font.size), cx);
+    let margin = grid_margin(settings);
+    size(
+        (cell.width * window.columns as f32 + margin.width).ceil(),
+        (cell.height * window.rows as f32 + margin.height).ceil(),
+    )
+}
+
+/// grid of the only tab in a window of `window_size`, before the window lays it out
+pub(super) fn startup_grid(window_size: Size<Pixels>, cx: &App) -> TerminalBounds {
+    let settings = Settings::get(cx);
+    let cell = cell_size(px(settings.terminal.font.size), cx);
+    let margin = grid_margin(settings);
+    // same floors as prepaint, alacritty panics on a grid without rows
+    let grid = size(
+        (window_size.width - margin.width).max(cell.width * 2.),
+        (window_size.height - margin.height).max(cell.height),
+    );
+    TerminalBounds::new(cell.height, cell.width, Bounds::new(Point::default(), grid))
 }
 
 impl Workspace {

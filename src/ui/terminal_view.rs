@@ -925,7 +925,7 @@ mod tests {
     use gpui::{AppContext, TestAppContext, VisualTestContext};
 
     use super::*;
-    use crate::terminal::TerminalBuilder;
+    use crate::terminal::{TerminalBounds, TerminalBuilder};
 
     /// focused view over a real shell, with terminal settings overridden by `json`
     fn focused_view<'a>(
@@ -937,8 +937,13 @@ mod tests {
             cx.set_global(settings.clone());
             cx.set_global(crate::theme::Theme::default());
         });
-        let builder = TerminalBuilder::new(&settings.terminal, settings.default_profile(), 0)
-            .expect("failed to spawn shell");
+        let builder = TerminalBuilder::new(
+            &settings.terminal,
+            settings.default_profile(),
+            TerminalBounds::default(),
+            0,
+        )
+        .expect("failed to spawn shell");
         let terminal = cx.new(|_| builder.into_terminal());
         let (view, cx) = cx.add_window_view(|window, cx| TerminalView::new(terminal, window, cx));
         cx.update(|window, cx| {
