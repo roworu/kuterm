@@ -5137,6 +5137,39 @@ mod tests {
         assert!(count(cx).is_err());
     }
 
+    #[gpui::test]
+    fn search_arrows_walk_matches(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 1);
+        print_line(&ws, cx, "hit_a hit_b");
+        run_actions(&ws, cx, r#""search""#);
+        let bar = search_bar(&ws, cx).expect("palette action opens the bar");
+        cx.simulate_input("hit_");
+        cx.run_until_parked();
+        let active = |cx: &mut VisualTestContext| {
+            bar.read_with(cx, |bar, _| bar.status().clone())
+                .unwrap()
+                .active
+        };
+        let start = active(cx);
+        let center = cx.debug_bounds("search-prev").unwrap().center();
+        click(cx, center, 1);
+        release(cx, center);
+        cx.run_until_parked();
+        let moved = active(cx);
+        assert_ne!(moved, start);
+        let center = cx.debug_bounds("search-next").unwrap().center();
+        click(cx, center, 1);
+        release(cx, center);
+        cx.run_until_parked();
+        assert_eq!(active(cx), start);
+        cx.simulate_keystrokes("up");
+        cx.run_until_parked();
+        assert_eq!(active(cx), moved);
+        cx.simulate_keystrokes("down");
+        cx.run_until_parked();
+        assert_eq!(active(cx), start);
+    }
+
     fn active_view(ws: &Entity<Workspace>, cx: &mut VisualTestContext) -> Entity<TerminalView> {
         ws.update(cx, |ws, _| {
             let pane = ws.focused_pane();
