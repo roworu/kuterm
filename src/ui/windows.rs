@@ -30,9 +30,15 @@ pub fn open_workspace_window(
     folder: Option<PathBuf>,
     cx: &mut App,
 ) -> Option<WindowHandle<Workspace>> {
+    let bounds = startup_bounds(cx);
+    // a folder tab spawns in the window like later tabs
+    let first = folder
+        .is_none()
+        .then(|| Workspace::spawn_first_tab(bounds.size, cx))
+        .flatten();
     let settings = Settings::get(cx);
     let options = WindowOptions {
-        window_bounds: Some(WindowBounds::Windowed(startup_bounds(cx))),
+        window_bounds: Some(WindowBounds::Windowed(bounds)),
         window_background: background_appearance(settings),
         window_decorations: Some(window_decorations(settings)),
         window_min_size: Some(size(px(400.), px(250.))),
@@ -45,7 +51,7 @@ pub fn open_workspace_window(
         ..Default::default()
     };
     match cx.open_window(options, |window, cx| {
-        cx.new(|cx| Workspace::with_start(folder, window, cx))
+        cx.new(|cx| Workspace::with_start(folder, first, window, cx))
     }) {
         Ok(handle) => Some(handle),
         Err(error) => {

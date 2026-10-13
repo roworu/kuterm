@@ -1,6 +1,7 @@
 //! root view: owns tabs and handles new tab / close tab.
 
 mod app_menu;
+mod config_watch;
 mod end_truncated;
 mod notifications;
 mod session;
@@ -12,7 +13,7 @@ mod window;
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
-    time::{Duration, Instant, SystemTime},
+    time::{Duration, Instant},
 };
 
 use futures::{
@@ -21,10 +22,12 @@ use futures::{
 };
 use gpui::{
     Action, App, Bounds, ClipboardItem, Context, DismissEvent, Entity, EntityId, Focusable,
-    ManagedView, Pixels, Point, ScrollHandle, Subscription, Task, Window, actions, prelude::*,
+    ManagedView, Pixels, Point, ScrollHandle, Size, Subscription, Task, Window, WindowAppearance,
+    actions, prelude::*,
 };
 
 pub use app_menu::{app_menus, dock_menu, open_urls};
+pub use config_watch::watch_config;
 use notifications::Notification;
 use tab_title::TitleInputs;
 pub use window::{background_appearance, startup_bounds, window_decorations};
@@ -32,11 +35,14 @@ pub use window::{background_appearance, startup_bounds, window_decorations};
 use crate::{
     cli::Cli,
     settings::{
-        Command, CommandAction, Commands, Config, ConfigFiles, ConfirmQuit, Profile, Settings,
-        Shell, TabIconSettings, TabIcons, TabTitleBlock,
+        Command, CommandAction, Commands, Config, ConfigFiles, ConfirmQuit, Profile,
+        RestoreSession, Settings, Shell, TabIconSettings, TabIcons, TabTitleBlock,
     },
-    terminal::{Event, Terminal, TerminalBuilder, foreground_process, with_shell_integration},
-    theme::Theme,
+    terminal::{
+        Event, Terminal, TerminalBounds, TerminalBuilder, foreground_process,
+        with_shell_integration,
+    },
+    theme::{self, Theme},
     ui::{
         command_palette::{
             About, CloseConfirmed, CloseTarget, CommandPalette, ConfirmClose, ConfirmPaste,
@@ -86,11 +92,6 @@ const QUIT_DIALOG_MAX_NAMES: usize = 3;
 // a fresh shell prints startup output before its prompt, so typed input waits for a short
 // quiet gap. writing sooner lets the tty echo the input before the shell reads it
 const SHELL_READY_SETTLE: Duration = Duration::from_millis(50);
-// how often config files are checked for changes, polling needs no watcher per platform
-// and sees files outside the config folder and editors that replace files on save
-const CONFIG_POLL: Duration = Duration::from_millis(250);
-// editors save in steps, like truncate then write, so a change is read once it settles
-const CONFIG_SETTLE: Duration = Duration::from_millis(100);
 
 // tab title blocks, window title blocks, icon settings, program icons, active tab, per tab inputs
 type TitleSnapshot = (
@@ -532,35 +533,63 @@ pub struct Workspace {
     /// true asks for titles right away, false lets output driven refreshes wait for the gap
     refresh_titles: UnboundedSender<bool>,
     _title_task: Task<()>,
-    /// reloads the config when one of its files changes
-    _config_watch: Task<()>,
     /// set once quitting is decided, so closing the window asks nothing more
     quitting: bool,
     /// writes the window size once resizing stops
     _size_save: Task<()>,
+    /// appearance the themes were last picked for
+    appearance: WindowAppearance,
 }
 
-// modified time and size of each file, none for missing ones
-fn file_stamps(paths: &[PathBuf]) -> Vec<Option<(SystemTime, u64)>> {
-    paths
-        .iter()
-        .map(|path| {
-            let meta = std::fs::metadata(path).ok()?;
-            Some((meta.modified().ok()?, meta.len()))
-        })
-        .collect()
+/// spawn `profile` in a pty, with shell integration and the remote socket added
+fn spawn_profile(
+    profile: &Profile,
+    bounds: TerminalBounds,
+    window_id: u64,
+    cx: &App,
+) -> anyhow::Result<TerminalBuilder> {
+    let settings = Settings::get(cx);
+    let mut profile = if settings.shell_integration.inject {
+        with_shell_integration(profile)
+    } else {
+        profile.clone()
+    };
+    // so `kuterm msg` run in the tab reaches this kuterm
+    if let Some(socket) = cx.try_global::<RemoteSocket>() {
+        profile
+            .env
+            .entry("KUTERM_SOCKET".into())
+            .or_insert_with(|| socket.0.to_string_lossy().into_owned());
+    }
+    TerminalBuilder::new(&settings.terminal, &profile, bounds, window_id)
 }
 
 impl Workspace {
     /// create workspace with one terminal tab
     #[cfg(test)]
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        Self::with_start(None, window, cx)
+        Self::with_start(None, None, window, cx)
     }
 
-    /// create a workspace, its first tab in `folder` when given, else last session or a new tab
+    /// spawn the shell of a new window's first tab before the window exists, so it starts
+    /// while gpu setup runs. none when the window brings the last session back instead
+    pub fn spawn_first_tab(window_size: Size<Pixels>, cx: &App) -> Option<TerminalBuilder> {
+        let settings = Settings::get(cx);
+        if cx.windows().is_empty() && settings.restore_session == RestoreSession::Always {
+            return None;
+        }
+        let bounds = window::startup_grid(window_size, cx);
+        // the window id is not known yet. it only fills WINDOWID, and gpui's id is no x11 id
+        spawn_profile(settings.default_profile(), bounds, 0, cx)
+            .inspect_err(|error| eprintln!("failed to spawn terminal: {error:#}"))
+            .ok()
+    }
+
+    /// create a workspace, its first tab in `folder` when given, else last session or a new
+    /// tab, running the `first` shell when one was spawned already
     pub fn with_start(
         folder: Option<PathBuf>,
+        first: Option<TerminalBuilder>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -643,32 +672,6 @@ impl Workspace {
                 while refresh_rx.try_recv().is_ok() {}
             }
         });
-        let config_watch = cx.spawn_in(window, async move |this, cx| {
-            let mut last = None;
-            loop {
-                let Ok(paths) = this.update(cx, |this, cx| this.watched_files(cx)) else {
-                    break;
-                };
-                // file stats may block on network folders
-                let stamps = cx
-                    .background_executor()
-                    .spawn(async move { (file_stamps(&paths), paths) })
-                    .await;
-                if last.as_ref().is_some_and(|last| *last != stamps) {
-                    cx.background_executor().timer(CONFIG_SETTLE).await;
-                    let Ok(()) =
-                        this.update_in(cx, |this, window, cx| this.reload_config(window, cx))
-                    else {
-                        break;
-                    };
-                    // the reload may watch other files, so stamps start over
-                    last = None;
-                    continue;
-                }
-                last = Some(stamps);
-                cx.background_executor().timer(CONFIG_POLL).await;
-            }
-        });
         let mut this = Self {
             layout: LayoutNode::Leaf(Pane {
                 id: 0,
@@ -692,9 +695,9 @@ impl Workspace {
             next_notification_id: 0,
             refresh_titles,
             _title_task: title_task,
-            _config_watch: config_watch,
             quitting: false,
             _size_save: Task::ready(()),
+            appearance: theme::appearance(window, cx),
         };
         // the window manager's close button goes through here, false keeps the window open
         let workspace = cx.weak_entity();
@@ -703,8 +706,12 @@ impl Workspace {
                 .update(cx, |this, cx| this.should_close_window(window, cx))
                 .unwrap_or(true)
         });
+        // gpui also calls this on frame changes, which change no colors
         cx.observe_window_appearance(window, |this: &mut Self, window, cx| {
-            this.reload_themes(window, cx);
+            let appearance = theme::appearance(window, cx);
+            if this.appearance != appearance {
+                this.reload_themes(window, cx);
+            }
         })
         .detach();
         cx.observe_window_bounds(window, |this: &mut Self, window, cx| {
@@ -719,7 +726,13 @@ impl Workspace {
             // is not listed yet
             let alone = cx.windows().is_empty();
             if !(alone && this.open_session(window, cx)) {
-                this.add_tab(window, cx);
+                match first {
+                    Some(builder) => {
+                        let profile = Settings::get(cx).default_profile().clone();
+                        this.add_builder_tab(this.focused, builder, &profile, true, window, cx);
+                    }
+                    None => this.add_tab(window, cx),
+                }
             }
         }
         // config problems from launch, printed before any window could show them
@@ -825,31 +838,32 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let window_id = window.window_handle().window_id().as_u64();
-        let settings = Settings::get(cx);
-        let mut profile = if settings.shell_integration.inject {
-            with_shell_integration(profile)
-        } else {
-            profile.clone()
-        };
-        // so `kuterm msg` run in the tab reaches this kuterm
-        if let Some(socket) = cx.try_global::<RemoteSocket>() {
-            profile
-                .env
-                .entry("KUTERM_SOCKET".into())
-                .or_insert_with(|| socket.0.to_string_lossy().into_owned());
-        }
-        let profile = &profile;
-        let builder = match TerminalBuilder::new(&settings.terminal, profile, window_id) {
+        let builder = match spawn_profile(profile, TerminalBounds::default(), window_id, cx) {
             Ok(builder) => builder,
             Err(error) => {
                 eprintln!("failed to spawn terminal: {error:#}");
                 return;
             }
         };
+        self.add_builder_tab(pane_id, builder, profile, activate, window, cx);
+    }
+
+    /// show the shell of `builder`, spawned from `profile`, in a new tab of pane `pane_id`,
+    /// switching to it when `activate`
+    fn add_builder_tab(
+        &mut self,
+        pane_id: usize,
+        builder: TerminalBuilder,
+        profile: &Profile,
+        activate: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let appearance = self.appearance;
         let terminal = cx.new(|cx| {
             let mut terminal = builder.subscribe(cx);
             let settings = Settings::get(cx);
-            terminal.apply_theme(window.appearance(), &settings.theme);
+            terminal.apply_theme(appearance, &settings.theme);
             terminal.configure_graphics(settings.graphics.enable, settings.graphics.max_memory_mb);
             terminal
         });
@@ -1612,24 +1626,17 @@ impl Workspace {
 
     /// read theme files again and recolor the ui and every terminal
     fn reload_themes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        Theme::apply(window.appearance(), cx);
+        let appearance = theme::appearance(window, cx);
+        self.appearance = appearance;
+        Theme::apply(appearance, cx);
         for tab in self.layout.panes().into_iter().flat_map(|pane| &pane.tabs) {
             let terminal = tab.view.read(cx).terminal().clone();
             terminal.update(cx, |terminal, cx| {
-                terminal.apply_theme(window.appearance(), &Settings::get(cx).theme)
+                terminal.apply_theme(appearance, &Settings::get(cx).theme)
             });
         }
         // terminal views may be cached, force redraw everything with new colors
         window.refresh();
-    }
-
-    /// config files and theme files in use, empty when the config was not loaded from files
-    fn watched_files(&self, cx: &App) -> Vec<PathBuf> {
-        let Some(files) = cx.try_global::<ConfigFiles>() else {
-            return Vec::new();
-        };
-        let themes = Theme::files(Settings::get(cx));
-        files.paths.iter().cloned().chain(themes).collect()
     }
 
     /// read the config and theme files again and apply them, a broken file keeps the
@@ -3842,43 +3849,58 @@ mod tests {
         std::fs::create_dir_all(&config).unwrap();
         crate::settings::tests::with_config_home(&dir, || {
             let (ws, cx) = open(cx, 1);
-            let tick = |cx: &mut VisualTestContext| {
-                // a poll sees the change, then it settles, then it is read
-                for _ in 0..3 {
-                    cx.executor().advance_clock(CONFIG_POLL);
-                    cx.run_until_parked();
-                }
-            };
             let tab_width =
                 |cx: &mut VisualTestContext| cx.update(|_, cx| Settings::get(cx).tab_width);
+            // the watcher's events come from its own thread
+            let reloads_to = |cx: &mut VisualTestContext, width: u32| {
+                wait_until(cx, "config was not reloaded", |cx| tab_width(cx) == width)
+            };
             let settings = config.join("settings.jsonc");
             std::fs::write(&settings, r#"{"tab_width": 123}"#).unwrap();
-            // nothing is watched until the config came from files
-            tick(cx);
-            assert_ne!(tab_width(cx), 123);
-
             cx.update(|_, cx| {
                 cx.set_global(ConfigFiles {
                     paths: vec![settings.clone()],
                     problems: Vec::new(),
                 })
             });
-            tick(cx);
-            assert_eq!(tab_width(cx), 123);
+            let _watch = cx.update(|_, cx| watch_config(cx));
+            pump(cx);
+
+            std::fs::write(&settings, r#"{"tab_width": 124}"#).unwrap();
+            reloads_to(cx, 124);
 
             std::fs::write(&settings, r#"{"tab_width": 1234}"#).unwrap();
-            tick(cx);
-            assert_eq!(tab_width(cx), 1234);
+            reloads_to(cx, 1234);
+
+            // editors that save to a new file and rename it over the old one
+            let saved = config.join("settings.jsonc.tmp");
+            std::fs::write(&saved, r#"{"tab_width": 321}"#).unwrap();
+            std::fs::rename(&saved, &settings).unwrap();
+            reloads_to(cx, 321);
 
             // an import that shows up later is noticed, it is watched while missing
             std::fs::write(&settings, r#"{"import": ["later.jsonc"], "tab_width": 77}"#).unwrap();
-            tick(cx);
-            assert_eq!(tab_width(cx), 77);
+            reloads_to(cx, 77);
             assert_eq!(error_texts(&ws, cx).len(), 1);
             std::fs::write(config.join("later.jsonc"), r#"{"ui_font_size": 13}"#).unwrap();
-            tick(cx);
-            assert_eq!(cx.update(|_, cx| Settings::get(cx).ui_font_size), 13.);
+            wait_until(cx, "import was not read", |cx| {
+                cx.update(|_, cx| Settings::get(cx).ui_font_size) == 13.
+            });
             assert!(error_texts(&ws, cx).is_empty());
+
+            // a file in a folder made later, the nearest existing folder is watched
+            let nested = config.join("more/nested.jsonc");
+            std::fs::write(
+                &settings,
+                r#"{"import": ["more/nested.jsonc"], "tab_width": 78}"#,
+            )
+            .unwrap();
+            reloads_to(cx, 78);
+            std::fs::create_dir_all(nested.parent().unwrap()).unwrap();
+            std::fs::write(&nested, r#"{"ui_font_size": 14}"#).unwrap();
+            wait_until(cx, "nested import was not read", |cx| {
+                cx.update(|_, cx| Settings::get(cx).ui_font_size) == 14.
+            });
         });
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -4765,6 +4787,30 @@ mod tests {
         cx.run_until_parked();
         let b = grid_bounds(&ws, cx);
         assert_eq!((b.num_columns(), b.num_lines()), (83, 27));
+        // the shell spawned before the window gets the same grid
+        let early = cx.update(|_, cx| window::startup_grid(bounds.size, cx));
+        assert_eq!((early.num_columns(), early.num_lines()), (83, 27));
+    }
+
+    #[gpui::test]
+    fn first_tab_runs_the_shell_spawned_before_the_window(cx: &mut TestAppContext) {
+        let settings = window_settings(r#"{"columns": 50, "rows": 10, "remember_size": false}"#);
+        let (_ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        let bounds = cx.update(|_, cx| startup_bounds(cx));
+        let first = cx
+            .update(|_, cx| Workspace::spawn_first_tab(bounds.size, cx))
+            .expect("failed to spawn shell");
+        let (pid, grid) = (
+            first.terminal.shell_pid,
+            first.terminal.last_content.terminal_bounds,
+        );
+        assert_eq!((grid.num_columns(), grid.num_lines()), (50, 10));
+        let (ws, cx) =
+            cx.add_window_view(|window, cx| Workspace::with_start(None, Some(first), window, cx));
+        cx.run_until_parked();
+        let tabs = ws.update(cx, |ws, _| ws.focused_pane().tabs.len());
+        assert_eq!(tabs, 1);
+        assert_eq!(terminal(&ws, cx, 0).read_with(cx, |t, _| t.shell_pid), pid);
     }
 
     #[gpui::test]
@@ -4780,6 +4826,8 @@ mod tests {
         assert!(cx.debug_bounds("drag-area").is_some(), "tab bar is hidden");
         let b = grid_bounds(&ws, cx);
         assert_eq!((b.num_columns(), b.num_lines()), (50, 10));
+        let early = cx.update(|_, cx| window::startup_grid(bounds.size, cx));
+        assert_eq!((early.num_columns(), early.num_lines()), (50, 10));
     }
 
     #[gpui::test]

@@ -393,7 +393,7 @@
     //   "on"  - always blink
     //   "off" - never blink
     //   "app" - blink only when the running program asks for it
-    "cursor_blink": "on",
+    "cursor_blink": "app",
     // milliseconds the blinking cursor stays shown, then hidden, from 100 to 2000
     "cursor_blink_interval": 500,
     // seconds without typing after which the cursor stops blinking and stays shown,

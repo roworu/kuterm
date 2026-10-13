@@ -1,6 +1,6 @@
 [package]
 name = "kuterm"
-version = "0.0.9"
+version = "0.0.10"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "highly configurable, gpu accelerated terminal"
@@ -24,27 +24,37 @@ assets = [
 ]
 
 [dependencies]
-gpui = { git = "https://github.com/zed-industries/zed", rev = "cd8c4674188613e32c219ace84a5cd62f5d8f708" }
-gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "cd8c4674188613e32c219ace84a5cd62f5d8f708", features = ["wayland", "x11", "font-kit"] }
+# zed with one commit on top (vulkan without the gl probe, kuterm-vulkan-first branch) until
+# it is upstream, rebase it on a bump
+gpui = { git = "https://github.com/roworu/zed", rev = "f66d64d287d16beea9a29ce19d8b50b073ea4a9d" }
+gpui_platform = { git = "https://github.com/roworu/zed", rev = "f66d64d287d16beea9a29ce19d8b50b073ea4a9d", features = ["wayland", "x11", "font-kit"] }
 alacritty_terminal = { git = "https://github.com/zed-industries/alacritty", rev = "4c129667ce56611becdc82de6e28218c80e2e88f" }
 anyhow = "1"
 # images of kitty's graphics protocol come in base64
-base64 = "0.22"
+base64 = "0.23"
 image = { version = "0.25", default-features = false, features = ["png"] }
 futures = "0.3"
+# finds escapes in pty output, already in the tree through alacritty
+memchr = "2"
+# reloads config files when they change, without polling them
+notify = "8"
 serde = { version = "1", features = ["derive"] }
 serde_json_lenient = "0.2"
-skrifa = "0.47"
+skrifa = "0.48"
 
 [target.'cfg(unix)'.dependencies]
 # alacritty's pty traits take its poller, the pty is wrapped to scan its output
 polling = "3"
 
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
+# reads the color scheme before the first frame, gpui learns it only later
+ashpd = { version = "0.13", default-features = false, features = ["async-io", "settings"] }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
 
 [dev-dependencies]
-gpui = { git = "https://github.com/zed-industries/zed", rev = "cd8c4674188613e32c219ace84a5cd62f5d8f708", features = ["test-support"] }
+gpui = { git = "https://github.com/roworu/zed", rev = "f66d64d287d16beea9a29ce19d8b50b073ea4a9d", features = ["test-support"] }
 
 [profile.dev.package."*"]
 opt-level = 2

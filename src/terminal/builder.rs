@@ -71,7 +71,7 @@ pub(super) fn term_config(settings: &TerminalSettings) -> Config {
 }
 
 pub struct TerminalBuilder {
-    pub(super) terminal: Terminal,
+    pub(crate) terminal: Terminal,
     pub(super) events_rx: UnboundedReceiver<AlacTermEvent>,
 }
 
@@ -82,10 +82,11 @@ impl TerminalBuilder {
         self.terminal
     }
 
-    /// spawn the profile command in a new pty
+    /// spawn the profile command in a new pty of `bounds`
     pub fn new(
         settings: &TerminalSettings,
         profile: &Profile,
+        bounds: TerminalBounds,
         window_id: u64,
     ) -> Result<TerminalBuilder> {
         let mut env = HashMap::new();
@@ -132,11 +133,10 @@ impl TerminalBuilder {
             events: events_tx,
             dirty: dirty.clone(),
         };
-        let term = Term::new(config, &TerminalBounds::default(), listener.clone());
+        let term = Term::new(config, &bounds, listener.clone());
         let term = Arc::new(FairMutex::new(term));
 
-        let pty = tty::new(&pty_options, TerminalBounds::default().into(), window_id)
-            .context("failed to open pty")?;
+        let pty = tty::new(&pty_options, bounds.into(), window_id).context("failed to open pty")?;
         let scan_events = super::scanner::ScanEvents::default();
         // settings may change these right after, the bundled ones hold until then
         let defaults = crate::settings::Settings::default().graphics;
@@ -168,11 +168,16 @@ impl TerminalBuilder {
         let pty_tx = event_loop.channel();
         let _io_thread = event_loop.spawn();
 
+        // the pty already has this size, so a prepaint with it sends no resize
+        let last_content = Content {
+            terminal_bounds: bounds,
+            ..Content::default()
+        };
         let terminal = Terminal {
             pty_tx: Notifier(pty_tx),
             term,
             events: Vec::new(),
-            last_content: Content::default(),
+            last_content,
             dirty,
             title: String::new(),
             shell_pid,

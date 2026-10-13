@@ -38,7 +38,7 @@ sh e2e/run.sh --backend wayland -k palette
 - `@pytest.mark.x11_only` / `@pytest.mark.wayland_only` skip tests on the other backend.
 - the e2e container (`e2e/Containerfile`) also has cjk and emoji fonts, xkb tools for layout tests, wmctrl, sway, grim, wl-clipboard and less.
 
-CI also runs `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings`. container output goes to `target/podman/`. gpui and alacritty are pinned to same git revision in `Cargo.toml`; bump them together.
+CI also runs `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings`. container output goes to `target/podman/`. gpui and alacritty are pinned to same git revision in `Cargo.toml`; bump them together. gpui comes from a fork of zed with kuterm commits on top, bump it as in `docs/UPDATE_DEPS.md`.
 
 ## Architecture
 

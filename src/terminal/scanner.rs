@@ -106,10 +106,7 @@ impl Scanner {
                 (State::Ground, 0x1b) => State::Escape,
                 (State::Ground, _) => {
                     // plain text is most of the output, so it is copied up to the next escape
-                    let end = input[ix..]
-                        .iter()
-                        .position(|&b| b == 0x1b)
-                        .map_or(input.len(), |at| ix + at);
+                    let end = memchr::memchr(0x1b, &input[ix..]).map_or(input.len(), |at| ix + at);
                     out.push(byte);
                     out.extend_from_slice(&input[ix..end]);
                     ix = end;
@@ -200,6 +197,21 @@ impl Scanner {
                 }
             };
         }
+    }
+
+    /// true when `feed` would copy `input` unchanged and find nothing in it
+    pub fn passes_through(&self, input: &[u8]) -> bool {
+        if self.state != State::Ground {
+            return false;
+        }
+        let apc = self.graphics.as_ref().is_some_and(GraphicsParser::enabled);
+        // an escape at the end is held back, so it can't pass either
+        memchr::memchr_iter(0x1b, input).all(|at| match input.get(at + 1) {
+            Some(b']') => false,
+            Some(b'_') => !apc,
+            Some(_) => true,
+            None => false,
+        })
     }
 
     fn finish_apc(&mut self, out: &mut Vec<u8>, events: &mut Vec<ScanEvent>) {
@@ -325,7 +337,6 @@ pub struct ScanReader {
     scanner: Scanner,
     /// scanned bytes that did not fit the last read
     pending: Vec<u8>,
-    raw: Vec<u8>,
     events: ScanEvents,
 }
 
@@ -334,14 +345,14 @@ impl Read for ScanReader {
         if self.pending.is_empty() {
             // half the room, so the marks added to it nearly always fit
             let want = (buf.len() / 2).max(1);
-            self.raw.resize(want, 0);
-            let got = self.file.read(&mut self.raw)?;
-            if got == 0 {
-                return Ok(0);
+            let got = self.file.read(&mut buf[..want])?;
+            // most output has nothing to scan for, it stays where it was read
+            if got == 0 || self.scanner.passes_through(&buf[..got]) {
+                return Ok(got);
             }
             let mut events = Vec::new();
             self.scanner
-                .feed(&self.raw[..got], &mut self.pending, &mut events);
+                .feed(&buf[..got], &mut self.pending, &mut events);
             if !events.is_empty() {
                 let now = Instant::now();
                 let mut shared = self.events.lock().unwrap();
@@ -374,7 +385,6 @@ impl ScannedPty {
                 file,
                 scanner: Scanner::new(Some(graphics)),
                 pending: Vec::new(),
-                raw: Vec::new(),
                 events,
             },
         })
@@ -544,5 +554,24 @@ mod tests {
         scanner.feed(b"\x1b_Ga=q\x1b\\", &mut out, &mut events);
         assert_eq!(out, b"\x1b_Ga=q\x1b\\");
         assert!(events.is_empty());
+    }
+
+    #[test]
+    fn only_output_with_nothing_to_scan_passes_through() {
+        let scanner = Scanner::default();
+        for input in [
+            &b"plain"[..],
+            b"\x1b[1mbold\x1b[0m",
+            b"\x1b\x1b[m",
+            b"\x1b_Gq\x1b\\",
+        ] {
+            assert!(scanner.passes_through(input), "{input:?}");
+            let (out, events) = scan(&[input]);
+            assert_eq!(out, input);
+            assert!(events.is_empty());
+        }
+        for input in [&b"\x1b]0;title\x07"[..], b"text\x1b", b"\x1b\x1b]7;x\x07"] {
+            assert!(!scanner.passes_through(input), "{input:?}");
+        }
     }
 }

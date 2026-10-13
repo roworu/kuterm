@@ -16,12 +16,12 @@ use crate::{
     cli::{Cli, USAGE},
     remote::Request,
     settings::{Config, ConfigFiles, Pins, RemoteControl, Settings},
-    theme::Theme,
+    theme::{PortalAppearance, Theme},
     ui::{
         text_input,
         windows::open_workspace_window,
         workspace::{
-            Hide, HideOthers, NewTab, Quit, ShowAll, app_menus, dock_menu, open_urls,
+            Hide, HideOthers, NewTab, Quit, ShowAll, app_menus, dock_menu, open_urls, watch_config,
             with_workspace,
         },
     },
@@ -31,7 +31,7 @@ use crate::{
 pub(crate) const FONT_REGULAR: &[u8] =
     include_bytes!("../assets/fonts/jetbrains/JetBrainsMonoNLNerdFontMono-Regular.ttf");
 
-fn init(cx: &mut App) {
+fn init(portal: PortalAppearance, cx: &mut App) {
     let fonts: Vec<Cow<'static, [u8]>> = vec![
         Cow::Borrowed(include_bytes!(
             "../assets/fonts/jetbrains/JetBrainsMonoNLNerdFontMono-Bold.ttf"
@@ -76,7 +76,8 @@ fn init(cx: &mut App) {
         paths: load.files,
         problems,
     });
-    Theme::apply(cx.window_appearance(), cx);
+    let appearance = portal.wait(cx);
+    Theme::apply(appearance, cx);
     cx.bind_keys(config.keybindings.bindings());
     cx.bind_keys(text_input::bindings());
     if Settings::get(cx).remote_control == RemoteControl::Socket {
@@ -135,6 +136,8 @@ fn main() {
             std::process::exit(2);
         }
     }
+    // the color scheme is read while the platform starts
+    let portal = PortalAppearance::read();
     let app = application();
     // folders dropped on the dock icon or opened with "open -a kuterm", they may come before
     // the window exists, so they wait in a channel
@@ -143,7 +146,8 @@ fn main() {
         urls_tx.unbounded_send(urls).ok();
     });
     app.run(move |cx: &mut App| {
-        init(cx);
+        init(portal, cx);
+        watch_config(cx).detach();
         // the app ends with its last window
         cx.on_window_closed(|cx, _| {
             if cx.windows().is_empty() {
