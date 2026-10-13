@@ -8,10 +8,19 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{settings::TabTitleBlock, terminal::ForegroundProcess};
+use crate::{
+    settings::TabTitleBlock,
+    terminal::{ForegroundProcess, Progress},
+};
 
 // a hung command would freeze every tab title, so it is abandoned after this
 const EXEC_TIMEOUT: Duration = Duration::from_secs(2);
+// nerd font spinner frames, titles are built with the first and turned with `spin`
+const SPINNER: [char; 6] = [
+    '\u{ee06}', '\u{ee07}', '\u{ee08}', '\u{ee09}', '\u{ee0a}', '\u{ee0b}',
+];
+/// time between spinner frames
+pub(super) const SPINNER_INTERVAL: Duration = Duration::from_millis(120);
 
 /// what a title is built from, collected on the main thread
 pub(super) struct TitleInputs {
@@ -19,6 +28,7 @@ pub(super) struct TitleInputs {
     pub shell_pid: u32,
     pub title: String,
     pub profile_icon: Option<String>,
+    pub progress: Option<Progress>,
 }
 
 /// join blocks into a title and the byte offsets icons go at, may block on exec commands
@@ -41,6 +51,11 @@ pub(super) fn build_title(
             TabTitleBlock::Exec(command) => title.push_str(&exec(command, cwd).unwrap_or_default()),
             // tabs draw the icon on their own, nudged down to the baseline, so it is no text
             TabTitleBlock::Icon => icon_at.push(title.len()),
+            TabTitleBlock::Progress => match inputs.progress {
+                Some(Progress::Percent(percent)) => title.push_str(progress_icon(percent)),
+                Some(Progress::Busy) => title.push(SPINNER[0]),
+                None => {}
+            },
         }
     }
     (title, icon_at)
@@ -53,6 +68,37 @@ pub(super) fn insert_icons(mut title: String, icon_at: &[usize], icon: &str) -> 
         title.insert_str(at, icon);
     }
     title
+}
+
+/// nerd font circle, empty at 0 and filled in eighths up to 100
+fn progress_icon(percent: u8) -> &'static str {
+    const ICONS: [&str; 9] = [
+        "\u{f0766}",
+        "\u{f0a9e}",
+        "\u{f0a9f}",
+        "\u{f0aa0}",
+        "\u{f0aa1}",
+        "\u{f0aa2}",
+        "\u{f0aa3}",
+        "\u{f0aa4}",
+        "\u{f0aa5}",
+    ];
+    // rounded up, so any progress shows a slice
+    ICONS[(usize::from(percent.min(100)) * 8).div_ceil(100)]
+}
+
+/// true when `title` has a spinner to turn
+pub(super) fn has_spinner(title: &str) -> bool {
+    title.contains(SPINNER)
+}
+
+/// `title` with every spinner turned to frame `frame`
+pub(super) fn spin(title: &str, frame: usize) -> String {
+    let to = SPINNER[frame % SPINNER.len()];
+    title
+        .chars()
+        .map(|c| if SPINNER.contains(&c) { to } else { c })
+        .collect()
 }
 
 fn prompt() -> String {
@@ -173,6 +219,7 @@ mod tests {
             shell_pid: std::process::id(),
             title: "vim".into(),
             profile_icon: None,
+            progress: None,
         };
         build_title(
             blocks,
@@ -201,6 +248,7 @@ mod tests {
             shell_pid: std::process::id(),
             title: "vim".into(),
             profile_icon: None,
+            progress: None,
         };
         let blocks = [
             TabTitleBlock::Icon,
@@ -214,6 +262,48 @@ mod tests {
         assert_eq!(title, "3 - vim");
         assert_eq!(icon_at, [0, 4, 7]);
         assert_eq!(insert_icons(title, &icon_at, "I"), "I3 - IvimI");
+    }
+
+    #[test]
+    fn progress_fills_the_circle() {
+        let inputs = |progress| TitleInputs {
+            number: 1,
+            shell_pid: std::process::id(),
+            title: String::new(),
+            profile_icon: None,
+            progress,
+        };
+        let build = |progress| build_title(&[TabTitleBlock::Progress], &inputs(progress), None).0;
+        assert_eq!(build(None), "");
+        assert_eq!(build(Some(Progress::Percent(0))), "\u{f0766}");
+        assert_eq!(build(Some(Progress::Percent(1))), "\u{f0a9e}");
+        assert_eq!(build(Some(Progress::Percent(50))), "\u{f0aa1}");
+        assert_eq!(build(Some(Progress::Percent(100))), "\u{f0aa5}");
+    }
+
+    #[test]
+    fn busy_progress_spins() {
+        let inputs = TitleInputs {
+            number: 1,
+            shell_pid: std::process::id(),
+            title: String::new(),
+            profile_icon: None,
+            progress: Some(Progress::Busy),
+        };
+        let blocks = [TabTitleBlock::Text("a".into()), TabTitleBlock::Progress];
+        let busy = build_title(&blocks, &inputs, None).0;
+        assert!(has_spinner(&busy));
+        assert!(!has_spinner("a\u{f0aa1}"));
+        let frames: Vec<_> = (0..SPINNER.len()).map(|frame| spin(&busy, frame)).collect();
+        assert!(
+            frames
+                .iter()
+                .all(|frame| has_spinner(frame) && frame.starts_with('a'))
+        );
+        let distinct: std::collections::HashSet<_> = frames.iter().collect();
+        assert_eq!(distinct.len(), SPINNER.len());
+        // frames go round, and turning a turned title works too
+        assert_eq!(spin(&frames[3], SPINNER.len() + 2), frames[2]);
     }
 
     #[test]

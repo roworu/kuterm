@@ -14,7 +14,7 @@ use skrifa::{
 };
 
 use super::{
-    DropSide, LayoutNode, Pane, SplitAxis, Workspace, end_truncated::EndTruncated,
+    DropSide, LayoutNode, Pane, SplitAxis, Workspace, end_truncated::EndTruncated, tab_title,
     window::shows_tab_bar,
 };
 use crate::{
@@ -240,7 +240,7 @@ impl Workspace {
         let theme = Theme::get(cx);
         let settings = Settings::get(cx);
         let indicator = theme.text;
-        let title = self.tab_title(pane, ix, cx);
+        let title = tab_title::spin(&self.tab_title(pane, ix, cx), self.spinner_frame);
         let tab_state = &self.pane(pane).expect("pane from caller").tabs[ix];
         let icon = tab_state.icon.clone();
         let icon_at = tab_state.icon_at.clone();

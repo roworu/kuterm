@@ -133,6 +133,9 @@ pub enum TabTitleBlock {
     Exec(String),
     /// icon from "icons"
     Icon,
+    /// circle filling up with the progress the running program reports, spinning while it
+    /// reports no percent
+    Progress,
 }
 
 /// where the title sits inside its tab

@@ -65,12 +65,16 @@
   //                                              sh in the current folder of the tab
   //   "icon"                                   - nerd font icon of the tab, from "icons" at
   //                                              the end of this file
+  //   "progress"                               - circle filling up with the progress the
+  //                                              running program reports with osc 9;4,
+  //                                              like dnf or flatpak, spinning while it gives
+  //                                              no percent, empty when it reports none
   // titles refresh every second. an "exec" command still running after 2 seconds is
   // abandoned and shows nothing, so keep them fast. blocks with nothing to show, like a
   // failing "exec", are left empty.
   // example, giving "1: src > vim":
   //   ["number", { "text": ": " }, "folder", { "text": " > " }, "command"]
-  "tab_title": ["icon", "folder", { "text": " - " }, "command"],
+  "tab_title": ["progress", "icon", "folder", { "text": " - " }, "command"],
   // where the title sits inside its tab: "left", "center" or "right"
   "tab_title_align": "left",
   // show the "×" close button on the active tab and on hovered ones.

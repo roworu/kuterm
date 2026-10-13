@@ -91,6 +91,31 @@ def test_icon_block_is_the_active_tab_icon(app_factory):
     app.wait_title("D bash")
 
 
+def test_progress_block_follows_osc_9_4(app_factory):
+    """"progress" fills a circle with the osc 9;4 progress and is gone once taken down"""
+    app = titled(app_factory, [{"text": "["}, "progress", {"text": "]"}])
+    app.wait_title("[]")
+    app.run("printf '\\033]9;4;1;50\\007'")
+    app.wait_title("[\U000f0aa1]")
+    app.snap("half done")
+    app.run("printf '\\033]9;4;0\\007'")
+    app.wait_title("[]")
+
+
+def test_busy_progress_block_spins(app_factory):
+    """"progress" without a percent turns a spinner until it is taken down"""
+    app = titled(app_factory, [{"text": "["}, "progress", {"text": "]"}])
+    app.wait_title("[]")
+    app.run("printf '\\033]9;4;3\\007'")
+    spinner = [f"[{chr(c)}]" for c in range(0xEE06, 0xEE0C)]
+    app.wait(lambda: app.title() in spinner, msg=f"spinner, title {app.title()!r}")
+    seen = {app.title()}
+    app.wait(lambda: seen.add(app.title()) or len(seen & set(spinner)) > 2, msg=f"spinner turns, saw {seen}")
+    app.snap("busy")
+    app.run("printf '\\033]9;4;0\\007'")
+    app.wait_title("[]")
+
+
 @pytest.mark.parametrize("blocks", [[], [{"text": ""}], ["title"]], ids=["none", "empty-text", "no-title"])
 def test_empty_window_title_uses_default_title(app_factory, blocks):
     """an empty window title falls back to default_title"""

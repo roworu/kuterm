@@ -516,6 +516,10 @@ pub struct Workspace {
     drop_zone: Option<(usize, DropSide)>,
     /// built from `window_title` blocks for the active tab
     window_title: String,
+    /// frame busy progress spinners show
+    spinner_frame: usize,
+    /// a task turns the spinners while some title has one
+    spinning: bool,
     /// pane and place the profile menu was opened at, none while it is closed
     profile_menu: Option<(usize, Point<Pixels>)>,
     /// open command palette, none while it is closed
@@ -691,6 +695,8 @@ impl Workspace {
             next_pane_id: 1,
             drop_zone: None,
             window_title: String::new(),
+            spinner_frame: 0,
+            spinning: false,
             profile_menu: None,
             palette: None,
             about: None,
@@ -2044,6 +2050,7 @@ impl Workspace {
                         shell_pid: terminal.shell_pid,
                         title: terminal.title(&settings.default_title),
                         profile_icon: tab.profile_icon.clone(),
+                        progress: terminal.progress(),
                     },
                 ));
             }
@@ -2068,7 +2075,7 @@ impl Workspace {
         let window_title = if window_title.is_empty() {
             Settings::get(cx).default_title.clone()
         } else {
-            window_title
+            tab_title::spin(&window_title, self.spinner_frame)
         };
         // linux can't read the title back, so the last one is kept here
         if self.window_title != window_title {
@@ -2095,6 +2102,45 @@ impl Workspace {
         if changed {
             cx.notify();
         }
+        self.start_spinner(window, cx);
+    }
+
+    /// turn busy progress spinners until no title has one
+    fn start_spinner(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.spinning || !self.has_spinner() {
+            return;
+        }
+        self.spinning = true;
+        cx.spawn_in(window, async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(tab_title::SPINNER_INTERVAL)
+                    .await;
+                let Ok(true) = this.update_in(cx, |this, window, cx| {
+                    if !this.has_spinner() {
+                        this.spinning = false;
+                        return false;
+                    }
+                    this.spinner_frame += 1;
+                    this.window_title = tab_title::spin(&this.window_title, this.spinner_frame);
+                    window.set_window_title(&this.window_title);
+                    cx.notify();
+                    true
+                }) else {
+                    break;
+                };
+            }
+        })
+        .detach();
+    }
+
+    fn has_spinner(&self) -> bool {
+        tab_title::has_spinner(&self.window_title)
+            || self.layout.panes().iter().any(|pane| {
+                pane.tabs
+                    .iter()
+                    .any(|tab| tab_title::has_spinner(&tab.title))
+            })
     }
 
     fn new_tab(&mut self, _: &NewTab, window: &mut Window, cx: &mut Context<Self>) {
