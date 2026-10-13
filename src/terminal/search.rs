@@ -135,8 +135,10 @@ impl Terminal {
     /// look for `query`, picking the match closest above the bottom of the view.
     /// the error tells why the query can't be searched, like a broken regex
     pub fn search(&mut self, query: &SearchQuery) -> Result<SearchStatus, String> {
-        let pattern = search_pattern(query)?;
-        let mut regex = RegexSearch::new(&pattern).map_err(|error| error.to_string())?;
+        let regex = search_pattern(query)
+            .and_then(|pattern| RegexSearch::new(&pattern).map_err(|error| error.to_string()));
+        // stale highlights of the last good query would look like matches of this one
+        let mut regex = regex.inspect_err(|_| self.end_search())?;
         let term = self.term.lock_unfair();
         let matches = scan(&term, &mut regex);
         let history = term.grid().history_size();

@@ -372,7 +372,8 @@ impl Workspace {
                 .flex()
                 .items_center()
                 .gap_2()
-                .child(notification.text.clone())
+                // long text wraps, so the buttons after it stay inside the max width
+                .child(div().min_w_0().child(notification.text.clone()))
                 // terminal colors set the copied text apart from the label
                 .children(notification.detail.clone().map(|detail| {
                     div()
@@ -386,6 +387,7 @@ impl Workspace {
                     div()
                         .id(("notification-button", ix))
                         .debug_selector(move || format!("notification-{id}-button-{ix}"))
+                        .flex_none()
                         .px_2()
                         .rounded_sm()
                         .border_1()

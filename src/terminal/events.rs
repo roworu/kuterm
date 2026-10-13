@@ -17,13 +17,13 @@ impl Terminal {
                 self.title.clear();
                 cx.emit(Event::TitleChanged);
             }
-            AlacTermEvent::ClipboardStore(_, data) => {
+            AlacTermEvent::ClipboardStore(kind, data) => {
                 let access = self.clipboard.write;
-                self.request_clipboard(access, ClipboardRequest::Write(data), cx);
+                self.request_clipboard(access, ClipboardRequest::Write(kind, data), cx);
             }
-            AlacTermEvent::ClipboardLoad(_, format) => {
+            AlacTermEvent::ClipboardLoad(kind, format) => {
                 let access = self.clipboard.read;
-                self.request_clipboard(access, ClipboardRequest::Read(format), cx);
+                self.request_clipboard(access, ClipboardRequest::Read(kind, format), cx);
             }
             AlacTermEvent::PtyWrite(out) => self.write_to_pty(out.into_bytes()),
             AlacTermEvent::TextAreaSizeRequest(format) => {
@@ -67,8 +67,8 @@ impl Terminal {
                 let id = self.next_clipboard_request;
                 self.next_clipboard_request += 1;
                 let text = match &request {
-                    ClipboardRequest::Write(text) => Some(text.clone()),
-                    ClipboardRequest::Read(_) => None,
+                    ClipboardRequest::Write(_, text) => Some(text.clone()),
+                    ClipboardRequest::Read(..) => None,
                 };
                 self.clipboard_requests.insert(id, request);
                 cx.emit(Event::ClipboardAsk { id, text });

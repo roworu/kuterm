@@ -31,7 +31,7 @@ use alacritty_terminal::{
     event_loop::{Msg, Notifier},
     grid::{Dimensions, Scroll},
     sync::FairMutex,
-    term::TermMode,
+    term::{ClipboardType, TermMode},
     vte::ansi::{ClearMode, Handler},
 };
 use gpui::{App, ClipboardItem, Context, EventEmitter, Keystroke, Task, WindowAppearance};
@@ -86,9 +86,12 @@ pub enum Event {
 
 /// clipboard access waiting for the user to allow it
 enum ClipboardRequest {
-    Write(String),
+    Write(ClipboardType, String),
     /// builds the reply to the program from the clipboard text
-    Read(Arc<dyn Fn(&str) -> String + Sync + Send + 'static>),
+    Read(
+        ClipboardType,
+        Arc<dyn Fn(&str) -> String + Sync + Send + 'static>,
+    ),
 }
 
 enum InternalEvent {
@@ -259,14 +262,27 @@ impl Terminal {
 
     fn use_clipboard(&mut self, request: ClipboardRequest, cx: &mut Context<Self>) {
         match request {
-            ClipboardRequest::Write(text) => cx.write_to_clipboard(ClipboardItem::new_string(text)),
-            ClipboardRequest::Read(format) => {
-                let text = cx
-                    .read_from_clipboard()
-                    .and_then(|item| item.text())
-                    .unwrap_or_default();
+            ClipboardRequest::Write(ClipboardType::Clipboard, text) => {
+                cx.write_to_clipboard(ClipboardItem::new_string(text))
+            }
+            #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+            ClipboardRequest::Write(ClipboardType::Selection, text) => {
+                cx.write_to_primary(ClipboardItem::new_string(text))
+            }
+            ClipboardRequest::Read(kind, format) => {
+                let item = match kind {
+                    ClipboardType::Clipboard => cx.read_from_clipboard(),
+                    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+                    ClipboardType::Selection => cx.read_from_primary(),
+                    #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+                    ClipboardType::Selection => None,
+                };
+                let text = item.and_then(|item| item.text()).unwrap_or_default();
                 self.write_to_pty(format(&text).into_bytes());
             }
+            // no primary selection outside linux, and it must not land in the clipboard
+            #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+            ClipboardRequest::Write(ClipboardType::Selection, _) => {}
         }
     }
 
