@@ -1,4 +1,4 @@
-//! icons of programs shown in tabs, the "tab_icons" section of settings
+//! icons of programs shown in tabs, "icons.dynamic_app_icons" in settings
 
 use gpui::{App, Global};
 use serde::Deserialize;
@@ -30,15 +30,18 @@ impl Default for TabIcons {
 impl Global for TabIcons {}
 
 impl TabIcons {
-    /// parse a tab icons section over the bundled one
+    /// parse a dynamic app icons section over the bundled one
     pub fn parse(json: &str) -> serde_json_lenient::Result<Self> {
         let section = serde_json_lenient::from_str(json)?;
-        Self::from_full(&config::combine(config::section("tab_icons", section)))
+        Self::from_full(&config::combine(config::icons_section(section)))
     }
 
-    /// tab icons section of settings merged over the bundled ones
+    /// dynamic app icons section of settings merged over the bundled ones
     pub fn from_full(full: &Value) -> serde_json_lenient::Result<Self> {
-        Self::deserialize(full.get("tab_icons").unwrap_or(&Value::Null))
+        Self::deserialize(
+            full.pointer("/icons/dynamic_app_icons")
+                .unwrap_or(&Value::Null),
+        )
     }
 
     /// tab icons loaded at startup or on the last reload

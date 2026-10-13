@@ -15,7 +15,7 @@ options:
   --recreate-confs            delete config files and write defaults
   --config-file <path>        settings file to use instead of settings.jsonc
   --keybindings-file <path>   keybindings file, overrides the keybindings section
-  --tab-icons-file <path>     tab icons file, overrides the tab_icons section
+  --tab-icons-file <path>     tab icons file, overrides icons.dynamic_app_icons
   --dark-theme-file <path>    dark theme file, overrides settings
   --light-theme-file <path>   light theme file, overrides settings
   --theme-mode <mode>         system, dark or light, overrides settings

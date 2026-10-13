@@ -26,7 +26,7 @@ pub use options::{
     ClipboardAccess, ConfirmQuit, CursorBlink, CursorShape, CursorUnfocused, Decorations,
     FontSlant, LineHeight, LinkModifier, NewTabButton, PatternAction, ProgramNotifications,
     RemoteControl, RestoreSession, ScrollEasing, ScrollbarEnable, ScrollbarPlacement, SearchCase,
-    Shell, StartupMode, TabIconPosition, TabTitleAlign, TabTitleBlock, ThemeMode,
+    Shell, StartupMode, TabTitleAlign, TabTitleBlock, ThemeMode,
 };
 pub use pins::Pins;
 pub use tab_icons::TabIcons;
@@ -43,7 +43,7 @@ pub struct Settings {
     pub tab_width: u32,
     pub tab_title: Vec<TabTitleBlock>,
     pub tab_title_align: TabTitleAlign,
-    pub tab_icon: TabIconSettings,
+    pub icons: TabIconSettings,
     pub show_tab_close_button: bool,
     pub drag_tabs: bool,
     pub close_running_tab_warn: bool,
@@ -241,7 +241,6 @@ pub struct WindowPadding {
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct TabIconSettings {
-    pub position: TabIconPosition,
     pub dynamic: bool,
     pub default: String,
 }
@@ -1230,38 +1229,25 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn parses_tab_icon() {
-        let defaults = Settings::default().tab_icon;
-        let parse = |json: &str| Settings::parse(json).unwrap().tab_icon;
-        for (json, position) in [
-            (
-                r#"{"tab_icon": {"position": "left"}}"#,
-                TabIconPosition::Left,
-            ),
-            (
-                r#"{"tab_icon": {"position": "right"}}"#,
-                TabIconPosition::Right,
-            ),
-        ] {
-            let expected = TabIconSettings {
-                position,
-                ..defaults.clone()
-            };
-            assert_eq!(parse(json), expected);
-        }
+    fn parses_icons() {
+        let parse = |json: &str| Settings::parse(json).unwrap().icons;
         for dynamic in [true, false] {
-            let json = format!(r#"{{"tab_icon": {{"dynamic": {dynamic}, "default": "D"}}}}"#);
+            let json = format!(r#"{{"icons": {{"dynamic": {dynamic}, "default": "D"}}}}"#);
             let icon = parse(&json);
             assert_eq!(icon.dynamic, dynamic);
             assert_eq!(icon.default, "D");
-            assert_eq!(icon.position, defaults.position);
         }
+        assert_eq!(
+            Settings::parse(r#"{"tab_title": ["icon", "folder"]}"#)
+                .unwrap()
+                .tab_title,
+            [TabTitleBlock::Icon, TabTitleBlock::Folder]
+        );
 
         for json in [
-            r#"{"tab_icon": "left"}"#,
-            r#"{"tab_icon": {"position": "top"}}"#,
-            r#"{"tab_icon": {"dynamic": "yes"}}"#,
-            r#"{"tab_icon": {"default": null}}"#,
+            r#"{"icons": "left"}"#,
+            r#"{"icons": {"dynamic": "yes"}}"#,
+            r#"{"icons": {"default": null}}"#,
             r#"{"profiles": [{"name": "a", "command": "system", "icon": 5}]}"#,
         ] {
             assert!(

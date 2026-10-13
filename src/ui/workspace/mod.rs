@@ -110,6 +110,8 @@ struct Tab {
     /// built from `tab_title` blocks, empty until the first refresh
     title: String,
     icon: String,
+    /// byte offsets in `title` the icon is drawn at, one per "icon" block
+    icon_at: Vec<usize>,
     profile_icon: Option<String>,
     /// true once the shell is done starting, so writing to it now is not echoed by the tty
     ready: bool,
@@ -616,14 +618,19 @@ impl Workspace {
                             let window_title = (ix == active).then(|| {
                                 tab_title::build_title(window_blocks, &inputs, process.as_ref())
                             });
-                            let title = tab_title::build_title(blocks, &inputs, process.as_ref());
+                            let (title, icon_at) =
+                                tab_title::build_title(blocks, &inputs, process.as_ref());
                             let icon = tab_icon::tab_icon(
                                 icon_settings,
                                 icons,
                                 inputs.profile_icon.as_deref(),
                                 process,
                             );
-                            (id, title, icon, window_title)
+                            // the window title is plain text, so its icons go in as glyphs
+                            let window_title = window_title.map(|(text, icon_at)| {
+                                tab_title::insert_icons(text, &icon_at, &icon)
+                            });
+                            (id, title, icon_at, icon, window_title)
                         })
                     })
                     .collect::<Vec<_>>();
@@ -632,11 +639,11 @@ impl Workspace {
                 let titles = futures::future::join_all(builds)
                     .await
                     .into_iter()
-                    .map(|(id, title, icon, active_title)| {
+                    .map(|(id, title, icon_at, icon, active_title)| {
                         if let Some(active_title) = active_title {
                             window_title = active_title;
                         }
-                        (id, title, icon)
+                        (id, title, icon_at, icon)
                     })
                     .collect();
                 let Ok(()) = this.update_in(cx, |this, window, cx| {
@@ -922,6 +929,17 @@ impl Workspace {
             },
         );
 
+        let settings = Settings::get(cx);
+        // every block is empty before the first refresh, so all icons sit at the start
+        let icons = settings
+            .tab_title
+            .iter()
+            .filter(|block| **block == TabTitleBlock::Icon);
+        let icon_at = vec![0; icons.count()];
+        let icon = profile
+            .icon
+            .clone()
+            .unwrap_or_else(|| settings.icons.default.clone());
         let Some(pane) = self.pane_mut(pane_id) else {
             return;
         };
@@ -929,10 +947,8 @@ impl Workspace {
             view,
             profile: profile.name.clone(),
             title: String::new(),
-            icon: profile
-                .icon
-                .clone()
-                .unwrap_or_else(|| Settings::get(cx).tab_icon.default.clone()),
+            icon,
+            icon_at,
             profile_icon: profile.icon.clone(),
             ready: false,
             ready_task: Task::ready(()),
@@ -2035,7 +2051,7 @@ impl Workspace {
         (
             settings.tab_title.clone(),
             settings.window_title.clone(),
-            settings.tab_icon.clone(),
+            settings.icons.clone(),
             TabIcons::get(cx).clone(),
             active,
             inputs,
@@ -2044,7 +2060,7 @@ impl Workspace {
 
     fn set_titles(
         &mut self,
-        titles: Vec<(EntityId, String, String)>,
+        titles: Vec<(EntityId, String, Vec<usize>, String)>,
         window_title: String,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -2060,7 +2076,7 @@ impl Workspace {
             self.window_title = window_title;
         }
         let mut changed = false;
-        for (id, title, icon) in titles {
+        for (id, title, icon_at, icon) in titles {
             // tabs closed while building are skipped
             let Some((pane_id, ix)) = self.find_id(id) else {
                 continue;
@@ -2069,8 +2085,9 @@ impl Workspace {
                 .pane_mut(pane_id)
                 .expect("pane id comes from the layout")
                 .tabs[ix];
-            if tab.title != title || tab.icon != icon {
+            if tab.title != title || tab.icon_at != icon_at || tab.icon != icon {
                 tab.title = title;
+                tab.icon_at = icon_at;
                 tab.icon = icon;
                 changed = true;
             }
@@ -3208,7 +3225,7 @@ mod tests {
     #[gpui::test]
     fn tab_icon_follows_running_program(cx: &mut TestAppContext) {
         let (before, during) =
-            icon_while_sleeping(cx, r#"{"tab_icon": {"dynamic": true, "default": "D"}}"#);
+            icon_while_sleeping(cx, r#"{"icons": {"dynamic": true, "default": "D"}}"#);
         assert_eq!(before, "D");
         assert_eq!(during, "S");
     }
@@ -3216,16 +3233,31 @@ mod tests {
     #[gpui::test]
     fn disabled_dynamic_icon_stays_default(cx: &mut TestAppContext) {
         let (before, during) =
-            icon_while_sleeping(cx, r#"{"tab_icon": {"dynamic": false, "default": "D"}}"#);
+            icon_while_sleeping(cx, r#"{"icons": {"dynamic": false, "default": "D"}}"#);
         assert_eq!(before, "D");
         assert_eq!(during, "D");
+    }
+
+    #[gpui::test]
+    fn icon_sits_where_its_block_is(cx: &mut TestAppContext) {
+        let settings =
+            Settings::parse(r#"{"tab_title": [{"text": "a"}, "icon", {"text": "bc"}]}"#).unwrap();
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        let tab = |cx: &mut VisualTestContext| {
+            ws.update(cx, |ws, _| {
+                let tab = &ws.focused_pane().tabs[0];
+                (tab.title.clone(), tab.icon_at.clone())
+            })
+        };
+        wait_until(cx, "title never built", |cx| tab(cx).0 == "abc");
+        assert_eq!(tab(cx).1, [1]);
     }
 
     #[gpui::test]
     fn profile_icon_never_changes(cx: &mut TestAppContext) {
         let (before, during) = icon_while_sleeping(
             cx,
-            r#"{"tab_icon": {"dynamic": true, "default": "D"},
+            r#"{"icons": {"dynamic": true, "default": "D"},
                 "profiles": [{"name": "p", "command": "system", "icon": "P"}]}"#,
         );
         assert_eq!(before, "P");

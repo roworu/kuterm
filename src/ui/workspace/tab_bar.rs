@@ -18,7 +18,7 @@ use super::{
     window::shows_tab_bar,
 };
 use crate::{
-    settings::{Decorations, NewTabButton, Settings, TabIconPosition, TabTitleAlign},
+    settings::{Decorations, NewTabButton, Settings, TabTitleAlign},
     theme::Theme,
 };
 
@@ -81,15 +81,55 @@ fn tab_row(scroll: &ScrollHandle) -> Stateful<Div> {
         .track_scroll(scroll)
 }
 
-/// tab sized from settings, with its icon and title
-fn tab(ix: usize, title: String, icon: String, settings: &Settings) -> Stateful<Div> {
+/// title text with `icon` drawn at each byte offset of `icon_at`
+fn title_with_icons(ix: usize, title: &str, icon: &str, icon_at: &[usize]) -> Div {
+    let drop = rems(icon_drop(icon) * TEXT_SIZE);
+    // shrinks below its text, so long titles are cut at the end whatever the align
+    let text = |text: &str| {
+        div()
+            .debug_selector(move || format!("tab-text-{ix}"))
+            .flex()
+            .min_w_0()
+            .overflow_hidden()
+            .child(EndTruncated::new(text.to_owned()))
+    };
+    let mut row = div()
+        .debug_selector(move || format!("tab-title-{ix}"))
+        .flex()
+        .items_center()
+        .gap_1()
+        .min_w_0()
+        .overflow_hidden();
+    let mut start = 0;
+    for &at in icon_at {
+        if at > start {
+            row = row.child(text(&title[start..at]));
+            start = at;
+        }
+        row = row.child(
+            div()
+                .debug_selector(move || format!("tab-icon-{ix}"))
+                .flex_none()
+                .relative()
+                .top(drop)
+                .child(icon.to_owned()),
+        );
+    }
+    if start < title.len() {
+        row = row.child(text(&title[start..]));
+    }
+    row
+}
+
+/// tab sized from settings, with its title and icons
+fn tab(
+    ix: usize,
+    title: &str,
+    icon: &str,
+    icon_at: &[usize],
+    settings: &Settings,
+) -> Stateful<Div> {
     let expand = settings.expand_tabs;
-    let icon = div()
-        .debug_selector(move || format!("tab-icon-{ix}"))
-        .flex_none()
-        .relative()
-        .top(rems(icon_drop(&icon) * TEXT_SIZE))
-        .child(icon);
     let title = div()
         .flex()
         .flex_1()
@@ -99,15 +139,7 @@ fn tab(ix: usize, title: String, icon: String, settings: &Settings) -> Stateful<
             TabTitleAlign::Center => row.justify_center(),
             TabTitleAlign::Right => row.justify_end(),
         })
-        // shrinks below its text, so long titles are cut at the end whatever the align
-        .child(
-            div()
-                .debug_selector(move || format!("tab-title-{ix}"))
-                .flex()
-                .min_w_0()
-                .overflow_hidden()
-                .child(EndTruncated::new(title)),
-        );
+        .child(title_with_icons(ix, title, icon, icon_at));
     div()
         .id(("tab", ix))
         .flex()
@@ -121,10 +153,7 @@ fn tab(ix: usize, title: String, icon: String, settings: &Settings) -> Stateful<
         .when(!expand, |tab| {
             tab.flex_none().w(px(settings.tab_width as f32))
         })
-        .map(|tab| match settings.tab_icon.position {
-            TabIconPosition::Left => tab.child(icon).child(title),
-            TabIconPosition::Right => tab.child(title).child(icon),
-        })
+        .child(title)
 }
 
 /// a tab picked up with the mouse, drawn as its own preview while dragging
@@ -135,18 +164,13 @@ struct DraggedTab {
     ix: usize,
     title: String,
     icon: String,
+    icon_at: Vec<usize>,
 }
 
 impl Render for DraggedTab {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = Theme::get(cx);
         let settings = Settings::get(cx);
-        let icon = div()
-            .flex_none()
-            .relative()
-            .top(rems(icon_drop(&self.icon) * TEXT_SIZE))
-            .child(self.icon.clone());
-        let title = div().min_w_0().overflow_hidden().child(self.title.clone());
         div()
             .id("dragged-tab")
             .flex()
@@ -161,10 +185,12 @@ impl Render for DraggedTab {
             .text_color(theme.text)
             .border_1()
             .border_color(theme.border)
-            .map(|tab| match settings.tab_icon.position {
-                TabIconPosition::Left => tab.child(icon).child(title),
-                TabIconPosition::Right => tab.child(title).child(icon),
-            })
+            .child(title_with_icons(
+                self.ix,
+                &self.title,
+                &self.icon,
+                &self.icon_at,
+            ))
     }
 }
 
@@ -217,8 +243,9 @@ impl Workspace {
         let title = self.tab_title(pane, ix, cx);
         let tab_state = &self.pane(pane).expect("pane from caller").tabs[ix];
         let icon = tab_state.icon.clone();
+        let icon_at = tab_state.icon_at.clone();
         let bell = tab_state.bell;
-        tab(ix, title.clone(), icon.clone(), settings)
+        tab(ix, &title, &icon, &icon_at, settings)
             .group("tab")
             .border_r_1()
             .border_color(theme.border)
@@ -244,6 +271,7 @@ impl Workspace {
                         ix,
                         title,
                         icon,
+                        icon_at,
                     },
                     |dragged: &DraggedTab, _, _, cx| cx.new(|_| dragged.clone()),
                 )
@@ -706,6 +734,7 @@ mod tests {
     struct TabRow {
         titles: Vec<String>,
         icon: String,
+        icon_at: Vec<usize>,
         settings: Settings,
         scroll: ScrollHandle,
     }
@@ -716,7 +745,7 @@ mod tests {
                 .titles
                 .iter()
                 .enumerate()
-                .map(|(ix, title)| tab(ix, title.clone(), self.icon.clone(), &self.settings));
+                .map(|(ix, title)| tab(ix, title, &self.icon, &self.icon_at, &self.settings));
             div().size_full().flex().text_size(rems(TEXT_SIZE)).child(
                 div()
                     .flex()
@@ -737,6 +766,7 @@ mod tests {
         let (row, cx) = cx.add_window_view(|_, _| TabRow {
             titles: (1..=count).map(|n| format!("tab {n}")).collect(),
             icon: "I".into(),
+            icon_at: vec![0],
             settings,
             scroll: ScrollHandle::new(),
         });
@@ -849,11 +879,12 @@ mod tests {
         cx.debug_bounds("tab-title-0").unwrap()
     }
 
+    fn text_bounds(cx: &mut VisualTestContext) -> Bounds<Pixels> {
+        cx.debug_bounds("tab-text-0").unwrap()
+    }
+
     fn align_json(align: &str) -> String {
-        format!(
-            r#"{{"expand_tabs": false, "tab_width": 200, "tab_title_align": "{align}",
-                "tab_icon": {{"position": "left"}}}}"#
-        )
+        format!(r#"{{"expand_tabs": false, "tab_width": 200, "tab_title_align": "{align}"}}"#)
     }
 
     fn icon_bounds(cx: &mut VisualTestContext) -> Bounds<Pixels> {
@@ -865,45 +896,44 @@ mod tests {
         // px_3 padding puts the icon and title 12px inside each tab edge, gap_1 is 4px between them
         let (row, cx) = layout(&align_json("left"), 1, cx);
         let tab = tab_bounds(&row, cx)[0];
-        let title = title_bounds(cx);
-        let start = icon_bounds(cx).right() + px(4.);
-        assert!(title.size.width < px(160.));
-        assert_close(title.left(), start);
+        let text = text_bounds(cx);
+        assert!(text.size.width < px(160.));
+        assert_close(icon_bounds(cx).left(), tab.left() + px(12.));
+        assert_close(text.left(), icon_bounds(cx).right() + px(4.));
 
         let (_, cx) = layout(&align_json("right"), 1, cx);
-        assert_close(title_bounds(cx).right(), tab.right() - px(12.));
+        assert_close(text_bounds(cx).right(), tab.right() - px(12.));
 
+        // the icon moves with the text it sits next to
         let (_, cx) = layout(&align_json("center"), 1, cx);
-        let end = tab.right() - px(12.);
-        assert_close(title_bounds(cx).center().x, start + (end - start) / 2.);
+        assert_close(title_bounds(cx).center().x, tab.center().x);
+        assert_close(text_bounds(cx).left(), icon_bounds(cx).right() + px(4.));
     }
 
     #[gpui::test]
     fn long_title_is_cut_for_every_align(cx: &mut TestAppContext) {
-        for position in ["left", "right"] {
+        let long = "a much much much much much longer title than the tab";
+        for icon_first in [true, false] {
             for align in ["left", "center", "right"] {
-                let json = format!(
-                    r#"{{"expand_tabs": false, "tab_width": 200, "tab_title_align": "{align}",
-                        "tab_icon": {{"position": "{position}"}}}}"#
-                );
-                let (row, cx) = layout(&json, 1, cx);
+                let (row, cx) = layout(&align_json(align), 1, cx);
                 row.update(cx, |row, cx| {
-                    row.titles[0] = "a much much much much much longer title than the tab".into();
+                    row.titles[0] = long.into();
+                    row.icon_at = vec![if icon_first { 0 } else { long.len() }];
                     cx.notify();
                 });
                 cx.run_until_parked();
                 let tab = tab_bounds(&row, cx)[0];
-                let title = title_bounds(cx);
+                let text = text_bounds(cx);
                 let icon = icon_bounds(cx);
                 // the icon keeps its place and width, the title is cut next to it
                 assert!(icon.size.width > px(0.));
-                if position == "left" {
+                if icon_first {
                     assert_close(icon.left(), tab.left() + px(12.));
-                    assert_close(title.left(), icon.right() + px(4.));
-                    assert_close(title.right(), tab.right() - px(12.));
+                    assert_close(text.left(), icon.right() + px(4.));
+                    assert_close(text.right(), tab.right() - px(12.));
                 } else {
-                    assert_close(title.left(), tab.left() + px(12.));
-                    assert_close(title.right(), icon.left() - px(4.));
+                    assert_close(text.left(), tab.left() + px(12.));
+                    assert_close(text.right(), icon.left() - px(4.));
                     assert_close(icon.right(), tab.right() - px(12.));
                 }
             }
@@ -911,23 +941,30 @@ mod tests {
     }
 
     #[gpui::test]
-    fn icon_follows_position(cx: &mut TestAppContext) {
-        let json = |position: &str| {
-            format!(
-                r#"{{"expand_tabs": false, "tab_width": 200, "tab_icon": {{"position": "{position}"}}}}"#
-            )
-        };
-        let (row, cx) = layout(&json("left"), 1, cx);
+    fn icon_is_drawn_where_its_block_is(cx: &mut TestAppContext) {
+        let (row, cx) = layout(&align_json("left"), 1, cx);
         let tab = tab_bounds(&row, cx)[0];
-        let (icon, title) = (icon_bounds(cx), title_bounds(cx));
+        let (icon, text) = (icon_bounds(cx), text_bounds(cx));
         assert_close(icon.left(), tab.left() + px(12.));
-        assert!(icon.right() <= title.left());
+        assert!(icon.right() <= text.left());
 
-        let (_, cx) = layout(&json("right"), 1, cx);
-        let (icon, title) = (icon_bounds(cx), title_bounds(cx));
-        assert_close(icon.right(), tab.right() - px(12.));
-        assert_close(title.left(), tab.left() + px(12.));
-        assert!(title.right() <= icon.left());
+        row.update(cx, |row, cx| {
+            row.icon_at = vec!["tab 1".len()];
+            cx.notify();
+        });
+        cx.run_until_parked();
+        let (icon, text) = (icon_bounds(cx), text_bounds(cx));
+        assert_close(text.left(), tab.left() + px(12.));
+        assert_close(icon.left(), text.right() + px(4.));
+
+        // no icon block, no icon
+        row.update(cx, |row, cx| {
+            row.icon_at = Vec::new();
+            cx.notify();
+        });
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("tab-icon-0").is_none());
+        assert_close(text_bounds(cx).left(), tab.left() + px(12.));
     }
 
     #[test]
@@ -950,7 +987,7 @@ mod tests {
     fn icon_is_moved_down_to_the_baseline(cx: &mut TestAppContext) {
         let (row, cx) = layout(r#"{"expand_tabs": false, "tab_width": 200}"#, 1, cx);
         let letter_top = icon_bounds(cx).top();
-        assert_close(letter_top, title_bounds(cx).top());
+        assert_close(letter_top, text_bounds(cx).top());
         row.update(cx, |row, cx| {
             row.icon = "\u{e795}".into();
             cx.notify();
@@ -959,6 +996,6 @@ mod tests {
         // rems are 16px in the test window
         let drop = px(icon_drop("\u{e795}") * TEXT_SIZE * 16.);
         assert!(drop > px(0.));
-        assert_close(icon_bounds(cx).top(), title_bounds(cx).top() + drop);
+        assert_close(icon_bounds(cx).top(), text_bounds(cx).top() + drop);
     }
 }

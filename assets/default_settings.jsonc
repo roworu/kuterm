@@ -63,25 +63,16 @@
   //   { "text": " < AMONGUS > " }              - any text, like separators
   //   { "exec": "git branch --show-current" }  - first line of a command's output, run with
   //                                              sh in the current folder of the tab
+  //   "icon"                                   - nerd font icon of the tab, from "icons" at
+  //                                              the end of this file
   // titles refresh every second. an "exec" command still running after 2 seconds is
   // abandoned and shows nothing, so keep them fast. blocks with nothing to show, like a
   // failing "exec", are left empty.
   // example, giving "1: src > vim":
   //   ["number", { "text": ": " }, "folder", { "text": " > " }, "command"]
-  "tab_title": ["folder", { "text": " - " }, "command"],
+  "tab_title": ["icon", "folder", { "text": " - " }, "command"],
   // where the title sits inside its tab: "left", "center" or "right"
   "tab_title_align": "left",
-  // icon shown in each tab, a nerd font glyph
-  "tab_icon": {
-    // side of the tab it sits on: "left" or "right"
-    "position": "left",
-    // true switches the icon to the one of the program running in front, like ssh or htop,
-    // looked up in "tab_icons" at the end of this file. false always shows "default"
-    "dynamic": true,
-    // icon of the shell and of programs without an icon of their own in "tab_icons".
-    // more icons are listed on https://www.nerdfonts.com/cheat-sheet
-    "default": "",
-  },
   // show the "×" close button on the active tab and on hovered ones.
   // a middle click on a tab closes it either way
   "show_tab_close_button": true,
@@ -102,7 +93,7 @@
   // a click opens the default profile, a right click lists all profiles when there are more
   "new_tab_button": "after_tabs",
   // window title, shown by the window manager and task bar. built from the active tab with
-  // the same blocks as "tab_title"
+  // the same blocks as "tab_title", "icon" gives the icon of the active tab
   "window_title": ["folder", { "text": " - " }, "command"],
   // used by the "title" block when the running program set no title, and as window title
   // when "window_title" builds an empty one
@@ -630,7 +621,7 @@
       // "theme.themes", like { "mode": "dark", "dark": "red" }. null uses "theme"
       "theme": null,
       // tab icon, kept whatever runs in the tab, so tabs of this profile are easy to spot.
-      // null uses "tab_icon"
+      // null uses "icons"
       "icon": null,
       // extra environment variables for the program, added to the ones kuterm got,
       // like { "EDITOR": "vim" }
@@ -891,77 +882,84 @@
     },
   ],
 
-  // icons of programs in tabs, when "tab_icon.dynamic" is on. the program running in front
-  // of the shell is looked up by name in "groups", the first group listing it gives its
-  // icon. programs in no group show "tab_icon.default".
-  // the lists set here replace the bundled ones, "groups" too, so copy the groups to keep.
-  // --tab-icons-file loads this section from its own file.
-  // more icons to use are listed on https://www.nerdfonts.com/cheat-sheet
-  "tab_icons": {
-    // programs started through these are matched by their script, like "pi" in "node /usr/bin/pi"
-    "interpreters": ["node", "nodejs", "bun", "deno", "python", "python3", "ruby", "perl"],
-    // programs that run another one, like "htop" in "sudo htop", show the icon of the program they run
-    "wrappers": ["sudo", "doas", "run0", "pkexec", "env", "nice", "nohup", "timeout"],
-    "groups": [
-      {
-        // remote shells
-        "icon": "",
-        "commands": ["ssh", "mosh", "telnet", "sftp", "ftp", "lftp", "scp", "rlogin", "rsh", "autossh", "sshpass"],
-      },
-      {
-        // network tools
-        "icon": "",
-        "commands": ["ping", "ping6", "traceroute", "tracepath", "mtr", "nmap", "dig", "nslookup", "host", "whois", "netstat", "ss", "tcpdump", "tshark", "iperf", "iperf3", "nc", "ncat", "netcat", "socat", "arp", "iftop", "nethogs", "bandwhich", "nload", "speedtest", "speedtest-cli"],
-      },
-      {
-        // downloads
-        "icon": "󰇚",
-        "commands": ["curl", "wget", "aria2c", "xh", "http"],
-      },
-      {
-        // ai and agents
-        "icon": "󰚩",
-        "commands": ["claude", "opencode", "pi", "codex", "gemini", "aider", "crush", "goose", "amp", "cursor-agent", "copilot", "qwen", "llama-cli", "llama-server", "llama-bench", "ollama", "llm", "droid", "kiro-cli"],
-      },
-      {
-        // system monitors
-        "icon": "󰨇",
-        "commands": ["htop", "btop", "top", "atop", "bpytop", "bashtop", "glances", "nvtop", "iotop", "btm", "gotop", "gtop", "zenith", "s-tui", "bottom"],
-      },
-      {
-        // editors
-        "icon": "",
-        "commands": ["vi", "vim", "nvim", "nano", "micro", "hx", "helix", "emacs", "kak", "vis"],
-      },
-      {
-        // git
-        "icon": "",
-        "commands": ["git", "lazygit", "tig", "gitui", "gh"],
-      },
-      {
-        // containers
-        "icon": "󰡨",
-        "commands": ["docker", "podman", "lazydocker", "docker-compose", "podman-compose"],
-      },
-      {
-        // kubernetes
-        "icon": "󱃾",
-        "commands": ["kubectl", "k9s", "helm", "kubectx", "kubens", "minikube", "kind"],
-      },
-      {
-        // package managers
-        "icon": "󰏖",
-        "commands": ["apt", "apt-get", "aptitude", "dpkg", "nala", "dnf", "dnf5", "yum", "rpm", "rpm-ostree", "zypper", "pacman", "yay", "paru", "pamac", "apk", "emerge", "xbps-install", "eopkg", "nix", "nix-env", "flatpak", "snap", "brew", "pkg"],
-      },
+  // icon shown where "tab_title" has the "icon" block, a nerd font glyph
+  "icons": {
+    // icon of the shell and of programs without an icon of their own in "dynamic_app_icons".
+    // more icons are listed on https://www.nerdfonts.com/cheat-sheet
+    "default": "",
+    // true switches the icon to the one of the program running in front, like ssh or htop,
+    // looked up in "dynamic_app_icons". false always shows "default"
+    "dynamic": true,
+    // the program running in front of the shell is looked up by name in "groups", the first
+    // group listing it gives its icon. programs in no group show "default".
+    // the lists set here replace the bundled ones, "groups" too, so copy the groups to keep.
+    // --tab-icons-file loads this section from its own file
+    "dynamic_app_icons": {
+      // programs started through these are matched by their script, like "pi" in "node /usr/bin/pi"
+      "interpreters": ["node", "nodejs", "bun", "deno", "python", "python3", "ruby", "perl"],
+      // programs that run another one, like "htop" in "sudo htop", show the icon of the program they run
+      "wrappers": ["sudo", "doas", "run0", "pkexec", "env", "nice", "nohup", "timeout"],
+      "groups": [
+        {
+          // remote shells
+          "icon": "",
+          "commands": ["ssh", "mosh", "telnet", "sftp", "ftp", "lftp", "scp", "rlogin", "rsh", "autossh", "sshpass"],
+        },
+        {
+          // network tools
+          "icon": "",
+          "commands": ["ping", "ping6", "traceroute", "tracepath", "mtr", "nmap", "dig", "nslookup", "host", "whois", "netstat", "ss", "tcpdump", "tshark", "iperf", "iperf3", "nc", "ncat", "netcat", "socat", "arp", "iftop", "nethogs", "bandwhich", "nload", "speedtest", "speedtest-cli"],
+        },
+        {
+          // downloads
+          "icon": "󰇚",
+          "commands": ["curl", "wget", "aria2c", "xh", "http"],
+        },
+        {
+          // ai and agents
+          "icon": "󰚩",
+          "commands": ["claude", "opencode", "pi", "codex", "gemini", "aider", "crush", "goose", "amp", "cursor-agent", "copilot", "qwen", "llama-cli", "llama-server", "llama-bench", "ollama", "llm", "droid", "kiro-cli"],
+        },
+        {
+          // system monitors
+          "icon": "󰨇",
+          "commands": ["htop", "btop", "top", "atop", "bpytop", "bashtop", "glances", "nvtop", "iotop", "btm", "gotop", "gtop", "zenith", "s-tui", "bottom"],
+        },
+        {
+          // editors
+          "icon": "",
+          "commands": ["vi", "vim", "nvim", "nano", "micro", "hx", "helix", "emacs", "kak", "vis"],
+        },
+        {
+          // git
+          "icon": "",
+          "commands": ["git", "lazygit", "tig", "gitui", "gh"],
+        },
+        {
+          // containers
+          "icon": "󰡨",
+          "commands": ["docker", "podman", "lazydocker", "docker-compose", "podman-compose"],
+        },
+        {
+          // kubernetes
+          "icon": "󱃾",
+          "commands": ["kubectl", "k9s", "helm", "kubectx", "kubens", "minikube", "kind"],
+        },
+        {
+          // package managers
+          "icon": "󰏖",
+          "commands": ["apt", "apt-get", "aptitude", "dpkg", "nala", "dnf", "dnf5", "yum", "rpm", "rpm-ostree", "zypper", "pacman", "yay", "paru", "pamac", "apk", "emerge", "xbps-install", "eopkg", "nix", "nix-env", "flatpak", "snap", "brew", "pkg"],
+        },
 
-      {
-        // compilers and build tools
-        "icon": "",
-        "commands": [
-          "gcc", "g++", "cc", "c++", "clang", "clang++", "zig", "rustc", "cargo", "go", "javac", "kotlinc", "make", "gmake", "cmake", "ninja", "meson", "mvn", "gradle", "python", "python3"
-        ],
-      }
-    ]
+        {
+          // compilers and build tools
+          "icon": "",
+          "commands": [
+            "gcc", "g++", "cc", "c++", "clang", "clang++", "zig", "rustc", "cargo", "go", "javac", "kotlinc", "make", "gmake", "cmake", "ninja", "meson", "mvn", "gradle", "python", "python3"
+          ],
+        }
+      ]
+    },
   },
 
   // values for one os only, merged over everything else on that os, so one settings file can

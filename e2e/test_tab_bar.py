@@ -12,7 +12,7 @@ FEATURE = "tab bar"
 THEME = unique_theme(0x60)
 C = as_rgb(THEME)
 # the title text alone, no icon, so ink in a tab is its title and close button
-PLAIN = {"tab_title": [{"text": "title"}], "tab_icon": {"dynamic": False, "default": ""}}
+PLAIN = {"tab_title": [{"text": "title"}]}
 
 
 def bar_app(app_factory, **settings) -> App:
@@ -116,23 +116,27 @@ def test_title_align(app_factory, align):
     assert expected, (align, x0, x1)
 
 
-@pytest.mark.parametrize("position", ["left", "right"])
-def test_tab_icon_position(app_factory, position):
-    """tab_icon.position puts the icon before the title, or at the far end of the tab"""
-    app = bar_app(app_factory, tab_width=300, tab_title=[{"text": "t"}],
-                  tab_icon={"position": position, "dynamic": False, "default": ""})
+@pytest.mark.parametrize("icon_first", [True, False])
+def test_tab_icon_block_places_icon(app_factory, icon_first):
+    """the "icon" block of tab_title draws the icon where it sits among the other blocks"""
+    # spaces keep the wide icon and the narrow letter apart, each half of the ink holds one
+    title = ["icon", {"text": "        i"}] if icon_first else [{"text": "i        "}, "icon"]
+    app = bar_app(app_factory, tab_width=300, tab_title=title, icons={"dynamic": False, "default": "WWW"})
     open_tabs(app, 2)
     app.wait(lambda: muted_ink(app, app.shot(), 0, 299), msg="icon and title")
-    # the title takes the free room, so a right icon is pushed to the far end of the tab
-    x0, _, x1, _ = muted_ink(app, app.shot(), 0, 299)
-    assert x0 < 40 and (x1 < 100 if position == "left" else x1 > 200), (x0, x1)
+    img = app.shot()
+    x0, _, x1, _ = muted_ink(app, img, 0, 299)
+    mid = (x0 + x1) // 2
+    left, right = muted_ink(app, img, x0, mid), muted_ink(app, img, mid, x1 + 1)
+    assert left and right, (x0, x1)
+    assert (left[2] - left[0] > right[2] - right[0]) == icon_first, (left, right)
 
 
 @pytest.mark.parametrize("dynamic", [True, False])
 def test_dynamic_tab_icon_follows_program(app_factory, dynamic):
-    """tab_icon.dynamic shows the icon of the running program, false keeps the default one"""
-    app = app_factory({"theme": {"mode": "dark"}, "hide_bar_for_one_tab": False, "tab_title": [{"text": "t"}],
-                       "tab_icon": {"dynamic": dynamic, "default": "D"}},
+    """icons.dynamic shows the icon of the running program, false keeps the default one"""
+    app = app_factory({"theme": {"mode": "dark"}, "hide_bar_for_one_tab": False,
+                       "tab_title": ["icon", {"text": "t"}], "icons": {"dynamic": dynamic, "default": "D"}},
                       themes={"dark": THEME},
                       tab_icons={"groups": [{"icon": "", "commands": ["sleep"]}]})
     app.mouse(450, 500)
@@ -400,7 +404,7 @@ def test_overflowing_tabs_keep_width_and_scroll(app_factory):
 # truncation checks: every tab looks alike, so each can be compared with one uncut reference
 CUT_THEME = {**THEME, "text_muted": THEME["text"], "tab_active_background": THEME["tab_bar_background"]}
 CUT_BG = as_rgb(CUT_THEME)["tab_bar_background"]
-CUT_BASE = {"tab_icon": {"dynamic": False, "default": ""}, "show_tab_close_button": False,
+CUT_BASE = {"show_tab_close_button": False,
             "hide_bar_for_one_tab": False}
 LONG = "a long title with several words in it"
 # widest char of the titles below, in ui font pixels: cjk glyphs are about one em

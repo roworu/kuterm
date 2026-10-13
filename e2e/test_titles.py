@@ -80,6 +80,17 @@ def test_blocks_joined_in_order(app_factory):
     app.wait_title("1: ~ > bash")
 
 
+def test_icon_block_is_the_active_tab_icon(app_factory):
+    """"icon" in the window title is the icon of the active tab, following its program"""
+    app = titled(app_factory, ["icon", {"text": " "}, "command"], settings={"icons": {"default": "D"}},
+                 tab_icons={"groups": [{"icon": "S", "commands": ["sleep"]}]})
+    app.wait_title("D bash")
+    app.run("sleep 30")
+    app.wait_title("S sleep")
+    app.key("ctrl+shift+t")
+    app.wait_title("D bash")
+
+
 @pytest.mark.parametrize("blocks", [[], [{"text": ""}], ["title"]], ids=["none", "empty-text", "no-title"])
 def test_empty_window_title_uses_default_title(app_factory, blocks):
     """an empty window title falls back to default_title"""
@@ -118,7 +129,7 @@ def test_tab_title_blocks_are_drawn(app_factory):
     theme = unique_theme(0x70)
     colors = as_rgb(theme)
     app = titled(app_factory, [{"text": "window"}], themes={"dark": theme},
-                 settings={"hide_bar_for_one_tab": False, "tab_icon": {"dynamic": False, "default": ""},
+                 settings={"hide_bar_for_one_tab": False,
                            "tab_title": [{"text": "WWWWWWWWWW"}]})
     app.wait_title("window")
     h = app.bar_height()

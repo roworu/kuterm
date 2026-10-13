@@ -92,7 +92,7 @@ def test_profile_theme_colors_its_tab(app_factory):
 
 def test_profile_icon_is_kept(app_factory):
     """a profile icon stays whatever runs in the tab"""
-    app = app_factory({"theme": {"mode": "dark"}, "hide_bar_for_one_tab": False, "tab_title": [{"text": "t"}],
+    app = app_factory({"theme": {"mode": "dark"}, "hide_bar_for_one_tab": False, "tab_title": ["icon", {"text": "t"}],
                        "profiles": [profile("iconic", icon="")]},
                       themes={"dark": THEME},
                       tab_icons={"groups": [{"icon": "", "commands": ["sleep"]}]})

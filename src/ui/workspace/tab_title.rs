@@ -21,14 +21,15 @@ pub(super) struct TitleInputs {
     pub profile_icon: Option<String>,
 }
 
-/// join blocks into a title, may block on exec commands
+/// join blocks into a title and the byte offsets icons go at, may block on exec commands
 pub(super) fn build_title(
     blocks: &[TabTitleBlock],
     inputs: &TitleInputs,
     process: Option<&ForegroundProcess>,
-) -> String {
+) -> (String, Vec<usize>) {
     let cwd = process.and_then(|process| process.cwd.as_deref());
     let mut title = String::new();
+    let mut icon_at = Vec::new();
     for block in blocks {
         match block {
             TabTitleBlock::Number => title.push_str(&inputs.number.to_string()),
@@ -38,7 +39,18 @@ pub(super) fn build_title(
             TabTitleBlock::Title => title.push_str(&inputs.title),
             TabTitleBlock::Text(text) => title.push_str(text),
             TabTitleBlock::Exec(command) => title.push_str(&exec(command, cwd).unwrap_or_default()),
+            // tabs draw the icon on their own, nudged down to the baseline, so it is no text
+            TabTitleBlock::Icon => icon_at.push(title.len()),
         }
+    }
+    (title, icon_at)
+}
+
+/// `title` with `icon` put in at each byte offset of `icon_at`
+pub(super) fn insert_icons(mut title: String, icon_at: &[usize], icon: &str) -> String {
+    // from the end, so the offsets before stay right
+    for &at in icon_at.iter().rev() {
+        title.insert_str(at, icon);
     }
     title
 }
@@ -167,6 +179,7 @@ mod tests {
             &inputs,
             foreground_process(inputs.shell_pid).as_ref(),
         )
+        .0
     }
 
     #[test]
@@ -179,6 +192,28 @@ mod tests {
             TabTitleBlock::Exec("echo first; echo second".into()),
         ]);
         assert_eq!(title, "3: vim - first");
+    }
+
+    #[test]
+    fn icons_are_left_out_of_the_text_at_their_offsets() {
+        let inputs = TitleInputs {
+            number: 3,
+            shell_pid: std::process::id(),
+            title: "vim".into(),
+            profile_icon: None,
+        };
+        let blocks = [
+            TabTitleBlock::Icon,
+            TabTitleBlock::Number,
+            TabTitleBlock::Text(" - ".into()),
+            TabTitleBlock::Icon,
+            TabTitleBlock::Title,
+            TabTitleBlock::Icon,
+        ];
+        let (title, icon_at) = build_title(&blocks, &inputs, None);
+        assert_eq!(title, "3 - vim");
+        assert_eq!(icon_at, [0, 4, 7]);
+        assert_eq!(insert_icons(title, &icon_at, "I"), "I3 - IvimI");
     }
 
     #[test]

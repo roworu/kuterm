@@ -131,6 +131,8 @@ pub enum TabTitleBlock {
     Text(String),
     /// first line of a shell command's output, run in the current folder
     Exec(String),
+    /// icon from "icons"
+    Icon,
 }
 
 /// where the title sits inside its tab
@@ -149,14 +151,6 @@ pub enum NewTabButton {
     Left,
     Right,
     AfterTabs,
-}
-
-/// which side of the tab the icon sits on
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum TabIconPosition {
-    Left,
-    Right,
 }
 
 /// when the scrollbar is shown

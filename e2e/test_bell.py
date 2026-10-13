@@ -51,7 +51,7 @@ def test_tab_indicator(app_factory):
     """a background tab that rang shows a bell icon until it is opened"""
     for indicator in (True, False):
         app = app_factory({"theme": {"mode": "dark"}, "window_title": ["number"], "tab_width": 200,
-                           "tab_title": [{"text": "t"}], "tab_icon": {"dynamic": False, "default": ""},
+                           "tab_title": [{"text": "t"}],
                            "show_tab_close_button": False,
                            "bell": {"tab_indicator": indicator, "visual": {"enable": False}}},
                           script=RING, name=f"tab_indicator_{indicator}")
