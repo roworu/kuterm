@@ -1,6 +1,7 @@
 //! root view: owns tabs and handles new tab / close tab.
 
 mod app_menu;
+mod config_watch;
 mod end_truncated;
 mod notifications;
 mod session;
@@ -12,7 +13,7 @@ mod window;
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
-    time::{Duration, Instant, SystemTime},
+    time::{Duration, Instant},
 };
 
 use futures::{
@@ -26,6 +27,7 @@ use gpui::{
 };
 
 pub use app_menu::{app_menus, dock_menu, open_urls};
+pub use config_watch::watch_config;
 use notifications::Notification;
 use tab_title::TitleInputs;
 pub use window::{background_appearance, startup_bounds, window_decorations};
@@ -90,11 +92,6 @@ const QUIT_DIALOG_MAX_NAMES: usize = 3;
 // a fresh shell prints startup output before its prompt, so typed input waits for a short
 // quiet gap. writing sooner lets the tty echo the input before the shell reads it
 const SHELL_READY_SETTLE: Duration = Duration::from_millis(50);
-// how often config files are checked for changes, polling needs no watcher per platform
-// and sees files outside the config folder and editors that replace files on save
-const CONFIG_POLL: Duration = Duration::from_millis(250);
-// editors save in steps, like truncate then write, so a change is read once it settles
-const CONFIG_SETTLE: Duration = Duration::from_millis(100);
 
 // tab title blocks, window title blocks, icon settings, program icons, active tab, per tab inputs
 type TitleSnapshot = (
@@ -536,25 +533,12 @@ pub struct Workspace {
     /// true asks for titles right away, false lets output driven refreshes wait for the gap
     refresh_titles: UnboundedSender<bool>,
     _title_task: Task<()>,
-    /// reloads the config when one of its files changes
-    _config_watch: Task<()>,
     /// set once quitting is decided, so closing the window asks nothing more
     quitting: bool,
     /// writes the window size once resizing stops
     _size_save: Task<()>,
     /// appearance the themes were last picked for
     appearance: WindowAppearance,
-}
-
-// modified time and size of each file, none for missing ones
-fn file_stamps(paths: &[PathBuf]) -> Vec<Option<(SystemTime, u64)>> {
-    paths
-        .iter()
-        .map(|path| {
-            let meta = std::fs::metadata(path).ok()?;
-            Some((meta.modified().ok()?, meta.len()))
-        })
-        .collect()
 }
 
 /// spawn `profile` in a pty, with shell integration and the remote socket added
@@ -688,32 +672,6 @@ impl Workspace {
                 while refresh_rx.try_recv().is_ok() {}
             }
         });
-        let config_watch = cx.spawn_in(window, async move |this, cx| {
-            let mut last = None;
-            loop {
-                let Ok(paths) = this.update(cx, |this, cx| this.watched_files(cx)) else {
-                    break;
-                };
-                // file stats may block on network folders
-                let stamps = cx
-                    .background_executor()
-                    .spawn(async move { (file_stamps(&paths), paths) })
-                    .await;
-                if last.as_ref().is_some_and(|last| *last != stamps) {
-                    cx.background_executor().timer(CONFIG_SETTLE).await;
-                    let Ok(()) =
-                        this.update_in(cx, |this, window, cx| this.reload_config(window, cx))
-                    else {
-                        break;
-                    };
-                    // the reload may watch other files, so stamps start over
-                    last = None;
-                    continue;
-                }
-                last = Some(stamps);
-                cx.background_executor().timer(CONFIG_POLL).await;
-            }
-        });
         let mut this = Self {
             layout: LayoutNode::Leaf(Pane {
                 id: 0,
@@ -737,7 +695,6 @@ impl Workspace {
             next_notification_id: 0,
             refresh_titles,
             _title_task: title_task,
-            _config_watch: config_watch,
             quitting: false,
             _size_save: Task::ready(()),
             appearance: theme::appearance(window, cx),
@@ -1680,15 +1637,6 @@ impl Workspace {
         }
         // terminal views may be cached, force redraw everything with new colors
         window.refresh();
-    }
-
-    /// config files and theme files in use, empty when the config was not loaded from files
-    fn watched_files(&self, cx: &App) -> Vec<PathBuf> {
-        let Some(files) = cx.try_global::<ConfigFiles>() else {
-            return Vec::new();
-        };
-        let themes = Theme::files(Settings::get(cx));
-        files.paths.iter().cloned().chain(themes).collect()
     }
 
     /// read the config and theme files again and apply them, a broken file keeps the
@@ -3901,43 +3849,58 @@ mod tests {
         std::fs::create_dir_all(&config).unwrap();
         crate::settings::tests::with_config_home(&dir, || {
             let (ws, cx) = open(cx, 1);
-            let tick = |cx: &mut VisualTestContext| {
-                // a poll sees the change, then it settles, then it is read
-                for _ in 0..3 {
-                    cx.executor().advance_clock(CONFIG_POLL);
-                    cx.run_until_parked();
-                }
-            };
             let tab_width =
                 |cx: &mut VisualTestContext| cx.update(|_, cx| Settings::get(cx).tab_width);
+            // the watcher's events come from its own thread
+            let reloads_to = |cx: &mut VisualTestContext, width: u32| {
+                wait_until(cx, "config was not reloaded", |cx| tab_width(cx) == width)
+            };
             let settings = config.join("settings.jsonc");
             std::fs::write(&settings, r#"{"tab_width": 123}"#).unwrap();
-            // nothing is watched until the config came from files
-            tick(cx);
-            assert_ne!(tab_width(cx), 123);
-
             cx.update(|_, cx| {
                 cx.set_global(ConfigFiles {
                     paths: vec![settings.clone()],
                     problems: Vec::new(),
                 })
             });
-            tick(cx);
-            assert_eq!(tab_width(cx), 123);
+            let _watch = cx.update(|_, cx| watch_config(cx));
+            pump(cx);
+
+            std::fs::write(&settings, r#"{"tab_width": 124}"#).unwrap();
+            reloads_to(cx, 124);
 
             std::fs::write(&settings, r#"{"tab_width": 1234}"#).unwrap();
-            tick(cx);
-            assert_eq!(tab_width(cx), 1234);
+            reloads_to(cx, 1234);
+
+            // editors that save to a new file and rename it over the old one
+            let saved = config.join("settings.jsonc.tmp");
+            std::fs::write(&saved, r#"{"tab_width": 321}"#).unwrap();
+            std::fs::rename(&saved, &settings).unwrap();
+            reloads_to(cx, 321);
 
             // an import that shows up later is noticed, it is watched while missing
             std::fs::write(&settings, r#"{"import": ["later.jsonc"], "tab_width": 77}"#).unwrap();
-            tick(cx);
-            assert_eq!(tab_width(cx), 77);
+            reloads_to(cx, 77);
             assert_eq!(error_texts(&ws, cx).len(), 1);
             std::fs::write(config.join("later.jsonc"), r#"{"ui_font_size": 13}"#).unwrap();
-            tick(cx);
-            assert_eq!(cx.update(|_, cx| Settings::get(cx).ui_font_size), 13.);
+            wait_until(cx, "import was not read", |cx| {
+                cx.update(|_, cx| Settings::get(cx).ui_font_size) == 13.
+            });
             assert!(error_texts(&ws, cx).is_empty());
+
+            // a file in a folder made later, the nearest existing folder is watched
+            let nested = config.join("more/nested.jsonc");
+            std::fs::write(
+                &settings,
+                r#"{"import": ["more/nested.jsonc"], "tab_width": 78}"#,
+            )
+            .unwrap();
+            reloads_to(cx, 78);
+            std::fs::create_dir_all(nested.parent().unwrap()).unwrap();
+            std::fs::write(&nested, r#"{"ui_font_size": 14}"#).unwrap();
+            wait_until(cx, "nested import was not read", |cx| {
+                cx.update(|_, cx| Settings::get(cx).ui_font_size) == 14.
+            });
         });
         let _ = std::fs::remove_dir_all(&dir);
     }

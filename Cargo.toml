@@ -34,6 +34,8 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 futures = "0.3"
 # finds escapes in pty output, already in the tree through alacritty
 memchr = "2"
+# reloads config files when they change, without polling them
+notify = "8"
 serde = { version = "1", features = ["derive"] }
 serde_json_lenient = "0.2"
 skrifa = "0.47"

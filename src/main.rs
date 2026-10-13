@@ -21,7 +21,7 @@ use crate::{
         text_input,
         windows::open_workspace_window,
         workspace::{
-            Hide, HideOthers, NewTab, Quit, ShowAll, app_menus, dock_menu, open_urls,
+            Hide, HideOthers, NewTab, Quit, ShowAll, app_menus, dock_menu, open_urls, watch_config,
             with_workspace,
         },
     },
@@ -147,6 +147,7 @@ fn main() {
     });
     app.run(move |cx: &mut App| {
         init(portal, cx);
+        watch_config(cx).detach();
         // the app ends with its last window
         cx.on_window_closed(|cx, _| {
             if cx.windows().is_empty() {
