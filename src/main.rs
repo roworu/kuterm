@@ -15,7 +15,7 @@ use gpui_platform::application;
 use crate::{
     cli::{Cli, USAGE},
     remote::Request,
-    settings::{Config, ConfigFiles, Pins, RemoteControl, Settings},
+    settings::{Config, ConfigFiles, Pins, RemoteControl, Settings, StatusBarState},
     theme::{PortalAppearance, Theme},
     ui::{
         text_input,
@@ -72,6 +72,7 @@ fn init(portal: PortalAppearance, cx: &mut App) {
     cx.set_global(config.tab_icons);
     cx.set_global(config.commands);
     cx.set_global(Pins::load());
+    cx.set_global(StatusBarState::load());
     cx.set_global(ConfigFiles {
         paths: load.files,
         problems,

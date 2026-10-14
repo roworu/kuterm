@@ -5,6 +5,7 @@ mod config;
 mod keybindings;
 mod options;
 mod pins;
+mod status_bar_state;
 mod tab_icons;
 mod window_size;
 
@@ -24,11 +25,13 @@ pub use config::{Config, ConfigFiles};
 pub use keybindings::Keybindings;
 pub use options::{
     BellTarget, ClipboardAccess, ConfirmQuit, CursorBlink, CursorShape, CursorUnfocused,
-    Decorations, FontSlant, LineHeight, LinkModifier, MenuBarMode, NewTabButton, PatternAction,
-    ProgramNotifications, RemoteControl, RestoreSession, ScrollEasing, ScrollbarEnable,
-    ScrollbarPlacement, SearchCase, Shell, StartupMode, TabTitleAlign, TabTitleBlock, ThemeMode,
+    Decorations, FontSlant, LineHeight, LinkModifier, MemoryUnit, MenuBarMode, NewTabButton,
+    PatternAction, ProgramNotifications, RemoteControl, RestoreSession, ScrollEasing,
+    ScrollbarEnable, ScrollbarPlacement, SearchCase, Shell, StartupMode, TabTitleAlign,
+    TabTitleBlock, ThemeMode,
 };
 pub use pins::Pins;
+pub use status_bar_state::StatusBarState;
 pub use tab_icons::TabIcons;
 pub use window_size::WindowSize;
 
@@ -79,6 +82,8 @@ pub struct StatusBarSettings {
     pub enable: bool,
     pub left: Vec<TabTitleBlock>,
     pub right: Vec<TabTitleBlock>,
+    /// unit memory shows in until a click on it picks another
+    pub memory_unit: MemoryUnit,
 }
 
 /// images programs show with kitty's graphics protocol
@@ -1172,7 +1177,8 @@ pub(crate) mod tests {
     fn status_bar_takes_title_and_sampled_blocks() {
         let settings = Settings::parse(
             r#"{"status_bar": {"enable": true, "left": ["folder", "ports", "cpu", "memory"],
-                "right": [{"text": "all"}, "total_cpu", "total_memory", "all_ports"]}}"#,
+                "right": [{"text": "all"}, "total_cpu", "total_memory", "all_ports", "network",
+                "total_network"], "memory_unit": "mb"}}"#,
         )
         .unwrap();
         let bar = settings.status_bar;
@@ -1192,11 +1198,15 @@ pub(crate) mod tests {
                 TabTitleBlock::Text("all".into()),
                 TabTitleBlock::TotalCpu,
                 TabTitleBlock::TotalMemory,
-                TabTitleBlock::AllPorts
+                TabTitleBlock::AllPorts,
+                TabTitleBlock::Network,
+                TabTitleBlock::TotalNetwork
             ]
         );
+        assert_eq!(bar.memory_unit, MemoryUnit::Mb);
         let settings = Settings::parse(r#"{"status_bar": {"enable": false}}"#).unwrap();
         assert!(!settings.status_bar.enable);
+        assert_eq!(settings.status_bar.memory_unit, MemoryUnit::Auto);
     }
 
     #[test]

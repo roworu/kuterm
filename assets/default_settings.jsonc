@@ -75,7 +75,11 @@
   //   "cpu"                                    - cpu use of the programs of the tab, like
   //                                              "34%", 100% is one busy core
   //   "memory"                                 - memory they use, like "1.2 GB"
-  //   "total_cpu", "total_memory", "all_ports" - the same for all tabs together
+  //   "network"                                - tcp traffic of the programs of the tab,
+  //                                              like "↓1.2 MB/s ↑4.0 KB/s". udp, like
+  //                                              quic, is not counted
+  //   "total_cpu", "total_memory", "all_ports",
+  //   "total_network"                          - the same for all tabs together
   // titles refresh every second. an "exec" command still running after 2 seconds is
   // abandoned and shows nothing, so keep them fast. blocks with nothing to show, like a
   // failing "exec", are left empty.
@@ -113,12 +117,16 @@
   // thin bar at the bottom of the window, quiet until hovered. both sides are built for the
   // active tab from the same blocks as "tab_title", each block apart from the next, blocks
   // with nothing to show are left out. a click on a port opens http://localhost:<port>, a
-  // click on "total_cpu" or "total_memory" lists them per tab in the command palette.
-  // cpu, memory and ports are only measured while something shows them
+  // click on "memory" switches its unit, a click on "total_cpu", "total_memory" or
+  // "total_network" lists them per tab in the command palette.
+  // cpu, memory, traffic and ports are only measured while something shows them
   "status_bar": {
     "enable": false,
-    "left": ["prompt", "folder", "cpu", "memory", "ports"],
-    "right": [{ "text": "all tabs" }, "total_cpu", "total_memory", "all_ports"],
+    "left": ["prompt", "folder", "cpu", "memory", "network", "ports"],
+    "right": [{ "text": "all tabs" }, "total_cpu", "total_memory", "total_network", "all_ports"],
+    // unit of memory in titles and the status bar: "auto", "kb", "mb" or "gb". a click on
+    // "memory" switches to the next one and is remembered until this is changed
+    "memory_unit": "auto",
   },
 
   // the command palette: a list of commands filtered as you type, opened with the

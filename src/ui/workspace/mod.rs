@@ -43,7 +43,7 @@ use crate::{
     cli::Cli,
     settings::{
         Command, CommandAction, Commands, Config, ConfigFiles, ConfirmQuit, Profile,
-        RestoreSession, Settings, Shell, TabIconSettings, TabIcons, TabTitleBlock,
+        RestoreSession, Settings, Shell, StatusBarState, TabIconSettings, TabIcons, TabTitleBlock,
     },
     terminal::{
         Event, ProcessSampler, Terminal, TerminalBounds, TerminalBuilder, TreeSample,
@@ -2187,13 +2187,24 @@ impl Workspace {
     fn status_clicked(&mut self, click: Click, window: &mut Window, cx: &mut Context<Self>) {
         match click {
             Click::Port(port) => open_link(format!("http://localhost:{port}"), cx),
-            Click::TotalCpu | Click::TotalMemory => self.open_usage_picker(click, window, cx),
+            Click::Memory => {
+                let default = Settings::get(cx).status_bar.memory_unit;
+                let state = cx.default_global::<StatusBarState>();
+                state.next_memory_unit(default);
+                state.save();
+                self.refresh_titles();
+            }
+            Click::TotalCpu | Click::TotalMemory | Click::TotalNetwork => {
+                self.open_usage_picker(click, window, cx)
+            }
         }
     }
 
-    /// palette listing cpu or memory of every tab, most first, picking one switches to it
+    /// palette listing cpu, memory or traffic of every tab, most first, picking one switches
+    /// to it
     fn open_usage_picker(&mut self, click: Click, window: &mut Window, cx: &mut Context<Self>) {
         let several_panes = self.layout.panes().len() > 1;
+        let unit = StatusBarState::get(cx).memory_unit(Settings::get(cx).status_bar.memory_unit);
         let mut rows = Vec::new();
         for (pane_number, pane) in self.layout.panes().into_iter().enumerate() {
             for (ix, tab) in pane.tabs.iter().enumerate() {
@@ -2204,7 +2215,14 @@ impl Workspace {
                         f64::from(sample.cpu_percent),
                         tab_title::percent(sample.cpu_percent),
                     ),
-                    _ => (sample.rss_bytes as f64, tab_title::bytes(sample.rss_bytes)),
+                    Click::TotalNetwork => (
+                        (sample.received_per_sec + sample.sent_per_sec) as f64,
+                        tab_title::network(&sample),
+                    ),
+                    _ => (
+                        sample.rss_bytes as f64,
+                        tab_title::bytes(sample.rss_bytes, unit),
+                    ),
                 };
                 // the number tells the rows apart, so a pick finds its tab again
                 let number = if several_panes {
@@ -2260,6 +2278,7 @@ impl Workspace {
             .enable
             .then(|| [status_bar.left.clone(), status_bar.right.clone()]);
         let sampled = shows_samples(settings);
+        let memory_unit = StatusBarState::get(cx).memory_unit(status_bar.memory_unit);
         let mut inputs = Vec::new();
         let mut active = 0;
         for pane in self.layout.panes() {
@@ -2280,6 +2299,7 @@ impl Workspace {
                             .then(|| ProcessSampler::shared().sample(terminal.shell_pid))
                             .flatten(),
                         total: None,
+                        memory_unit,
                     },
                 ));
             }
@@ -2564,7 +2584,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        settings::{Keybindings, Pins},
+        settings::{Keybindings, MemoryUnit, Pins},
         terminal::{Terminal, TerminalBounds},
     };
 
@@ -4116,6 +4136,31 @@ mod tests {
     }
 
     #[cfg(not(target_os = "macos"))]
+    #[gpui::test]
+    fn memory_click_switches_unit_and_remembers_it(cx: &mut TestAppContext) {
+        let dir = crate::settings::tests::temp_dir("workspace_memory_unit");
+        crate::settings::tests::with_config_home(&dir, || {
+            let (ws, cx) = open_with_status(cx, "[]", r#"["memory"]"#, "[]");
+            let memory = |cx: &mut VisualTestContext| {
+                ws.update(cx, |ws, _| ws.status[0].first().map(|p| p.text.clone()))
+            };
+            wait_until(cx, "memory never measured", |cx| memory(cx).is_some());
+            for unit in ["KB", "MB", "GB"] {
+                let at = cx.debug_bounds("status-Memory").unwrap().center();
+                click(cx, at, 1);
+                release(cx, at);
+                wait_until(cx, "memory unit never switched", |cx| {
+                    memory(cx).is_some_and(|text| text.ends_with(unit))
+                });
+            }
+            assert_eq!(
+                StatusBarState::load().memory_unit(MemoryUnit::Auto),
+                MemoryUnit::Gb
+            );
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[gpui::test]
     fn menu_bar_is_shown_only_when_asked(cx: &mut TestAppContext) {
         let (_, cx) = open_with_menu_bar(cx, "never");

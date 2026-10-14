@@ -1,7 +1,7 @@
 //! value types for settings that have a fixed set of choices
 
 use alacritty_terminal::vte::ansi::CursorShape as AlacCursorShape;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// shell to launch
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -148,6 +148,10 @@ pub enum TabTitleBlock {
     TotalMemory,
     /// ports of every tab
     AllPorts,
+    /// tcp bytes the tab's programs receive and send per second
+    Network,
+    /// tcp traffic of every tab added up
+    TotalNetwork,
 }
 
 impl TabTitleBlock {
@@ -161,7 +165,33 @@ impl TabTitleBlock {
                 | Self::TotalCpu
                 | Self::TotalMemory
                 | Self::AllPorts
+                | Self::Network
+                | Self::TotalNetwork
         )
+    }
+}
+
+/// unit memory blocks are shown in
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryUnit {
+    /// the largest unit that keeps the number at 1 or more
+    #[default]
+    Auto,
+    Kb,
+    Mb,
+    Gb,
+}
+
+impl MemoryUnit {
+    /// the unit a click switches to
+    pub fn next(self) -> Self {
+        match self {
+            Self::Auto => Self::Kb,
+            Self::Kb => Self::Mb,
+            Self::Mb => Self::Gb,
+            Self::Gb => Self::Auto,
+        }
     }
 }
 
