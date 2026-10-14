@@ -174,6 +174,14 @@ pub enum TabTitleAlign {
     Right,
 }
 
+/// what the visual bell flashes
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum BellTarget {
+    Tab,
+    Terminal,
+}
+
 /// where the new tab button sits in the tab bar
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]

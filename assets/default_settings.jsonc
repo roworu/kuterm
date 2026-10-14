@@ -230,7 +230,7 @@
   // tab completion, or "printf '\a'" at the end of a long command. all of these can be on
   // at the same time
   "bell": {
-    // flash over the terminal that fades out
+    // flash that fades out
     "visual": {
       "enable": true,
       // flash color as a hex string, alpha keeps text readable, like "#ffffff40".
@@ -238,6 +238,9 @@
       "color": null,
       // milliseconds the flash takes to fade out, from 0 to 2000
       "duration": 150,
+      // "tab" flashes only the tab of the terminal, or the edges of the terminal while its
+      // tab bar is hidden. "terminal" flashes over the whole terminal
+      "target": "tab",
     },
     // play the system bell sound
     "audio": false,

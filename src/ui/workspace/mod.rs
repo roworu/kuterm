@@ -1081,6 +1081,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let bell = &Settings::get(cx).bell;
+        let flash = bell.visual.enable;
         if bell.audio {
             window.play_system_bell();
         }
@@ -1093,6 +1094,10 @@ impl Workspace {
             && pane.active != ix
         {
             pane.tabs[ix].bell = true;
+            cx.notify();
+        }
+        // the flash of a background tab is drawn by the workspace only
+        if flash {
             cx.notify();
         }
     }

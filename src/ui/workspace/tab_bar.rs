@@ -21,7 +21,7 @@ use super::{
     window::{client_frame, shows_tab_bar},
 };
 use crate::{
-    settings::{Decorations, NewTabButton, Settings, TabTitleAlign},
+    settings::{BellTarget, Decorations, NewTabButton, Settings, TabTitleAlign},
     theme::Theme,
     ui::terminal_view::open_link,
 };
@@ -293,6 +293,16 @@ impl Workspace {
         let icon = tab_state.icon.clone();
         let icon_at = tab_state.icon_at.clone();
         let bell = tab_state.bell;
+        let flash = tab_state
+            .view
+            .read(cx)
+            .bell_color(cx)
+            .filter(|_| settings.bell.visual.target == BellTarget::Tab);
+        let background = match profile_theme {
+            Some(profile) => profile.terminal_background,
+            None if is_active => theme.tab_active_background,
+            None => theme.tab_bar_background,
+        };
         // a spinner frame has the same length, so the ranges still fit
         tab(ix, &title, &icon, &icon_at, &tab_state.ports_at, settings)
             .group("tab")
@@ -305,6 +315,7 @@ impl Workspace {
             .when(is_active && profile_theme.is_none(), |tab| {
                 tab.bg(theme.tab_active_background)
             })
+            .when_some(flash, |tab, flash| tab.bg(background.blend(flash)))
             .text_color(if is_active {
                 theme.text
             } else {
@@ -421,6 +432,11 @@ impl Workspace {
         let theme = Theme::get(cx);
         let pane_id = pane.id;
         let show_bar = shows_tab_bar(settings, pane.tabs.len());
+        let flash = pane
+            .tabs
+            .get(pane.active)
+            .and_then(|tab| tab.view.read(cx).bell_color(cx))
+            .filter(|_| settings.bell.visual.target == BellTarget::Tab);
         let framed = settings.window.decorations == Decorations::Server;
         // fixed width tabs only take the room they need, so the button follows the last one.
         // expanded tabs fill the row anyway, which puts the button at the right end.
@@ -495,6 +511,10 @@ impl Workspace {
                     .clone()
                     .cached(StyleRefinement::default().size_full())
             }))
+            // a hidden tab bar has no tab to flash, the pane edges stay out of the way of text
+            .when_some(flash.filter(|_| !show_bar), |terminal, flash| {
+                terminal.child(div().absolute().inset_0().border_2().border_color(flash))
+            })
             .when_some(zone, |terminal, side| {
                 terminal.child(drop_overlay(side, theme))
             })
@@ -784,6 +804,17 @@ impl Render for Workspace {
             Some(pane) => self.render_pane(pane, cx),
             None => self.render_layout(&self.layout, &[], cx),
         };
+        // a terminal view only animates its own flash, and not at all in a background tab
+        if settings.bell.visual.target == BellTarget::Tab
+            && self
+                .layout
+                .panes()
+                .into_iter()
+                .flat_map(|pane| &pane.tabs)
+                .any(|tab| tab.view.read(cx).bell_color(cx).is_some())
+        {
+            window.request_animation_frame();
+        }
         // its own row above the panes, each pane has its own tab bar but the menus belong to
         // the whole window
         let menu_bar = settings.window.menu_bar.shown();

@@ -23,8 +23,8 @@ pub(crate) use config::defaults as bundled_settings;
 pub use config::{Config, ConfigFiles};
 pub use keybindings::Keybindings;
 pub use options::{
-    ClipboardAccess, ConfirmQuit, CursorBlink, CursorShape, CursorUnfocused, Decorations,
-    FontSlant, LineHeight, LinkModifier, MenuBarMode, NewTabButton, PatternAction,
+    BellTarget, ClipboardAccess, ConfirmQuit, CursorBlink, CursorShape, CursorUnfocused,
+    Decorations, FontSlant, LineHeight, LinkModifier, MenuBarMode, NewTabButton, PatternAction,
     ProgramNotifications, RemoteControl, RestoreSession, ScrollEasing, ScrollbarEnable,
     ScrollbarPlacement, SearchCase, Shell, StartupMode, TabTitleAlign, TabTitleBlock, ThemeMode,
 };
@@ -213,7 +213,7 @@ pub struct BellSettings {
     pub tab_indicator: bool,
 }
 
-/// flash over the terminal that fades out
+/// flash that fades out
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 pub struct VisualBell {
     pub enable: bool,
@@ -221,6 +221,8 @@ pub struct VisualBell {
     pub color: Option<Hsla>,
     /// milliseconds the flash takes to fade out
     pub duration: f32,
+    /// flash only the tab of the terminal, or the whole terminal
+    pub target: BellTarget,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -1523,7 +1525,7 @@ pub(crate) mod tests {
     fn parses_bell_settings_and_duration_limits() {
         let bell = |json: &str| Settings::parse(json).unwrap().bell;
         let parsed = bell(
-            r##"{"bell": {"visual": {"enable": false, "color": "#ffffff40", "duration": 300}, "audio": true, "urgent": false, "tab_indicator": false}}"##,
+            r##"{"bell": {"visual": {"enable": false, "color": "#ffffff40", "duration": 300, "target": "terminal"}, "audio": true, "urgent": false, "tab_indicator": false}}"##,
         );
         assert_eq!(
             parsed,
@@ -1532,6 +1534,7 @@ pub(crate) mod tests {
                     enable: false,
                     color: Some(gpui::rgba(0xffffff40).into()),
                     duration: 300.,
+                    target: BellTarget::Terminal,
                 },
                 audio: true,
                 urgent: false,
@@ -1552,6 +1555,7 @@ pub(crate) mod tests {
         assert_eq!(duration("1e9"), 2000.);
         assert!(Settings::parse(r#"{"bell": {"audio": "loud"}}"#).is_err());
         assert!(Settings::parse(r#"{"bell": true}"#).is_err());
+        assert!(Settings::parse(r#"{"bell": {"visual": {"target": "window"}}}"#).is_err());
     }
 
     #[test]

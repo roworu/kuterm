@@ -15,7 +15,7 @@ use gpui::{
 };
 
 use crate::{
-    settings::{PatternAction, Settings, SmoothScrollSettings},
+    settings::{BellTarget, PatternAction, Settings, SmoothScrollSettings},
     terminal::{
         Event, KeyEventKind, Link, MouseAction, MouseButton, Terminal, TextPatterns, ViKey,
         foreground_process,
@@ -175,12 +175,20 @@ impl TerminalView {
 
     // fades with each frame until the duration is over
     fn bell_flash(&mut self, cx: &App) -> Option<Hsla> {
+        let flash = self.bell_color(cx);
+        if flash.is_none() {
+            self.bell_at = None;
+        }
+        flash
+    }
+
+    /// current color of the fading bell flash, none once it is over
+    pub fn bell_color(&self, cx: &App) -> Option<Hsla> {
         let rang = self.bell_at?;
         let visual = Settings::get(cx).bell.visual;
         let t = rang.elapsed().as_secs_f32() * 1000. / visual.duration;
         // a zero duration gives nan or infinity, which shows no flash
         if !visual.enable || t.is_nan() || t >= 1. {
-            self.bell_at = None;
             return None;
         }
         let color = visual.color.unwrap_or_else(|| {
@@ -902,7 +910,8 @@ impl Render for TerminalView {
                 focused,
                 self.cursor_on,
                 self.scrollbar_visible(cx),
-                bell_flash,
+                // the workspace flashes the tab, or the pane edges while the tab bar is hidden
+                bell_flash.filter(|_| Settings::get(cx).bell.visual.target == BellTarget::Terminal),
                 self.hovered_link.as_ref().map(|link| link.range.clone()),
                 self.hints
                     .as_ref()

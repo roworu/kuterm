@@ -17,10 +17,17 @@ def flashing(app: App) -> bool:
     return near(patch, MAGENTA, 60).mean() > 0.5
 
 
+def tab_flashing(app: App) -> bool:
+    """the first tab is tinted magenta"""
+    patch = app.shot()[: app.bar_height() - 2, 20:120]
+    return near(patch, MAGENTA, 60).mean() > 0.5
+
+
 def test_visual_bell_flashes_and_fades(app_factory):
-    """bell.visual paints a flash in its color over the terminal, which fades out"""
+    """bell.visual with target "terminal" paints a flash over the terminal, which fades out"""
     app = app_factory({"theme": {"mode": "dark"},
-                       "bell": {"visual": {"enable": True, "color": "#ff00ff", "duration": 1500}}}, script=RING)
+                       "bell": {"visual": {"enable": True, "color": "#ff00ff", "duration": 1500,
+                                           "target": "terminal"}}}, script=RING)
     time.sleep(0.5)
     assert not flashing(app)
     app.step(1)
@@ -28,6 +35,33 @@ def test_visual_bell_flashes_and_fades(app_factory):
     app.snap("bell rang, flash shown")
     app.wait(lambda: near(app.shot()[250:350, 400:500], DARK["terminal_background"], 3).mean() > 0.9,
              msg="flash faded", timeout=5)
+
+
+def test_visual_bell_flashes_tab(app_factory):
+    """bell.visual with target "tab" flashes the tab only, the terminal stays as it is"""
+    app = app_factory({"theme": {"mode": "dark"}, "hide_bar_for_one_tab": False,
+                       "bell": {"visual": {"enable": True, "color": "#ff00ff", "duration": 1500,
+                                           "target": "tab"}}}, script=RING)
+    time.sleep(0.5)
+    assert not tab_flashing(app)
+    app.step(1)
+    app.wait(lambda: tab_flashing(app), msg="magenta tab")
+    app.snap("bell rang, tab flashed")
+    assert not flashing(app)
+    app.wait(lambda: not tab_flashing(app), msg="tab flash faded", timeout=5)
+
+
+def test_visual_bell_flashes_edges_without_tab_bar(app_factory):
+    """bell.visual with target "tab" flashes the terminal edges while the tab bar is hidden"""
+    app = app_factory({"theme": {"mode": "dark"}, "hide_bar_for_one_tab": True,
+                       "window": {"decorations": "server"},
+                       "bell": {"visual": {"enable": True, "color": "#ff00ff", "duration": 1500,
+                                           "target": "tab"}}}, script=RING)
+    time.sleep(0.5)
+    app.step(1)
+    app.wait(lambda: near(app.shot()[200:400, :2], MAGENTA, 60).mean() > 0.5, msg="magenta edge")
+    app.snap("bell rang without tab bar, edges flashed")
+    assert not flashing(app)
 
 
 def test_visual_bell_off(app_factory):
