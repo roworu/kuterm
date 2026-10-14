@@ -129,7 +129,7 @@
   // cpu, memory, traffic and ports are only measured while something shows them
   "status_bar": {
     "enable": false,
-    "left": ["prompt", "folder", "git", "cpu_graph", "cpu", "memory", "network", "ports"],
+    "left": ["git", "cpu_graph", "cpu", "memory", "network", "ports"],
     "right": [
       { "text": "all tabs" }, "total_cpu", "total_memory", "total_network", "all_ports",
       "size", "clock",
