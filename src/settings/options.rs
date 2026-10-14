@@ -131,6 +131,38 @@ pub enum TabTitleBlock {
     Text(String),
     /// first line of a shell command's output, run in the current folder
     Exec(String),
+    /// icon from "icons"
+    Icon,
+    /// circle filling up with the progress the running program reports, spinning while it
+    /// reports no percent
+    Progress,
+    /// tcp ports the tab's programs listen on
+    Ports,
+    /// cpu use of the tab's programs, 100% being one busy core
+    Cpu,
+    /// memory the tab's programs use
+    Memory,
+    /// cpu use of every tab added up
+    TotalCpu,
+    /// memory of every tab added up
+    TotalMemory,
+    /// ports of every tab
+    AllPorts,
+}
+
+impl TabTitleBlock {
+    /// true for blocks that need the process sampler running
+    pub fn sampled(&self) -> bool {
+        matches!(
+            self,
+            Self::Ports
+                | Self::Cpu
+                | Self::Memory
+                | Self::TotalCpu
+                | Self::TotalMemory
+                | Self::AllPorts
+        )
+    }
 }
 
 /// where the title sits inside its tab
@@ -142,6 +174,14 @@ pub enum TabTitleAlign {
     Right,
 }
 
+/// what the visual bell flashes
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum BellTarget {
+    Tab,
+    Terminal,
+}
+
 /// where the new tab button sits in the tab bar
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -149,14 +189,6 @@ pub enum NewTabButton {
     Left,
     Right,
     AfterTabs,
-}
-
-/// which side of the tab the icon sits on
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum TabIconPosition {
-    Left,
-    Right,
 }
 
 /// when the scrollbar is shown
@@ -181,12 +213,36 @@ pub enum ScrollbarPlacement {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum Decorations {
-    /// title bar and borders from the window manager
-    Full,
+    /// title bar and borders drawn by the desktop, like kde, gnome or xfwm
+    // "full" was its first name, configs written then still say it
+    #[serde(alias = "full")]
+    Server,
     /// no frame, the tab bar moves the window
     None,
-    /// no frame, window buttons sit in the tab bar
+    /// no frame, window buttons sit in the top bar
     Client,
+}
+
+/// when the window draws its own menu bar
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum MenuBarMode {
+    /// shown on windows, hidden on linux
+    Auto,
+    Always,
+    Never,
+}
+
+impl MenuBarMode {
+    /// true when the window shows the menu bar, never on macos, which has the system one
+    pub fn shown(self) -> bool {
+        match self {
+            _ if cfg!(target_os = "macos") => false,
+            MenuBarMode::Auto => cfg!(target_os = "windows"),
+            MenuBarMode::Always => true,
+            MenuBarMode::Never => false,
+        }
+    }
 }
 
 /// how the window opens

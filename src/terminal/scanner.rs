@@ -1,6 +1,6 @@
 //! looks at pty output before alacritty parses it, for escape sequences alacritty skips:
 //! shell integration marks (osc 133), the folder of the shell (osc 7) and notifications
-//! (osc 9, osc 777), and images of kitty's graphics protocol (apc G). prompts, command output
+//! (osc 9, osc 777), progress (osc 9;4), and images of kitty's graphics protocol (apc G). prompts, command output
 //! and images get marked cells, so they can be found again wherever they scroll
 
 use std::{
@@ -39,8 +39,18 @@ pub enum ScanEvent {
         title: String,
         body: String,
     },
+    /// progress the program reported, none when it took it down
+    Progress(Option<Progress>),
     /// bytes to answer the program with, like the result of a graphics command
     Reply(Vec<u8>),
+}
+
+/// how far the running program got, reported with osc 9;4
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Progress {
+    Percent(u8),
+    /// busy with no idea how long, like claude thinking
+    Busy,
 }
 
 /// hyperlink ids of marked prompts and command output, numbered in the order they came
@@ -271,11 +281,13 @@ impl Scanner {
                     events.push(ScanEvent::Cwd(path));
                 }
             }
-            // 9;4 is a progress report, not a notification
-            "9" if !rest.starts_with("4;") => events.push(ScanEvent::Notify {
-                title: String::new(),
-                body: rest.to_string(),
-            }),
+            "9" => match rest.strip_prefix("4;") {
+                Some(report) => events.push(ScanEvent::Progress(progress(report))),
+                None => events.push(ScanEvent::Notify {
+                    title: String::new(),
+                    body: rest.to_string(),
+                }),
+            },
             "777" => {
                 let mut parts = rest.splitn(3, ';');
                 if parts.next() == Some("notify") {
@@ -301,6 +313,19 @@ impl Scanner {
         if std::mem::take(&mut self.open_mark) {
             out.extend_from_slice(CLOSE_MARK);
         }
+    }
+}
+
+/// progress of an osc 9;4 `state;percent` report, none when it takes the progress down
+fn progress(report: &str) -> Option<Progress> {
+    let mut parts = report.split(';');
+    let state = parts.next()?;
+    let percent = parts.next().and_then(|percent| percent.parse::<u8>().ok());
+    match state {
+        // normal, error and paused carry a percent
+        "1" | "2" | "4" => Some(Progress::Percent(percent.unwrap_or(0).min(100))),
+        "3" => Some(Progress::Busy),
+        _ => None,
     }
 }
 
@@ -449,7 +474,7 @@ impl OnResize for ScannedPty {
 mod tests {
     use std::path::PathBuf;
 
-    use super::{ScanEvent, Scanner, file_url_path};
+    use super::{Progress, ScanEvent, Scanner, file_url_path};
 
     fn scan(chunks: &[&[u8]]) -> (Vec<u8>, Vec<ScanEvent>) {
         let mut scanner = Scanner::default();
@@ -483,10 +508,10 @@ mod tests {
     }
 
     #[test]
-    fn cwd_and_notifications_are_reported() {
+    fn cwd_notifications_and_progress_are_reported() {
         let (out, events) = scan(&[
             b"\x1b]7;file://host/tmp/a%20b\x07",
-            b"\x1b]9;build done\x07\x1b]9;4;1;50\x07",
+            b"\x1b]9;build done\x07\x1b]9;4;1;50\x07\x1b]9;4;3\x07\x1b]9;4;2;250\x07\x1b]9;4;0;0\x07",
             b"\x1b]777;notify;title;body; with semicolon\x1b\\",
         ]);
         assert_eq!(
@@ -497,6 +522,10 @@ mod tests {
                     title: String::new(),
                     body: "build done".into()
                 },
+                ScanEvent::Progress(Some(Progress::Percent(50))),
+                ScanEvent::Progress(Some(Progress::Busy)),
+                ScanEvent::Progress(Some(Progress::Percent(100))),
+                ScanEvent::Progress(None),
                 ScanEvent::Notify {
                     title: "title".into(),
                     body: "body; with semicolon".into()

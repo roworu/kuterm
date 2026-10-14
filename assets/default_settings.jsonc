@@ -1,150 +1,236 @@
 // kuterm settings
 //
-// this file is created with default values on first launch.
-// comments and trailing commas are allowed, missing values use their defaults.
-// changes are applied as soon as this file or a file it imports is saved.
-// if it is invalid, the last good settings are kept and the error is shown in the window,
-// at launch all defaults are used.
+// this file is both the config and its manual: every setting is listed with its default
+// value and what it does. it is created with these values on first launch, in
+// $XDG_CONFIG_HOME/kuterm/settings.jsonc (~/.config/kuterm/settings.jsonc by default),
+// or wherever --config-file points.
+//
+// how it is read:
+//   - comments and trailing commas are allowed.
+//   - anything you don't change can be deleted, missing values use the defaults shown here.
+//     a file with only { "ui_font_size": 14 } is a full, valid config.
+//   - your values are merged over the defaults key by key: objects like "terminal" can be
+//     set partly, while lists ([...]) and choice values ("left", { "custom": 1.5 }) are
+//     replaced as a whole.
+//   - numbers have limits, written next to each one. a value above the limit is lowered to
+//     it, a value below it falls back to the default, both print a message on stderr.
+//   - changes are applied as soon as this file or a file it imports is saved, the
+//     "reload_config" action reads them again by hand.
+//   - if the file is invalid, the last good settings are kept and the error, naming the
+//     file, is shown in the window. at launch, all defaults are used instead.
+//   - colors are hex strings: "#rgb", "#rgba", "#rrggbb" or "#rrggbbaa".
+//   - "~/" in paths is the home folder, relative paths start from the folder of this file.
+//
+// files kuterm writes itself (window size, session, pinned commands) live in the state
+// folder, $XDG_STATE_HOME/kuterm (~/.local/state/kuterm by default), never here.
 {
-  // other settings files merged before this one, so values set here win over theirs, like
+  // other settings files read before this one, so values set here win over theirs. handy to
+  // keep colors or machine specific fonts apart from the main file, like
   //   ["~/.config/kuterm/colors.jsonc", "local.jsonc"]
-  // relative paths are resolved from this folder, imported files can import more files.
-  // a missing file is skipped with a warning
+  // files are merged in the listed order, later ones win over earlier ones. imported files
+  // can import more files, a file that imports itself, directly or through others, is
+  // skipped to stop the loop. a missing file is skipped with a warning and is picked up
+  // once it is created. every imported file is watched, saving one reloads the config
   "import": [],
 
-  // font used for tabs and other ui text
+  // ---------------------------------------------------------------------------------------
+  // tabs and ui
+  // ---------------------------------------------------------------------------------------
+
+  // font used for tabs, the command palette, the search bar, notifications and other ui
+  // text. a font that is not installed falls back to the bundled one, so the ui always has
+  // a monospace font
   "ui_font_family": "JetBrainsMonoNL Nerd Font Mono",
-  // ui font size in pixels, the whole ui scales with it
+  // ui font size in pixels, the whole ui scales with it.
   // font sizes go from 6 to 72
   "ui_font_size": 18,
-  // hide the tab bar while only one tab is open, ctrl-t still opens new tabs
+  // hide the tab bar while only one tab is open, it comes back with the second tab.
+  // the new tab key still works
   "hide_bar_for_one_tab": true,
-  // stretch tabs to fill the whole tab bar, sharing its width equally
+  // true stretches tabs to fill the whole tab bar, sharing its width equally.
+  // false gives every tab "tab_width" pixels
   "expand_tabs": false,
-  // tab width in pixels when "expand_tabs" is false, wheel scrolls tabs that don't fit
+  // tab width in pixels when "expand_tabs" is false. tabs that don't fit can be scrolled
+  // with the mouse wheel over the tab bar
   "tab_width": 220,
-  // tab title, built from these blocks in order:
+  // tab title, built by joining these blocks in order:
   //   "number"                                 - tab position, starting at 1
   //   "prompt"                                 - user@host
-  //   "folder"                                 - name of the current folder
-  //   "command"                                - name of the running program
-  //   "title"                                  - title set by the running program
-  //   { "text": " < AMONGUS > " }              - any text
-  //   { "exec": "git branch --show-current" }  - first line of a command's output, run in the current folder
-  // titles refresh every second
-  // example:
+  //   "folder"                                 - name of the folder the shell is in, "~" for home
+  //   "command"                                - name of the program running in front, like vim
+  //   "title"                                  - title set by the running program with
+  //                                              osc 0/2 escape sequences, or "default_title"
+  //   { "text": " < AMONGUS > " }              - any text, like separators
+  //   { "exec": "git branch --show-current" }  - first line of a command's output, run with
+  //                                              sh in the current folder of the tab
+  //   "icon"                                   - nerd font icon of the tab, from "icons" at
+  //                                              the end of this file
+  //   "progress"                               - circle filling up with the progress the
+  //                                              running program reports with osc 9;4,
+  //                                              like dnf or flatpak, spinning while it gives
+  //                                              no percent, empty when it reports none
+  //   "ports"                                  - tcp ports the programs of the tab listen
+  //                                              on, like ":5173". the link modifier and
+  //                                              a click opens http://localhost:<port>
+  //   "cpu"                                    - cpu use of the programs of the tab, like
+  //                                              "34%", 100% is one busy core
+  //   "memory"                                 - memory they use, like "1.2 GB"
+  //   "total_cpu", "total_memory", "all_ports" - the same for all tabs together
+  // titles refresh every second. an "exec" command still running after 2 seconds is
+  // abandoned and shows nothing, so keep them fast. blocks with nothing to show, like a
+  // failing "exec", are left empty.
+  // example, giving "1: src > vim":
   //   ["number", { "text": ": " }, "folder", { "text": " > " }, "command"]
-  "tab_title": ["folder", { "text": " - " }, "command"],
+  "tab_title": ["progress", "icon", "folder", { "text": " - " }, "command"],
   // where the title sits inside its tab: "left", "center" or "right"
   "tab_title_align": "left",
-  // icon shown in each tab
-  "tab_icon": {
-    // side of the tab it sits on: "left" or "right"
-    "position": "left",
-    // follow running program, like ssh or htop. false always shows "default"
-    "dynamic": true,
-    // icon of the shell and of programs without own icon
-    "default": "",
-  },
-  // show the "×" close button on the active tab and on hovered ones, middle click still closes tabs
+  // show the "×" close button on the active tab and on hovered ones.
+  // a middle click on a tab closes it either way
   "show_tab_close_button": true,
   // drag tabs with the mouse to reorder them
   "drag_tabs": true,
-  // ask before closing a tab while a program still runs in it, like vim or a long build
+  // ask before closing a tab while a program still runs in it, like vim or a long build,
+  // so its work is not lost by accident
   "close_running_tab_warn": true,
   // ask before quitting or closing the window:
   //   "always"  - every time
   //   "running" - only while a program still runs in some tab
   //   "never"   - quit right away
   "confirm_quit": "running",
-  // where the "+" new tab button sits: "left" or "right" end of the tab bar, or "after_tabs" next to the last tab
+  // where the "+" new tab button sits:
+  //   "left"       - at the left end of the tab bar
+  //   "right"      - at the right end of the tab bar
+  //   "after_tabs" - right after the last tab
+  // a click opens the default profile, a right click lists all profiles when there are more
   "new_tab_button": "after_tabs",
-  // window title, built from the active tab with the same blocks as "tab_title"
+  // window title, shown by the window manager and task bar. built from the active tab with
+  // the same blocks as "tab_title", "icon" gives the icon of the active tab
   "window_title": ["folder", { "text": " - " }, "command"],
-  // used by "title" when the running program set none, and as window title when it is empty
+  // used by the "title" block when the running program set no title, and as window title
+  // when "window_title" builds an empty one
   "default_title": "kuterm",
 
+  // thin bar at the bottom of the window, quiet until hovered. both sides are built for the
+  // active tab from the same blocks as "tab_title", each block apart from the next, blocks
+  // with nothing to show are left out. a click on a port opens http://localhost:<port>, a
+  // click on "total_cpu" or "total_memory" lists them per tab in the command palette.
+  // cpu, memory and ports are only measured while something shows them
+  "status_bar": {
+    "enable": false,
+    "left": ["prompt", "folder", "cpu", "memory", "ports"],
+    "right": [{ "text": "all tabs" }, "total_cpu", "total_memory", "all_ports"],
+  },
+
+  // the command palette: a list of commands filtered as you type, opened with the
+  // "command_palette" key (ctrl-shift-p by default). its commands are set in "commands" below
   "command_palette": {
-    // allow opening the command palette with its key, commands are set in "commands" below
+    // false makes the "command_palette" key do nothing
     "enable": true,
-    // list recently run commands first, right after pinned ones
+    // list recently run commands first, right after pinned ones, so a repeated command is
+    // one enter away
     "show_recent": true,
   },
 
+  // small messages shown inside the window, like when a command from the palette finishes,
+  // and questions with buttons, like "ask" in "terminal.clipboard"
   "notifications": {
-    // show notifications inside the window, like when a command from the palette finishes
+    // show notifications inside the window
     "enable": true,
-    // seconds a notification stays, 0 keeps it until clicked
+    // seconds a notification stays, 0 keeps it until clicked.
     // timeout goes from 0 to 3600
     "timeout": 5,
-    // notify when text is copied, long text is shortened
+    // notify when text is copied, showing the text, long text is shortened
     "copy": true,
     // notify when text is pasted
     "paste": true,
-    // notifications programs send with osc 9 or osc 777, like "printf '\\e]9;done\\a'":
+    // notifications programs send with osc 9 or osc 777, like "printf '\\e]9;done\\a'".
+    // build scripts and agents use them to say they finished:
     //   "always"    - always, as a system notification too while the window is not focused
     //   "unfocused" - only while the tab is not in front of a focused window
     //   "never"     - never
     "from_programs": "unfocused",
   },
 
+  // ---------------------------------------------------------------------------------------
+  // behavior
+  // ---------------------------------------------------------------------------------------
+
   // open the tabs and splits of the last session on launch, each in the folder its shell
-  // was in. programs that ran in them are not started again:
+  // was in, with the profile it was opened with. programs that ran in them, like vim or
+  // ssh, are not started again, and their output is not kept:
   //   "always" - every launch
   //   "ask"    - a notification asks
   //   "never"  - start with one new tab
-  // the session is kept in session.json in the state folder
+  // the session is saved on quit, in session.json in the state folder
   "restore_session": "never",
 
-  // images programs show with kitty's graphics protocol, like "kitten icat" or yazi. they
-  // scroll with the text and are drawn over cell backgrounds
+  // images programs show with kitty's graphics protocol, like "kitten icat", yazi or ranger
+  // previews. they scroll with the text and are drawn over cell backgrounds
   "graphics": {
+    // false ignores images programs send, the text around them still shows
     "enable": true,
-    // megabytes of decoded images each tab keeps, the oldest go first, from 1 to 4096
+    // megabytes of decoded images each tab keeps. past it the oldest images are dropped,
+    // so a long session with many previews can't eat all memory. from 1 to 4096
     "max_memory_mb": 320,
   },
 
-  // let other programs drive kuterm:
+  // let other programs and scripts drive kuterm:
   //   "off"    - no
   //   "socket" - through a unix socket in $XDG_RUNTIME_DIR, used by "kuterm msg new-tab",
   //              "kuterm msg send-text", "kuterm msg list-tabs" and
   //              "kuterm --single-instance". shells started by kuterm get its path in
   //              $KUTERM_SOCKET
+  // anything running as your user can then type into your tabs, so it is off by default.
+  // "kuterm --single-instance" opens a new window in the running kuterm instead of starting
+  // another one, and needs "socket"
   "remote_control": "off",
 
   // the "open_scrollback" action writes the history of the active tab, colors kept, to a
-  // temp file and opens it with this command in a new tab, the file goes last
+  // temp file and opens it with this command in a new tab, the file goes last. useful to
+  // read long output with the search and keys of a pager or an editor, like
+  //   ["nvim", "-R"]
+  // the first entry is the program, the rest are its arguments
   "scrollback_pager": ["less", "-R", "+G"],
 
-  // shell integration: shells mark their prompts and commands and tell their folder.
-  // prompts can then be jumped to, the output of the last command selected or copied, and
-  // new tabs and splits open in the folder of the shell
+  // shell integration: shells mark where their prompts, commands and outputs start, and tell
+  // kuterm their current folder. with it:
+  //   - "jump_to_prev_prompt" and "jump_to_next_prompt" scroll from prompt to prompt
+  //   - "select_last_output" and "copy_last_output" pick what the last command printed
+  //   - new tabs and splits open in the folder of the shell
+  //   - long commands notify when they finish, see "notify_after"
   "shell_integration": {
     // load kuterm's integration scripts into bash, zsh and fish started by a profile without
-    // arguments, like "system" or { "program": "zsh" }. other shells can print the marks
-    // themselves (osc 133 and osc 7)
+    // arguments, like "system" or { "program": "zsh" }. your own rc files still load as
+    // usual. other shells, or shells over ssh, can print the marks themselves (osc 133 for
+    // prompts and commands, osc 7 for the folder)
     "inject": true,
     // notify when a command took longer than this many seconds and its tab is not in front,
     // 0 never notifies
     "notify_after": 10,
   },
 
-  // focus a split pane when the mouse moves over it, without clicking
+  // focus a split pane when the mouse moves over it, without clicking. keys then go to the
+  // pane under the mouse
   "focus_follows_mouse": false,
 
-  // split panes, made with the "split_*" actions or by dragging a tab onto a pane edge
+  // split panes: several terminals side by side in one window. made with the "split_*"
+  // actions or by dragging a tab onto a pane edge. each pane has its own tabs
   "panes": {
-    // pixels between two panes, from 0 to 20, dividers can be dragged
+    // pixels between two panes, colored with the theme "border". dividers can be dragged
+    // with the mouse to resize panes, even at 0. from 0 to 20
     "divider_width": 1,
-    // darken panes without focus, from 0 (off) to 1
+    // darken panes without focus, so the focused one stands out. from 0 (off) to 1
     "dim_inactive": 0.0,
-    // the shell a split starts opens in the folder of the tab that was split
+    // the shell a split starts opens in the folder of the tab that was split.
+    // false uses the "working_directory" of the default profile
     "split_inherits_cwd": true,
   },
 
-  // what happens when a program rings the bell, like a shell on a failed tab completion
+  // what happens when a program rings the bell (the \a character), like a shell on a failed
+  // tab completion, or "printf '\a'" at the end of a long command. all of these can be on
+  // at the same time
   "bell": {
-    // flash over the terminal that fades out
+    // flash that fades out
     "visual": {
       "enable": true,
       // flash color as a hex string, alpha keeps text readable, like "#ffffff40".
@@ -152,18 +238,24 @@
       "color": null,
       // milliseconds the flash takes to fade out, from 0 to 2000
       "duration": 150,
+      // "tab" flashes only the tab of the terminal, or the edges of the terminal while its
+      // tab bar is hidden. "terminal" flashes over the whole terminal
+      "target": "tab",
     },
     // play the system bell sound
     "audio": false,
-    // ask the desktop to highlight the window when it is not focused, on x11 and macos
+    // ask the desktop to highlight the window when it is not focused, on x11 and macos.
+    // task bars usually flash or mark it until the window is focused
     "urgent": true,
     // show a bell icon on a background tab that rang, until it is opened
     "tab_indicator": true,
   },
 
   // search in the history of a tab, opened with the "search" key (ctrl-shift-f by default).
+  // matches are highlighted as you type, with the theme "search_match" colors.
   // enter goes to the match above, shift-enter to the one below, escape closes it.
-  // these are the starting options, the buttons of the search bar change them
+  // these are the options the search bar starts with, its buttons change them for the
+  // current search only
   "search": {
     // tell upper and lower case apart: "smart" only when the query has an upper case letter,
     // true always, false never
@@ -176,13 +268,17 @@
 
   // links in the terminal: osc 8 hyperlinks that programs like ls --hyperlink print, and text
   // matched by "patterns". holding the modifier underlines the link under the mouse, a click
-  // with it held opens it
+  // with it held runs its action. plain clicks are left for selecting text and for programs
+  // that use the mouse
   "links": {
     // "ctrl", "alt", "shift" or "super" (windows key, cmd on macos)
     "modifier": "ctrl",
     // program that opens links, like "firefox". null uses the system opener (xdg-open, open)
     "open_with": null,
-    // regexes tried on the line under the mouse, the list replaces this one.
+    // regexes tried on the line under the mouse, after osc 8 hyperlinks. the first one that
+    // matches under the mouse wins, and a line wrapped over several rows counts as one.
+    // a list set here replaces this one, so copy the url entry to keep it. invalid regexes
+    // are skipped with a message on stderr.
     // "action" is what a click does:
     //   "open"                  - open with "open_with"
     //   "copy"                  - copy the text to the clipboard
@@ -194,11 +290,15 @@
   },
 
   // hints: the "hints" key (ctrl-shift-e by default) puts a short label on every match of
-  // these patterns on screen, typing a label runs the action of its pattern, escape cancels
+  // these patterns on screen, typing a label runs the action of its pattern, escape cancels.
+  // it is the keyboard way to open or copy a url, path or hash without touching the mouse
   "hints": {
-    // letters labels are made of, at least two different ones
+    // letters labels are made of, at least two different ones and no spaces. labels are
+    // one letter while there are fewer matches than letters, two letters otherwise, so at
+    // most (letters × letters) matches get a label. easy to reach keys work best
     "alphabet": "asdfghjkl",
     // like "links.patterns", with a "name" to tell them apart. the list replaces this one.
+    // where matches of two patterns overlap, the earlier pattern wins.
     // "\\b" here is written "(?-u:\\b)", the regex engine only knows ascii word boundaries
     "patterns": [
       { "name": "url", "regex": "(https?|ftp|file)://[^\\s<>\"'`(){}\\[\\]]*[^\\s<>\"'`(){}\\[\\].,;:!?]", "action": "open" },
@@ -208,28 +308,43 @@
     ],
   },
 
+  // ---------------------------------------------------------------------------------------
+  // look
+  // ---------------------------------------------------------------------------------------
+
+  // colors of the ui and the terminal. a theme is a set of colors, one is used in dark mode
+  // and one in light mode. profiles can pick other themes for their tabs, see "profiles"
   "theme": {
     // which theme to use, applied right away when the system switches:
     //   "system" - follow system dark/light preference
     //   "dark"   - always dark
     //   "light"  - always light
     "mode": "system",
-    // theme for each mode: a name from "themes" below, a name of a file in the "themes"
-    // folder next to this file, like "nord" for themes/nord.jsonc, or a path to a theme file
-    // with the same keys, like "~/mine.jsonc" (relative paths are resolved from this folder).
-    // null uses the bundled theme
+    // theme for each mode, one of:
+    //   - a name from "themes" below, like "dark"
+    //   - a name of a file in the "themes" folder next to this file, like "nord" for
+    //     themes/nord.jsonc (or .json). "themes" wins when both have the name
+    //   - a path to a theme file, like "~/mine.jsonc". anything with a slash or a json
+    //     extension is a path, relative paths are resolved from this folder
+    // a theme file is an object with the same color keys as the themes below, and is watched
+    // like this file. null, or a theme that is missing or broken, uses the bundled theme.
+    // --dark-theme-file and --light-theme-file override these from the command line
     "dark": "dark",
     "light": "light",
-    // themes by name, add your own next to these. colors are hex strings: "#rgb", "#rgba",
-    // "#rrggbb" or "#rrggbbaa". colors left out of a theme come from the bundled theme of
-    // the mode it is used for
+    // themes by name, add your own next to these and pick them in "dark" and "light".
+    // colors are hex strings: "#rgb", "#rgba", "#rrggbb" or "#rrggbbaa". colors left out of
+    // a theme come from the bundled theme of the mode it is used for, so a theme can change
+    // just a few, like { "cursor": "#ff8800" }
     "themes": {
       // one dark
       "dark": {
-        // tab bar
+        // ui: background of the tab bar, command palette, search bar and notifications
         "tab_bar_background": "#2f343e",
+        // the active tab, and the picked or hovered entry of the command palette
         "tab_active_background": "#282c33",
+        // edges of the palette and search bar, and the dividers between panes
         "border": "#464b57",
+        // ui text, and secondary ui text like palette categories and placeholders
         "text": "#dce0e5",
         "text_muted": "#a9afbc",
 
@@ -237,35 +352,45 @@
         "danger_button": "#be5046",
         "danger_button_text": "#ffffff",
 
-        // terminal
+        // terminal: default background and text color, used where programs set no color
         "terminal_background": "#282c34",
         "terminal_foreground": "#abb2bf",
+        // cursor, unless "terminal.cursor.color" is set
         "cursor": "#74ade8",
+        // background of selected text
         "selection": "#3e4451",
+        // scrollbar thumb of the terminal and the palette
         "scrollbar": "#4e5666",
         // background of search matches, and of the one search is on
         "search_match": "#4b4a3a",
         "search_match_active": "#8a6a2a",
+        // brighter version of "terminal_foreground" for programs that ask for it, and faint
+        // text in the default color
         "bright_foreground": "#dce0e5",
         "dim_foreground": "#636d83",
 
-        // 16 ansi colors, must have exactly 16 entries
+        // the 16 colors programs pick by number, like ls for folders or git for diffs.
+        // must have exactly 16 entries
         "ansi": [
           // normal: black, red, green, yellow, blue, magenta, cyan, white
           "#282c34", "#e06c75", "#98c379", "#e5c07b", "#61afef", "#c678dd", "#56b6c2", "#abb2bf",
           // bright: black, red, green, yellow, blue, magenta, cyan, white
           "#636d83", "#ea858b", "#aad581", "#ffd885", "#85c1ff", "#d398eb", "#6ed5de", "#fafafa",
         ],
-        // dim ansi colors, must have exactly 8 entries
+        // colors of faint text in the 8 normal colors, must have exactly 8 entries.
+        // other faint text gets "terminal.dim_opacity"
         // black, red, green, yellow, blue, magenta, cyan, white
         "ansi_dim": ["#3b3f4a", "#a7545a", "#6d8f59", "#b8985b", "#457cad", "#8d54a0", "#3c818a", "#8f969b"],
       },
       // one light
       "light": {
-        // tab bar
+        // ui: background of the tab bar, command palette, search bar and notifications
         "tab_bar_background": "#ebebec",
+        // the active tab, and the picked or hovered entry of the command palette
         "tab_active_background": "#fafafa",
+        // edges of the palette and search bar, and the dividers between panes
         "border": "#c9c9ca",
+        // ui text, and secondary ui text like palette categories and placeholders
         "text": "#383a42",
         "text_muted": "#6a6b70",
 
@@ -273,50 +398,75 @@
         "danger_button": "#e45649",
         "danger_button_text": "#ffffff",
 
-        // terminal
+        // terminal: default background and text color, used where programs set no color
         "terminal_background": "#fafafa",
         "terminal_foreground": "#383a42",
+        // cursor, unless "terminal.cursor.color" is set
         "cursor": "#526fff",
+        // background of selected text
         "selection": "#e5e5e6",
+        // scrollbar thumb of the terminal and the palette
         "scrollbar": "#c4c4c7",
         // background of search matches, and of the one search is on
         "search_match": "#f3e7b5",
         "search_match_active": "#f0c35a",
+        // brighter version of "terminal_foreground" for programs that ask for it, and faint
+        // text in the default color
         "bright_foreground": "#202227",
         "dim_foreground": "#a0a1a7",
 
-        // 16 ansi colors, must have exactly 16 entries
+        // the 16 colors programs pick by number, like ls for folders or git for diffs.
+        // must have exactly 16 entries
         "ansi": [
           // normal: black, red, green, yellow, blue, magenta, cyan, white
           "#383a42", "#e45649", "#50a14f", "#c18401", "#0184bc", "#a626a4", "#0997b3", "#a0a1a7",
           // bright: black, red, green, yellow, blue, magenta, cyan, white
           "#4f525e", "#e06c75", "#98c379", "#e5c07b", "#61afef", "#c678dd", "#56b6c2", "#ffffff",
         ],
-        // dim ansi colors, must have exactly 8 entries
+        // colors of faint text in the 8 normal colors, must have exactly 8 entries.
+        // other faint text gets "terminal.dim_opacity"
         // black, red, green, yellow, blue, magenta, cyan, white
         "ansi_dim": ["#727479", "#eb877e", "#83bc82", "#d2a74c", "#4ca7cf", "#bf66be", "#51b5c8", "#b8b9bd"],
       },
     },
   },
 
+  // the window itself. "columns", "rows", "startup" and "remember_size" are used when a
+  // window opens
   "window": {
-    // pixels between the window edges and the terminal text, from 0 to 200
+    // pixels between the window edges and the terminal text, filled with the terminal
+    // background. from 0 to 200
     "padding": { "x": 4, "y": 4 },
-    // the grid is made of whole cells, so some pixels are left over at the right and bottom.
-    // true splits them equally on both sides
+    // the grid is made of whole cells, so some pixels are left over at the right and bottom
+    // when the window size is not a multiple of the cell size. true splits them equally on
+    // both sides, so the text sits centered
     "padding_balance": false,
     // terminal background opacity from 0 (see through) to 1 (solid), text stays solid.
-    // cells colored by programs stay solid too, needs a compositor on linux
+    // cells colored by programs stay solid too, so editors and status bars stay readable.
+    // needs a compositor on linux
     "opacity": 1.0,
     // blur what is behind the window when "opacity" is below 1, only where the system
     // supports it, like kde and macos
     "blur": false,
     // window frame, linux only:
-    //   "full"   - title bar and borders from the window manager
+    //   "server" - title bar and borders drawn by your desktop (kde, gnome, xfwm, ...), with
+    //              its own buttons and look
     //   "none"   - no frame, drag the empty part of the tab bar to move the window
-    //   "client" - like "none", with minimize, maximize and close buttons in the tab bar
-    // the tab bar stays shown with one tab when it is not "full"
-    "decorations": "full",
+    //   "client" - like "none", with kuterm's own fullscreen, minimize, maximize and close
+    //              buttons at the right end of the top bar
+    // with one tab and "hide_bar_for_one_tab", "client" shows an empty title bar with its
+    // buttons, "none" keeps the tab bar unless the menu bar is shown
+    "decorations": "client",
+    // menus drawn as a bar at the top of the window, macos always uses its system menu bar:
+    //   "auto"   - shown on windows, hidden on linux
+    //   "always" - shown
+    //   "never"  - hidden, the command palette has every action
+    // it is shown with one tab too, "hide_bar_for_one_tab" only hides the tab bar. without a
+    // "server" frame, its empty part moves the window
+    "menu_bar": "auto",
+    // linux only: offer the menus over dbus, so global menu applets like plasma's show them
+    // in the panel. works on x11, read when kuterm starts
+    "global_menu": true,
     // terminal size in cells the window opens with, columns from 10 to 1000, rows from 2 to 500
     "columns": 100,
     "rows": 30,
@@ -327,12 +477,20 @@
     "remember_size": false,
   },
 
+  // ---------------------------------------------------------------------------------------
+  // terminal
+  // ---------------------------------------------------------------------------------------
+
+  // how the terminal draws text and reacts to the keyboard and mouse
   "terminal": {
     // the old "font_family" and "font_size" keys still work and set "font.family" and "font.size"
     "font": {
-      // bundled "JetBrainsMonoNL Nerd Font Mono" is always available
+      // a monospace font, the grid needs every cell equally wide. bundled
+      // "JetBrainsMonoNL Nerd Font Mono" is always available, with nerd font icons, and is
+      // used when this family is not installed. "fc-list : family" lists installed families
       "family": "JetBrainsMonoNL Nerd Font Mono",
-      // font size in pixels, from 6 to 72
+      // font size in pixels, from 6 to 72. "increase_font_size" and "decrease_font_size"
+      // change it for one tab, "reset_font_size" goes back to this
       "size": 20,
       // faces for styled text. a "family" of null uses the regular family with the matching
       // weight or style, a family that is not installed is skipped
@@ -344,37 +502,43 @@
       "bold_italic": { "family": null },
     },
     // opentype font features: "ss01" or "+ss01" turns one on, "-calt" turns one off,
-    // "cv01=2" picks a variant. the list replaces this one, so keep "-calt" to keep
-    // ligatures off, they draw several cells as one glyph
+    // "cv01=2" picks a variant. which ones exist depends on the font, its site usually lists
+    // them. the list replaces this one, so keep "-calt" to keep ligatures off, they draw
+    // several cells as one glyph, like -> as an arrow. bad entries are skipped
     "font_features": ["-calt"],
-    // fonts tried in order for characters the font lacks, before the system fallback, like
+    // fonts tried in order for characters the font lacks, like cjk or emoji, before the
+    // system picks one itself, like
     //   ["Noto Sans CJK JP", "Noto Color Emoji"]
     // fonts that are not installed are skipped
     "font_fallbacks": [],
-    // pixels added to the measured cell width, negative values make cells narrower.
-    // from -10 to 10
+    // pixels added to the measured cell width, negative values make cells narrower. for
+    // fonts that look too spread out or too tight. from -10 to 10
     "cell_width": 0,
     // pixels to move glyphs inside their cell, for fonts that sit too high or too low.
     // positive values move right and down, from -10 to 10
     "glyph_offset": { "x": 0, "y": 0 },
-    // bold text in the 8 normal ansi colors uses their bright versions
+    // bold text in the 8 normal ansi colors uses their bright versions, like old terminals
+    // did. some color schemes and programs expect it
     "bold_is_bright": false,
     // minimum contrast ratio between text and its background, from 1 (off) to 21.
     // text below it is moved toward black or white until it passes, 4.5 is the wcag
-    // level for normal text
+    // level for normal text. fixes programs that print, say, dark blue on black
     "minimum_contrast": 1,
-    // opacity of faint (dim) text whose color has no dim version in the theme, from 0 to 1
+    // opacity of faint (dim) text whose color has no dim version in the theme, like 256
+    // and rgb colors. from 0 to 1
     "dim_opacity": 0.7,
     // draw box drawing lines (─│┌╔), blocks (▀█░) and powerline arrows () as shapes
     // that fill the cell exactly, so they connect at any "line_height".
     // false draws them with the font
     "builtin_box_drawing": true,
-    // line height as a multiple of font size:
+    // line height as a multiple of font size, taller lines give text more air but fit fewer
+    // rows in the window:
     //   "standard"          - 1.3
     //   "comfortable"       - 1.618
     //   { "custom": 1.5 }   - any value from 1 to 3
     "line_height": "standard",
-    // cursor shape: "block", "bar", "underline" or "hollow"
+    // cursor shape: "block", "bar", "underline" or "hollow" (outline of a block).
+    // programs like vim can switch it while they run
     "cursor_shape": "bar",
     "cursor": {
       // cursor color as a hex string like "#ff8800", null uses the theme "cursor" color
@@ -392,30 +556,34 @@
     // cursor blinking:
     //   "on"  - always blink
     //   "off" - never blink
-    //   "app" - blink only when the running program asks for it
+    //   "app" - blink only when the running program asks for it, most shells don't
     "cursor_blink": "app",
     // milliseconds the blinking cursor stays shown, then hidden, from 100 to 2000
     "cursor_blink_interval": 500,
     // seconds without typing after which the cursor stops blinking and stays shown,
     // so an idle window does not repaint. 0 blinks forever, up to 3600
     "cursor_blink_timeout": 15,
-    // lines of scrollback history to keep, 0 keeps everything
+    // lines of scrollback history each tab keeps, older lines are dropped. 0 keeps
+    // everything, which can take a lot of memory with chatty programs
     "max_history_length": 10000,
     // macos only: option key works as meta, so option-b sends esc b like alt-b does on linux.
     // false keeps option typing special characters like ∫
     "option_as_meta": false,
-    // copy selected text into the clipboard as soon as the mouse button is released
+    // copy selected text into the clipboard as soon as the mouse button is released, without
+    // pressing the "copy" key
     "select_to_copy": false,
     // right click copies selected text into the clipboard
     "right_click_copy": true,
     // drop spaces and tabs at the end of each copied line
     "copy_trim_trailing_whitespace": true,
-    // characters that end a word when double clicking to select it
+    // characters that end a word when double clicking to select it. leave out ":" to
+    // double click whole urls
     "word_separators": " ,│`|:\"'()[]{}<>\t",
     // lines scrolled per mouse wheel step, also speeds up touchpad scrolling, from 0.1 to 20
     "scroll_multiplier": 2,
     // hide the mouse pointer when typing, moving the mouse shows it again
     "hide_mouse_when_typing": true,
+    // scrollbar at the side of the terminal, drag it to scroll through history
     "scrollbar": {
       // when to show it:
       //   "on"      - always
@@ -426,13 +594,14 @@
       "placement": "right",
       // width in pixels, from 2 to 64
       "width": 8,
-      // hide after this many seconds without scrolling. 0 never hides.
+      // hide after this many seconds without scrolling, it shows again on scroll.
+      // 0 never hides, up to 3600
       "auto_hide": 10,
     },
-    // glide to the new position smoothly instead of jumping
+    // glide to the new position smoothly instead of jumping when scrolling
     "smooth_scroll": {
       "enable": true,
-      // how long one glide takes in milliseconds, from 0 to 1000
+      // how long one glide takes in milliseconds, 0 jumps right away. from 0 to 1000
       "duration": 300,
       // speed curve of the glide:
       //   "linear"      - same speed all the way
@@ -440,7 +609,8 @@
       //   "ease_in_out" - soft start and soft stop
       "easing": "ease_out",
     },
-    // what programs may do with the clipboard through osc 52 escape sequences, even over ssh:
+    // what programs may do with the clipboard through osc 52 escape sequences. this is how
+    // vim, tmux or neovim copy to your clipboard, even from a remote machine over ssh:
     //   "allow" - right away
     //   "ask"   - show a notification with allow and deny buttons
     //   "deny"  - never
@@ -452,36 +622,55 @@
     "paste_protection": true,
   },
 
-  // what new tabs start with. ctrl-shift-t and a click on "+" open the default profile,
-  // a right click on "+" picks any profile when there is more than one.
+  // ---------------------------------------------------------------------------------------
+  // profiles, keys and commands
+  // ---------------------------------------------------------------------------------------
+
+  // profiles: what new tabs start with, like a shell, an ssh session to a server or a
+  // python repl, each with its own folder, colors, icon and environment.
+  // the "new_tab" key and a click on "+" open the default profile, a right click on "+"
+  // picks any profile when there is more than one, and the { "new_tab_with_profile": ... }
+  // command action opens one by name.
   // "name" and "command" are required, the other keys can be left out.
   // changes to a profile apply to tabs opened after them.
+  // example of a second profile:
+  //   {
+  //     "name": "server",
+  //     "command": { "with_arguments": { "program": "ssh", "args": ["me@example.com"] } },
+  //     "theme": { "mode": "dark", "dark": "red" },
+  //     "icon": "",
+  //   }
   "profiles": [
     {
-      // shown in the profile menu
+      // shown in the profile menu, and used to open it from commands
       "name": "default",
-      // only one profile can be default, the first one is used when none is
+      // the profile new tabs open with. only one profile can be default, the first one
+      // marked wins, and the first profile is used when none is
       "default": true,
-      // program to launch:
+      // program to launch, the tab closes when it exits:
       //   "system"                                                   - login shell of current user
       //   { "program": "zsh" }                                       - specific program
       //   { "with_arguments": { "program": "bash", "args": ["--login"] } } - program with arguments
       "command": "system",
-      // folder to start in, "~" is the home folder, null uses the folder kuterm started in
+      // folder to start in, "~" is the home folder, null uses the folder kuterm started in.
+      // new tabs and splits from a tab with shell integration use its folder instead
       "working_directory": null,
       // color scheme, "mode", "dark" and "light" like in "theme" above, names come from
       // "theme.themes", like { "mode": "dark", "dark": "red" }. null uses "theme"
       "theme": null,
-      // tab icon, kept whatever runs in the tab. null uses "tab_icon"
+      // tab icon, kept whatever runs in the tab, so tabs of this profile are easy to spot.
+      // null uses "icons"
       "icon": null,
-      // extra environment variables, like { "EDITOR": "vim" }
+      // extra environment variables for the program, added to the ones kuterm got,
+      // like { "EDITOR": "vim" }
       "env": {},
     },
   ],
 
   // keys for actions. a bound key is never sent to the terminal, so defaults use ctrl-shift
   // combinations that shells and editors like vim don't rely on (ctrl-w, ctrl-t, ctrl-c... keep
-  // reaching them). missing actions keep their default keys.
+  // reaching them). missing actions keep their default keys, so only list the ones you
+  // change. an unknown action name or a key that can't be read makes the file invalid.
   //
   // each action maps to one key, written as modifiers and a key joined by "-":
   //   modifiers: "ctrl", "alt", "shift", "super" (windows / cmd key), "fn"
@@ -489,7 +678,10 @@
   //   "ctrl-shift-t"   - ctrl, shift and t together
   //   "ctrl-a t"       - ctrl-a, then t (keys separated by spaces are pressed one after another)
   //   null             - no key, the action is disabled
-  // macos uses cmd keys instead, see "os" at the end of this file
+  // macos uses cmd keys instead, see "os" at the end of this file.
+  // to bind more than one key to an action, or keys that only work in some places, use
+  // "keymap" below.
+  // --keybindings-file loads this section from its own file
   "keybindings": {
     // open a new tab
     "new_tab": "ctrl-shift-t",
@@ -579,8 +771,9 @@
     "activate_tab_9": "alt-9",
   },
 
-  // more keys, added after "keybindings" so they win over them. each entry has "keys", an
-  // "action" and, optionally, "when" the keys work:
+  // more keys, added after "keybindings" so they win over them. use it for second keys of an
+  // action, keys that run a command palette action, or to give a key back to programs.
+  // each entry has "keys", an "action" and, optionally, "when" the keys work:
   //   "action": any action name of "keybindings", like "new_tab"
   //             "unbind" - the keys do nothing in kuterm and reach the terminal program
   //             a command palette action, like { "send_text": "\u001b[2J" } that sends
@@ -599,6 +792,7 @@
   // command palette commands. the palette opens with the "command_palette" key (ctrl-shift-p by
   // default), typing filters commands by name, enter or a click runs the picked one. recently run
   // commands are listed first, this can be turned off with "command_palette.show_recent".
+  // a list set here replaces this one, so copy the entries you want to keep.
   //
   // each command has a "name" shown in the palette and "actions" run one after another.
   // an optional "category" is shown before the name and groups the list, so
@@ -607,8 +801,9 @@
   // and click the x to unpin it, those picks are saved in pinned_commands.json in the state
   // folder ($XDG_STATE_HOME/kuterm, ~/.local/state/kuterm by default).
   //
-  // actions run against the active tab, or against the tab opened by an earlier
-  // "new_background_tab" of the same command.
+  // actions run one after another against the active tab, or against the tab opened by an
+  // earlier "new_background_tab" of the same command. so a command can open a tab, type a
+  // command into it and notify when it is done, while you keep working in the current one.
   //
   // actions:
   //   "about"                            - show a page with the version and links
@@ -725,78 +920,92 @@
     },
   ],
 
-  // icons of programs in tabs, when "tab_icon.dynamic" is on.
-  // more icons to use are listed on https://www.nerdfonts.com/cheat-sheet
-  "tab_icons": {
-    // programs started through these are matched by their script, like "pi" in "node /usr/bin/pi"
-    "interpreters": ["node", "nodejs", "bun", "deno", "python", "python3", "ruby", "perl"],
-    // programs that run another one, like "htop" in "sudo htop", show the icon of the program they run
-    "wrappers": ["sudo", "doas", "run0", "pkexec", "env", "nice", "nohup", "timeout"],
-    "groups": [
-      {
-        // remote shells
-        "icon": "",
-        "commands": ["ssh", "mosh", "telnet", "sftp", "ftp", "lftp", "scp", "rlogin", "rsh", "autossh", "sshpass"],
-      },
-      {
-        // network tools
-        "icon": "",
-        "commands": ["ping", "ping6", "traceroute", "tracepath", "mtr", "nmap", "dig", "nslookup", "host", "whois", "netstat", "ss", "tcpdump", "tshark", "iperf", "iperf3", "nc", "ncat", "netcat", "socat", "arp", "iftop", "nethogs", "bandwhich", "nload", "speedtest", "speedtest-cli"],
-      },
-      {
-        // downloads
-        "icon": "󰇚",
-        "commands": ["curl", "wget", "aria2c", "xh", "http"],
-      },
-      {
-        // ai and agents
-        "icon": "󰚩",
-        "commands": ["claude", "opencode", "pi", "codex", "gemini", "aider", "crush", "goose", "amp", "cursor-agent", "copilot", "qwen", "llama-cli", "llama-server", "llama-bench", "ollama", "llm", "droid", "kiro-cli"],
-      },
-      {
-        // system monitors
-        "icon": "󰨇",
-        "commands": ["htop", "btop", "top", "atop", "bpytop", "bashtop", "glances", "nvtop", "iotop", "btm", "gotop", "gtop", "zenith", "s-tui", "bottom"],
-      },
-      {
-        // editors
-        "icon": "",
-        "commands": ["vi", "vim", "nvim", "nano", "micro", "hx", "helix", "emacs", "kak", "vis"],
-      },
-      {
-        // git
-        "icon": "",
-        "commands": ["git", "lazygit", "tig", "gitui", "gh"],
-      },
-      {
-        // containers
-        "icon": "󰡨",
-        "commands": ["docker", "podman", "lazydocker", "docker-compose", "podman-compose"],
-      },
-      {
-        // kubernetes
-        "icon": "󱃾",
-        "commands": ["kubectl", "k9s", "helm", "kubectx", "kubens", "minikube", "kind"],
-      },
-      {
-        // package managers
-        "icon": "󰏖",
-        "commands": ["apt", "apt-get", "aptitude", "dpkg", "nala", "dnf", "dnf5", "yum", "rpm", "rpm-ostree", "zypper", "pacman", "yay", "paru", "pamac", "apk", "emerge", "xbps-install", "eopkg", "nix", "nix-env", "flatpak", "snap", "brew", "pkg"],
-      },
+  // icon shown where "tab_title" has the "icon" block, a nerd font glyph
+  "icons": {
+    // icon of the shell and of programs without an icon of their own in "dynamic_app_icons".
+    // more icons are listed on https://www.nerdfonts.com/cheat-sheet
+    "default": "",
+    // true switches the icon to the one of the program running in front, like ssh or htop,
+    // looked up in "dynamic_app_icons". false always shows "default"
+    "dynamic": true,
+    // the program running in front of the shell is looked up by name in "groups", the first
+    // group listing it gives its icon. programs in no group show "default".
+    // the lists set here replace the bundled ones, "groups" too, so copy the groups to keep.
+    // --tab-icons-file loads this section from its own file
+    "dynamic_app_icons": {
+      // programs started through these are matched by their script, like "pi" in "node /usr/bin/pi"
+      "interpreters": ["node", "nodejs", "bun", "deno", "python", "python3", "ruby", "perl"],
+      // programs that run another one, like "htop" in "sudo htop", show the icon of the program they run
+      "wrappers": ["sudo", "doas", "run0", "pkexec", "env", "nice", "nohup", "timeout"],
+      "groups": [
+        {
+          // remote shells
+          "icon": "",
+          "commands": ["ssh", "mosh", "telnet", "sftp", "ftp", "lftp", "scp", "rlogin", "rsh", "autossh", "sshpass"],
+        },
+        {
+          // network tools
+          "icon": "",
+          "commands": ["ping", "ping6", "traceroute", "tracepath", "mtr", "nmap", "dig", "nslookup", "host", "whois", "netstat", "ss", "tcpdump", "tshark", "iperf", "iperf3", "nc", "ncat", "netcat", "socat", "arp", "iftop", "nethogs", "bandwhich", "nload", "speedtest", "speedtest-cli"],
+        },
+        {
+          // downloads
+          "icon": "󰇚",
+          "commands": ["curl", "wget", "aria2c", "xh", "http"],
+        },
+        {
+          // ai and agents
+          "icon": "󰚩",
+          "commands": ["claude", "opencode", "pi", "codex", "gemini", "aider", "crush", "goose", "amp", "cursor-agent", "copilot", "qwen", "llama-cli", "llama-server", "llama-bench", "ollama", "llm", "droid", "kiro-cli"],
+        },
+        {
+          // system monitors
+          "icon": "󰨇",
+          "commands": ["htop", "btop", "top", "atop", "bpytop", "bashtop", "glances", "nvtop", "iotop", "btm", "gotop", "gtop", "zenith", "s-tui", "bottom"],
+        },
+        {
+          // editors
+          "icon": "",
+          "commands": ["vi", "vim", "nvim", "nano", "micro", "hx", "helix", "emacs", "kak", "vis"],
+        },
+        {
+          // git
+          "icon": "",
+          "commands": ["git", "lazygit", "tig", "gitui", "gh"],
+        },
+        {
+          // containers
+          "icon": "󰡨",
+          "commands": ["docker", "podman", "lazydocker", "docker-compose", "podman-compose"],
+        },
+        {
+          // kubernetes
+          "icon": "󱃾",
+          "commands": ["kubectl", "k9s", "helm", "kubectx", "kubens", "minikube", "kind"],
+        },
+        {
+          // package managers
+          "icon": "󰏖",
+          "commands": ["apt", "apt-get", "aptitude", "dpkg", "nala", "dnf", "dnf5", "yum", "rpm", "rpm-ostree", "zypper", "pacman", "yay", "paru", "pamac", "apk", "emerge", "xbps-install", "eopkg", "nix", "nix-env", "flatpak", "snap", "brew", "pkg"],
+        },
 
-      {
-        // compilers and build tools
-        "icon": "",
-        "commands": [
-          "gcc", "g++", "cc", "c++", "clang", "clang++", "zig", "rustc", "cargo", "go", "javac", "kotlinc", "make", "gmake", "cmake", "ninja", "meson", "mvn", "gradle", "python", "python3"
-        ],
-      }
-    ]
+        {
+          // compilers and build tools
+          "icon": "",
+          "commands": [
+            "gcc", "g++", "cc", "c++", "clang", "clang++", "zig", "rustc", "cargo", "go", "javac", "kotlinc", "make", "gmake", "cmake", "ninja", "meson", "mvn", "gradle", "python", "python3"
+          ],
+        }
+      ]
+    },
   },
 
-  // values for one os only, merged over everything else on that os:
+  // values for one os only, merged over everything else on that os, so one settings file can
+  // be shared between machines:
   //   "linux", "macos", "freebsd", ...
-  // like { "linux": { "terminal": { "font": { "size": 14 } } } }
+  // like { "linux": { "terminal": { "font": { "size": 14 } } } }.
+  // any setting above can go in a block, the block of the os kuterm runs on wins over the
+  // rest of the file, the others are ignored
   "os": {
     "macos": {
       "links": { "modifier": "super" },

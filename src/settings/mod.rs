@@ -23,10 +23,10 @@ pub(crate) use config::defaults as bundled_settings;
 pub use config::{Config, ConfigFiles};
 pub use keybindings::Keybindings;
 pub use options::{
-    ClipboardAccess, ConfirmQuit, CursorBlink, CursorShape, CursorUnfocused, Decorations,
-    FontSlant, LineHeight, LinkModifier, NewTabButton, PatternAction, ProgramNotifications,
-    RemoteControl, RestoreSession, ScrollEasing, ScrollbarEnable, ScrollbarPlacement, SearchCase,
-    Shell, StartupMode, TabIconPosition, TabTitleAlign, TabTitleBlock, ThemeMode,
+    BellTarget, ClipboardAccess, ConfirmQuit, CursorBlink, CursorShape, CursorUnfocused,
+    Decorations, FontSlant, LineHeight, LinkModifier, MenuBarMode, NewTabButton, PatternAction,
+    ProgramNotifications, RemoteControl, RestoreSession, ScrollEasing, ScrollbarEnable,
+    ScrollbarPlacement, SearchCase, Shell, StartupMode, TabTitleAlign, TabTitleBlock, ThemeMode,
 };
 pub use pins::Pins;
 pub use tab_icons::TabIcons;
@@ -43,7 +43,7 @@ pub struct Settings {
     pub tab_width: u32,
     pub tab_title: Vec<TabTitleBlock>,
     pub tab_title_align: TabTitleAlign,
-    pub tab_icon: TabIconSettings,
+    pub icons: TabIconSettings,
     pub show_tab_close_button: bool,
     pub drag_tabs: bool,
     pub close_running_tab_warn: bool,
@@ -70,6 +70,15 @@ pub struct Settings {
     pub restore_session: RestoreSession,
     pub remote_control: RemoteControl,
     pub graphics: GraphicsSettings,
+    pub status_bar: StatusBarSettings,
+}
+
+/// thin bar at the bottom of the window, built from title blocks
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct StatusBarSettings {
+    pub enable: bool,
+    pub left: Vec<TabTitleBlock>,
+    pub right: Vec<TabTitleBlock>,
 }
 
 /// images programs show with kitty's graphics protocol
@@ -204,7 +213,7 @@ pub struct BellSettings {
     pub tab_indicator: bool,
 }
 
-/// flash over the terminal that fades out
+/// flash that fades out
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 pub struct VisualBell {
     pub enable: bool,
@@ -212,6 +221,8 @@ pub struct VisualBell {
     pub color: Option<Hsla>,
     /// milliseconds the flash takes to fade out
     pub duration: f32,
+    /// flash only the tab of the terminal, or the whole terminal
+    pub target: BellTarget,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -225,6 +236,9 @@ pub struct WindowSettings {
     /// blur what is behind a see through background
     pub blur: bool,
     pub decorations: Decorations,
+    pub menu_bar: MenuBarMode,
+    /// export the menus over dbus for global menu applets, linux only
+    pub global_menu: bool,
     /// grid size the window opens with
     pub columns: u32,
     pub rows: u32,
@@ -241,7 +255,6 @@ pub struct WindowPadding {
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct TabIconSettings {
-    pub position: TabIconPosition,
     pub dynamic: bool,
     pub default: String,
 }
@@ -1156,6 +1169,37 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn status_bar_takes_title_and_sampled_blocks() {
+        let settings = Settings::parse(
+            r#"{"status_bar": {"enable": true, "left": ["folder", "ports", "cpu", "memory"],
+                "right": [{"text": "all"}, "total_cpu", "total_memory", "all_ports"]}}"#,
+        )
+        .unwrap();
+        let bar = settings.status_bar;
+        assert!(bar.enable);
+        assert_eq!(
+            bar.left,
+            [
+                TabTitleBlock::Folder,
+                TabTitleBlock::Ports,
+                TabTitleBlock::Cpu,
+                TabTitleBlock::Memory
+            ]
+        );
+        assert_eq!(
+            bar.right,
+            [
+                TabTitleBlock::Text("all".into()),
+                TabTitleBlock::TotalCpu,
+                TabTitleBlock::TotalMemory,
+                TabTitleBlock::AllPorts
+            ]
+        );
+        let settings = Settings::parse(r#"{"status_bar": {"enable": false}}"#).unwrap();
+        assert!(!settings.status_bar.enable);
+    }
+
+    #[test]
     fn bundled_settings_have_one_default_profile() {
         let settings = Settings::default();
         assert_eq!(settings.profiles.len(), 1);
@@ -1230,38 +1274,25 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn parses_tab_icon() {
-        let defaults = Settings::default().tab_icon;
-        let parse = |json: &str| Settings::parse(json).unwrap().tab_icon;
-        for (json, position) in [
-            (
-                r#"{"tab_icon": {"position": "left"}}"#,
-                TabIconPosition::Left,
-            ),
-            (
-                r#"{"tab_icon": {"position": "right"}}"#,
-                TabIconPosition::Right,
-            ),
-        ] {
-            let expected = TabIconSettings {
-                position,
-                ..defaults.clone()
-            };
-            assert_eq!(parse(json), expected);
-        }
+    fn parses_icons() {
+        let parse = |json: &str| Settings::parse(json).unwrap().icons;
         for dynamic in [true, false] {
-            let json = format!(r#"{{"tab_icon": {{"dynamic": {dynamic}, "default": "D"}}}}"#);
+            let json = format!(r#"{{"icons": {{"dynamic": {dynamic}, "default": "D"}}}}"#);
             let icon = parse(&json);
             assert_eq!(icon.dynamic, dynamic);
             assert_eq!(icon.default, "D");
-            assert_eq!(icon.position, defaults.position);
         }
+        assert_eq!(
+            Settings::parse(r#"{"tab_title": ["icon", "folder"]}"#)
+                .unwrap()
+                .tab_title,
+            [TabTitleBlock::Icon, TabTitleBlock::Folder]
+        );
 
         for json in [
-            r#"{"tab_icon": "left"}"#,
-            r#"{"tab_icon": {"position": "top"}}"#,
-            r#"{"tab_icon": {"dynamic": "yes"}}"#,
-            r#"{"tab_icon": {"default": null}}"#,
+            r#"{"icons": "left"}"#,
+            r#"{"icons": {"dynamic": "yes"}}"#,
+            r#"{"icons": {"default": null}}"#,
             r#"{"profiles": [{"name": "a", "command": "system", "icon": 5}]}"#,
         ] {
             assert!(
@@ -1494,7 +1525,7 @@ pub(crate) mod tests {
     fn parses_bell_settings_and_duration_limits() {
         let bell = |json: &str| Settings::parse(json).unwrap().bell;
         let parsed = bell(
-            r##"{"bell": {"visual": {"enable": false, "color": "#ffffff40", "duration": 300}, "audio": true, "urgent": false, "tab_indicator": false}}"##,
+            r##"{"bell": {"visual": {"enable": false, "color": "#ffffff40", "duration": 300, "target": "terminal"}, "audio": true, "urgent": false, "tab_indicator": false}}"##,
         );
         assert_eq!(
             parsed,
@@ -1503,6 +1534,7 @@ pub(crate) mod tests {
                     enable: false,
                     color: Some(gpui::rgba(0xffffff40).into()),
                     duration: 300.,
+                    target: BellTarget::Terminal,
                 },
                 audio: true,
                 urgent: false,
@@ -1523,6 +1555,7 @@ pub(crate) mod tests {
         assert_eq!(duration("1e9"), 2000.);
         assert!(Settings::parse(r#"{"bell": {"audio": "loud"}}"#).is_err());
         assert!(Settings::parse(r#"{"bell": true}"#).is_err());
+        assert!(Settings::parse(r#"{"bell": {"visual": {"target": "window"}}}"#).is_err());
     }
 
     #[test]
@@ -1784,21 +1817,33 @@ mod window_settings {
         let w = window(
             r#"{"padding": {"x": 12, "y": 0}, "padding_balance": true, "opacity": 0.5,
                 "blur": true, "decorations": "client", "columns": 120, "rows": 40,
-                "startup": "maximized", "remember_size": true}"#,
+                "startup": "maximized", "remember_size": true, "global_menu": false}"#,
         );
         assert_eq!(w.padding, WindowPadding { x: 12., y: 0. });
-        assert!(w.padding_balance && w.blur && w.remember_size);
+        assert!(w.padding_balance && w.blur && w.remember_size && !w.global_menu);
         assert_eq!(w.opacity, 0.5);
         assert_eq!(w.decorations, Decorations::Client);
         assert_eq!((w.columns, w.rows), (120, 40));
         assert_eq!(w.startup, StartupMode::Maximized);
         for (name, mode) in [
-            ("full", Decorations::Full),
+            ("server", Decorations::Server),
+            // the old name still reads
+            ("full", Decorations::Server),
             ("none", Decorations::None),
             ("client", Decorations::Client),
         ] {
             assert_eq!(
                 window(&format!(r#"{{"decorations": "{name}"}}"#)).decorations,
+                mode
+            );
+        }
+        for (name, mode) in [
+            ("auto", MenuBarMode::Auto),
+            ("always", MenuBarMode::Always),
+            ("never", MenuBarMode::Never),
+        ] {
+            assert_eq!(
+                window(&format!(r#"{{"menu_bar": "{name}"}}"#)).menu_bar,
                 mode
             );
         }

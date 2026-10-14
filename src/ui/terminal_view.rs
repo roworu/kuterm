@@ -15,7 +15,7 @@ use gpui::{
 };
 
 use crate::{
-    settings::{PatternAction, Settings, SmoothScrollSettings},
+    settings::{BellTarget, PatternAction, Settings, SmoothScrollSettings},
     terminal::{
         Event, KeyEventKind, Link, MouseAction, MouseButton, Terminal, TextPatterns, ViKey,
         foreground_process,
@@ -175,12 +175,20 @@ impl TerminalView {
 
     // fades with each frame until the duration is over
     fn bell_flash(&mut self, cx: &App) -> Option<Hsla> {
+        let flash = self.bell_color(cx);
+        if flash.is_none() {
+            self.bell_at = None;
+        }
+        flash
+    }
+
+    /// current color of the fading bell flash, none once it is over
+    pub fn bell_color(&self, cx: &App) -> Option<Hsla> {
         let rang = self.bell_at?;
         let visual = Settings::get(cx).bell.visual;
         let t = rang.elapsed().as_secs_f32() * 1000. / visual.duration;
         // a zero duration gives nan or infinity, which shows no flash
         if !visual.enable || t.is_nan() || t >= 1. {
-            self.bell_at = None;
             return None;
         }
         let color = visual.color.unwrap_or_else(|| {
@@ -572,20 +580,7 @@ impl TerminalView {
     /// run what a link or hint is for: open, copy, paste or a command
     pub fn run_link(&mut self, link: &Link, cx: &mut Context<Self>) {
         match &link.action {
-            PatternAction::Open => match Settings::get(cx).links.open_with.clone() {
-                Some(program) => {
-                    let target = link.target.clone();
-                    cx.background_spawn(async move {
-                        if let Err(error) =
-                            std::process::Command::new(&program).arg(target).status()
-                        {
-                            eprintln!("failed to run {program:?}: {error}");
-                        }
-                    })
-                    .detach();
-                }
-                None => cx.open_url(&link.target),
-            },
+            PatternAction::Open => open_link(link.target.clone(), cx),
             PatternAction::Copy => {
                 cx.write_to_clipboard(ClipboardItem::new_string(link.target.clone()));
                 cx.emit(ClipboardEvent::Copied(link.target.clone()));
@@ -772,6 +767,21 @@ impl TerminalView {
     }
 }
 
+/// open `target` with `links.open_with`, or the system opener
+pub fn open_link(target: String, cx: &App) {
+    match Settings::get(cx).links.open_with.clone() {
+        Some(program) => {
+            cx.background_spawn(async move {
+                if let Err(error) = std::process::Command::new(&program).arg(target).status() {
+                    eprintln!("failed to run {program:?}: {error}");
+                }
+            })
+            .detach();
+        }
+        None => cx.open_url(&target),
+    }
+}
+
 /// selected text as it goes into the clipboard, none when nothing is selected
 pub fn copied_text(terminal: &Terminal, cx: &App) -> Option<String> {
     Some(trim_copied(terminal.selection_text()?, cx))
@@ -900,7 +910,8 @@ impl Render for TerminalView {
                 focused,
                 self.cursor_on,
                 self.scrollbar_visible(cx),
-                bell_flash,
+                // the workspace flashes the tab, or the pane edges while the tab bar is hidden
+                bell_flash.filter(|_| Settings::get(cx).bell.visual.target == BellTarget::Terminal),
                 self.hovered_link.as_ref().map(|link| link.range.clone()),
                 self.hints
                     .as_ref()

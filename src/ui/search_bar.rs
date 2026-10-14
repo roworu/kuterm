@@ -112,6 +112,8 @@ impl SearchBar {
         match keystroke.key.as_str() {
             "escape" => cx.emit(DismissEvent),
             "enter" => self.step(!modifiers.shift, cx),
+            "up" => self.step(true, cx),
+            "down" => self.step(false, cx),
             "c" if modifiers.alt => self.toggle_case(cx),
             "r" if modifiers.alt => self.toggle_regex(cx),
             "w" if modifiers.alt => self.toggle_whole_word(cx),
@@ -194,6 +196,14 @@ impl Render for SearchBar {
                         theme.text_muted
                     })
                     .when(!empty, |status| status.child(self.status_text())),
+            )
+            .child(
+                toggle("search-prev", "↑", false)
+                    .on_click(cx.listener(|this, _, _, cx| this.step(true, cx))),
+            )
+            .child(
+                toggle("search-next", "↓", false)
+                    .on_click(cx.listener(|this, _, _, cx| this.step(false, cx))),
             )
             .child(
                 toggle("search-case", "Aa", self.case == SearchCase::Sensitive)

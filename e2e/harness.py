@@ -327,7 +327,8 @@ class App:
     settings: dict written as settings.jsonc (the app merges it over defaults), or a raw string.
     script: sh script run by the default profile, it ends with a long sleep so tabs stay open.
     without script and without profiles in settings, an interactive bash --norc with PS1="$ " runs.
-    commands, keybindings, tab_icons: dicts put into their sections of settings, commands as {"commands": [...]}.
+    commands, keybindings: dicts put into their sections of settings, commands as {"commands": [...]}.
+    tab_icons: dict put into "icons" -> "dynamic_app_icons" of settings.
     themes: theme colors by name, put into "theme" -> "themes" of settings, like {"dark": {...}}.
     files: extra files inside the config folder, like {"local.jsonc": {...}}.
     args: command line options.
@@ -386,9 +387,11 @@ class App:
         if themes and isinstance(self.settings, dict):
             # a copy, callers often share one settings dict between tests
             self.settings["theme"] = {**self.settings.get("theme", {}), "themes": themes}
-        for name, content in (("keybindings", keybindings), ("commands", commands), ("tab_icons", tab_icons)):
+        for name, content in (("keybindings", keybindings), ("commands", commands)):
             if content is not None:
                 self.settings[name] = content["commands"] if name == "commands" else content
+        if tab_icons is not None:
+            self.settings["icons"] = {**self.settings.get("icons", {}), "dynamic_app_icons": tab_icons}
         if self.settings is not None:
             self.write("settings.jsonc", self.settings)
         for rel, content in (files or {}).items():

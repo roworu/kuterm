@@ -190,6 +190,7 @@ impl TerminalBuilder {
             vi: Default::default(),
             scan_events,
             reported_cwd: None,
+            progress: None,
             command_started: None,
             graphics,
             cell_size,

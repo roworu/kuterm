@@ -67,7 +67,7 @@ mod tests {
     use crate::terminal::{Kill, spawn};
 
     fn settings(json: &str) -> TabIconSettings {
-        Settings::parse(json).unwrap().tab_icon
+        Settings::parse(json).unwrap().icons
     }
 
     fn icon_of(icons: &TabIcons, command: &str) -> String {
@@ -182,7 +182,7 @@ mod tests {
 
     #[test]
     fn disabled_dynamic_icons_use_default() {
-        let settings = settings(r#"{"tab_icon": {"dynamic": false, "default": "D"}}"#);
+        let settings = settings(r#"{"icons": {"dynamic": false, "default": "D"}}"#);
         assert_eq!(
             tab_icon(
                 &settings,
@@ -196,7 +196,7 @@ mod tests {
 
     #[test]
     fn missing_process_uses_default() {
-        let settings = settings(r#"{"tab_icon": {"default": "D"}}"#);
+        let settings = settings(r#"{"icons": {"default": "D"}}"#);
         assert_eq!(
             tab_icon(
                 &settings,

@@ -80,6 +80,42 @@ def test_blocks_joined_in_order(app_factory):
     app.wait_title("1: ~ > bash")
 
 
+def test_icon_block_is_the_active_tab_icon(app_factory):
+    """"icon" in the window title is the icon of the active tab, following its program"""
+    app = titled(app_factory, ["icon", {"text": " "}, "command"], settings={"icons": {"default": "D"}},
+                 tab_icons={"groups": [{"icon": "S", "commands": ["sleep"]}]})
+    app.wait_title("D bash")
+    app.run("sleep 30")
+    app.wait_title("S sleep")
+    app.key("ctrl+shift+t")
+    app.wait_title("D bash")
+
+
+def test_progress_block_follows_osc_9_4(app_factory):
+    """"progress" fills a circle with the osc 9;4 progress and is gone once taken down"""
+    app = titled(app_factory, [{"text": "["}, "progress", {"text": "]"}])
+    app.wait_title("[]")
+    app.run("printf '\\033]9;4;1;50\\007'")
+    app.wait_title("[\U000f0aa1]")
+    app.snap("half done")
+    app.run("printf '\\033]9;4;0\\007'")
+    app.wait_title("[]")
+
+
+def test_busy_progress_block_spins(app_factory):
+    """"progress" without a percent turns a spinner until it is taken down"""
+    app = titled(app_factory, [{"text": "["}, "progress", {"text": "]"}])
+    app.wait_title("[]")
+    app.run("printf '\\033]9;4;3\\007'")
+    spinner = [f"[{chr(c)}]" for c in range(0xEE06, 0xEE0C)]
+    app.wait(lambda: app.title() in spinner, msg=f"spinner, title {app.title()!r}")
+    seen = {app.title()}
+    app.wait(lambda: seen.add(app.title()) or len(seen & set(spinner)) > 2, msg=f"spinner turns, saw {seen}")
+    app.snap("busy")
+    app.run("printf '\\033]9;4;0\\007'")
+    app.wait_title("[]")
+
+
 @pytest.mark.parametrize("blocks", [[], [{"text": ""}], ["title"]], ids=["none", "empty-text", "no-title"])
 def test_empty_window_title_uses_default_title(app_factory, blocks):
     """an empty window title falls back to default_title"""
@@ -118,7 +154,7 @@ def test_tab_title_blocks_are_drawn(app_factory):
     theme = unique_theme(0x70)
     colors = as_rgb(theme)
     app = titled(app_factory, [{"text": "window"}], themes={"dark": theme},
-                 settings={"hide_bar_for_one_tab": False, "tab_icon": {"dynamic": False, "default": ""},
+                 settings={"hide_bar_for_one_tab": False,
                            "tab_title": [{"text": "WWWWWWWWWW"}]})
     app.wait_title("window")
     h = app.bar_height()

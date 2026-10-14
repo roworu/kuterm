@@ -3,6 +3,9 @@
 mod app_menu;
 mod config_watch;
 mod end_truncated;
+#[cfg(target_os = "linux")]
+mod global_menu;
+mod menu_bar;
 mod notifications;
 mod session;
 mod tab_bar;
@@ -11,6 +14,7 @@ mod tab_title;
 mod window;
 
 use std::{
+    ops::Range,
     path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, Instant},
@@ -28,8 +32,11 @@ use gpui::{
 
 pub use app_menu::{app_menus, dock_menu, open_urls};
 pub use config_watch::watch_config;
+#[cfg(target_os = "linux")]
+pub use global_menu::start as start_global_menu;
+use menu_bar::{MenuBar, MenuPicked};
 use notifications::Notification;
-use tab_title::TitleInputs;
+use tab_title::{Click, Piece, TitleInputs};
 pub use window::{background_appearance, startup_bounds, window_decorations};
 
 use crate::{
@@ -39,8 +46,8 @@ use crate::{
         RestoreSession, Settings, Shell, TabIconSettings, TabIcons, TabTitleBlock,
     },
     terminal::{
-        Event, Terminal, TerminalBounds, TerminalBuilder, foreground_process,
-        with_shell_integration,
+        Event, ProcessSampler, Terminal, TerminalBounds, TerminalBuilder, TreeSample,
+        foreground_process, with_shell_integration,
     },
     theme::{self, Theme},
     ui::{
@@ -48,7 +55,7 @@ use crate::{
             About, CloseConfirmed, CloseTarget, CommandPalette, ConfirmClose, ConfirmPaste,
             PasteConfirmed,
         },
-        terminal_view::{ClipboardEvent, TerminalView, copied_text},
+        terminal_view::{ClipboardEvent, TerminalView, copied_text, open_link},
     },
 };
 
@@ -93,15 +100,25 @@ const QUIT_DIALOG_MAX_NAMES: usize = 3;
 // quiet gap. writing sooner lets the tty echo the input before the shell reads it
 const SHELL_READY_SETTLE: Duration = Duration::from_millis(50);
 
-// tab title blocks, window title blocks, icon settings, program icons, active tab, per tab inputs
+// tab title blocks, window title blocks, status bar sides when shown, icon settings, program
+// icons, active tab, per tab inputs
 type TitleSnapshot = (
     Vec<TabTitleBlock>,
     Vec<TabTitleBlock>,
+    Option<[Vec<TabTitleBlock>; 2]>,
     TabIconSettings,
     TabIcons,
     usize,
     Vec<(EntityId, TitleInputs)>,
 );
+
+/// title of one tab as the background build made it
+struct TabTitle {
+    title: String,
+    icon_at: Vec<usize>,
+    ports_at: Vec<(Range<usize>, u16)>,
+    icon: String,
+}
 
 struct Tab {
     view: Entity<TerminalView>,
@@ -110,6 +127,10 @@ struct Tab {
     /// built from `tab_title` blocks, empty until the first refresh
     title: String,
     icon: String,
+    /// byte offsets in `title` the icon is drawn at, one per "icon" block
+    icon_at: Vec<usize>,
+    /// byte ranges of ports in `title`, opened with the link modifier and a click
+    ports_at: Vec<(Range<usize>, u16)>,
     profile_icon: Option<String>,
     /// true once the shell is done starting, so writing to it now is not echoed by the tty
     ready: bool,
@@ -514,6 +535,12 @@ pub struct Workspace {
     drop_zone: Option<(usize, DropSide)>,
     /// built from `window_title` blocks for the active tab
     window_title: String,
+    /// left and right side of the status bar for the active tab, empty while it is off
+    status: [Vec<Piece>; 2],
+    /// frame busy progress spinners show
+    spinner_frame: usize,
+    /// a task turns the spinners while some title has one
+    spinning: bool,
     /// pane and place the profile menu was opened at, none while it is closed
     profile_menu: Option<(usize, Point<Pixels>)>,
     /// open command palette, none while it is closed
@@ -524,6 +551,9 @@ pub struct Workspace {
     confirm_close: Option<Entity<ConfirmClose>>,
     /// open paste dialog, none while it is closed
     confirm_paste: Option<Entity<ConfirmPaste>>,
+    /// menus at the top of the window, drawn only when `window.menu_bar` shows them
+    menu_bar: Entity<MenuBar>,
+    _menu_bar_subscriptions: [Subscription; 2],
     _overlay_subscriptions: Vec<Subscription>,
     /// labels of commands run from the palette, most recent first
     recent_commands: Vec<String>,
@@ -539,6 +569,22 @@ pub struct Workspace {
     _size_save: Task<()>,
     /// appearance the themes were last picked for
     appearance: WindowAppearance,
+}
+
+/// true when some title or the status bar shows cpu, memory or ports. asking the sampler keeps
+/// it running, so it is only asked then
+fn shows_samples(settings: &Settings) -> bool {
+    let status_bar = &settings.status_bar;
+    let status = [&status_bar.left, &status_bar.right]
+        .into_iter()
+        .filter(|_| status_bar.enable)
+        .flatten();
+    settings
+        .tab_title
+        .iter()
+        .chain(&settings.window_title)
+        .chain(status)
+        .any(TabTitleBlock::sampled)
 }
 
 /// spawn `profile` in a pty, with shell integration and the remote socket added
@@ -596,12 +642,19 @@ impl Workspace {
         let (refresh_titles, mut refresh_rx) = unbounded();
         let title_task = cx.spawn_in(window, async move |this, cx| {
             loop {
-                let Ok((blocks, window_blocks, icon_settings, icons, active, inputs)) =
-                    this.update(cx, |this, cx| this.title_inputs(cx))
+                let Ok((
+                    blocks,
+                    window_blocks,
+                    status_blocks,
+                    icon_settings,
+                    icons,
+                    active,
+                    inputs,
+                )) = this.update(cx, |this, cx| this.title_inputs(cx))
                 else {
                     break;
                 };
-                let shared = Arc::new((blocks, window_blocks, icon_settings, icons));
+                let shared = Arc::new((blocks, window_blocks, status_blocks, icon_settings, icons));
                 // /proc reads and exec blocks may block, keep them off the main thread.
                 // every tab builds on its own, so a slow exec block holds back only its tab
                 let builds = inputs
@@ -610,37 +663,70 @@ impl Workspace {
                     .map(|(ix, (id, inputs))| {
                         let shared = shared.clone();
                         cx.background_executor().spawn(async move {
-                            let (blocks, window_blocks, icon_settings, icons) = &*shared;
+                            let (blocks, window_blocks, status_blocks, icon_settings, icons) =
+                                &*shared;
                             // read once, the window title, tab title and icon all need it
                             let process = foreground_process(inputs.shell_pid);
                             let window_title = (ix == active).then(|| {
                                 tab_title::build_title(window_blocks, &inputs, process.as_ref())
                             });
-                            let title = tab_title::build_title(blocks, &inputs, process.as_ref());
+                            let status =
+                                status_blocks
+                                    .as_ref()
+                                    .filter(|_| ix == active)
+                                    .map(|sides| {
+                                        sides.clone().map(|side| {
+                                            tab_title::build_pieces(
+                                                &side,
+                                                &inputs,
+                                                process.as_ref(),
+                                            )
+                                        })
+                                    });
+                            let (title, icon_at, ports_at) =
+                                tab_title::build_title(blocks, &inputs, process.as_ref());
                             let icon = tab_icon::tab_icon(
                                 icon_settings,
                                 icons,
                                 inputs.profile_icon.as_deref(),
                                 process,
                             );
-                            (id, title, icon, window_title)
+                            // the window title and status bar are plain text, so their icons go
+                            // in as glyphs
+                            let window_title = window_title.map(|(text, icon_at, _)| {
+                                tab_title::insert_icons(text, &icon_at, &icon)
+                            });
+                            let status = status.map(|sides| {
+                                sides.map(|side| tab_title::icons_as_text(side, &icon))
+                            });
+                            let title = TabTitle {
+                                title,
+                                icon_at,
+                                ports_at,
+                                icon,
+                            };
+                            (id, title, window_title, status)
                         })
                     })
                     .collect::<Vec<_>>();
                 let built_at = Instant::now();
                 let mut window_title = String::new();
+                let mut status = Default::default();
                 let titles = futures::future::join_all(builds)
                     .await
                     .into_iter()
-                    .map(|(id, title, icon, active_title)| {
+                    .map(|(id, title, active_title, active_status)| {
                         if let Some(active_title) = active_title {
                             window_title = active_title;
                         }
-                        (id, title, icon)
+                        if let Some(active_status) = active_status {
+                            status = active_status;
+                        }
+                        (id, title)
                     })
                     .collect();
                 let Ok(()) = this.update_in(cx, |this, window, cx| {
-                    this.set_titles(titles, window_title, window, cx)
+                    this.set_titles(titles, window_title, status, window, cx)
                 }) else {
                     break;
                 };
@@ -672,6 +758,26 @@ impl Workspace {
                 while refresh_rx.try_recv().is_ok() {}
             }
         });
+        let menu_bar = cx.new(MenuBar::new);
+        let _menu_bar_subscriptions = [
+            cx.subscribe_in(
+                &menu_bar,
+                window,
+                |this, bar, _: &DismissEvent, window, cx| {
+                    // a click elsewhere may have focused another pane already
+                    if bar.focus_handle(cx).is_focused(window) {
+                        this.focus_active_tab(window, cx);
+                    }
+                },
+            ),
+            cx.subscribe_in(
+                &menu_bar,
+                window,
+                |this, _, picked: &MenuPicked, window, cx| {
+                    this.run_menu_action(picked.0.boxed_clone(), window, cx);
+                },
+            ),
+        ];
         let mut this = Self {
             layout: LayoutNode::Leaf(Pane {
                 id: 0,
@@ -684,11 +790,16 @@ impl Workspace {
             next_pane_id: 1,
             drop_zone: None,
             window_title: String::new(),
+            status: Default::default(),
+            spinner_frame: 0,
+            spinning: false,
             profile_menu: None,
             palette: None,
             about: None,
             confirm_close: None,
             confirm_paste: None,
+            menu_bar,
+            _menu_bar_subscriptions,
             _overlay_subscriptions: Vec::new(),
             recent_commands: Vec::new(),
             notifications: Vec::new(),
@@ -719,6 +830,8 @@ impl Workspace {
         })
         .detach();
         window::apply_startup_mode(window, cx);
+        #[cfg(target_os = "linux")]
+        global_menu::export_window(window, cx);
         if let Some(folder) = folder {
             this.open_folder(folder, window, cx);
         } else {
@@ -922,6 +1035,17 @@ impl Workspace {
             },
         );
 
+        let settings = Settings::get(cx);
+        // every block is empty before the first refresh, so all icons sit at the start
+        let icons = settings
+            .tab_title
+            .iter()
+            .filter(|block| **block == TabTitleBlock::Icon);
+        let icon_at = vec![0; icons.count()];
+        let icon = profile
+            .icon
+            .clone()
+            .unwrap_or_else(|| settings.icons.default.clone());
         let Some(pane) = self.pane_mut(pane_id) else {
             return;
         };
@@ -929,10 +1053,9 @@ impl Workspace {
             view,
             profile: profile.name.clone(),
             title: String::new(),
-            icon: profile
-                .icon
-                .clone()
-                .unwrap_or_else(|| Settings::get(cx).tab_icon.default.clone()),
+            icon,
+            icon_at,
+            ports_at: Vec::new(),
             profile_icon: profile.icon.clone(),
             ready: false,
             ready_task: Task::ready(()),
@@ -958,6 +1081,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let bell = &Settings::get(cx).bell;
+        let flash = bell.visual.enable;
         if bell.audio {
             window.play_system_bell();
         }
@@ -970,6 +1094,10 @@ impl Workspace {
             && pane.active != ix
         {
             pane.tabs[ix].bell = true;
+            cx.notify();
+        }
+        // the flash of a background tab is drawn by the workspace only
+        if flash {
             cx.notify();
         }
     }
@@ -1929,12 +2057,27 @@ impl Workspace {
         self.confirm_close = None;
         self.confirm_paste = None;
         self._overlay_subscriptions.clear();
+        self.focus_active_tab(window, cx);
+        cx.notify();
+    }
+
+    /// run a picked menu item from the terminal, so it does what its keys do
+    pub fn run_menu_action(
+        &mut self,
+        action: Box<dyn Action>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.focus_active_tab(window, cx);
+        window.dispatch_action(action, cx);
+    }
+
+    fn focus_active_tab(&self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(pane) = self.pane(self.focused)
             && let Some(tab) = pane.tabs.get(pane.active)
         {
             tab.view.focus_handle(cx).focus(window, cx);
         }
-        cx.notify();
     }
 
     fn toggle_command_palette(
@@ -1950,7 +2093,9 @@ impl Workspace {
         if !Settings::get(cx).command_palette.enable {
             return;
         }
-        let commands = Commands::get(cx).commands.clone();
+        let mut commands = Commands::get(cx).commands.clone();
+        let serving = self.serving_commands(cx);
+        commands.extend(serving.iter().map(|(command, _)| command.clone()));
         // recency is ignored when disabled, so the palette only sees recent names when it is on
         let recent = if Settings::get(cx).command_palette.show_recent {
             self.recent_commands.clone()
@@ -1962,8 +2107,13 @@ impl Workspace {
         self._overlay_subscriptions.push(cx.subscribe_in(
             &palette,
             window,
-            |this, _, command: &Command, window, cx| {
+            move |this, _, command: &Command, window, cx| {
                 this.close_overlay(window, cx);
+                // ports come and go, so these are not remembered as recent commands
+                if let Some((_, id)) = serving.iter().find(|(serving, _)| serving == command) {
+                    this.activate_id(*id, window, cx);
+                    return;
+                }
                 this.record_recent(command.label());
                 this.run_command(command, window, cx);
             },
@@ -1996,6 +2146,95 @@ impl Workspace {
         self.palette = Some(palette);
     }
 
+    /// a "go to tab serving :port" command per port a tab listens on, while ports are measured
+    fn serving_commands(&self, cx: &App) -> Vec<(Command, EntityId)> {
+        if !shows_samples(Settings::get(cx)) {
+            return Vec::new();
+        }
+        let mut commands = Vec::new();
+        for pane in self.layout.panes() {
+            for tab in &pane.tabs {
+                let pid = tab.view.read(cx).terminal().read(cx).shell_pid;
+                let ports = ProcessSampler::shared()
+                    .sample(pid)
+                    .unwrap_or_default()
+                    .ports;
+                for port in ports {
+                    let command = Command {
+                        name: format!("go to tab serving :{port}"),
+                        category: Some("tabs".into()),
+                        pinned: false,
+                        actions: Vec::new(),
+                    };
+                    commands.push((command, tab.view.entity_id()));
+                }
+            }
+        }
+        commands
+    }
+
+    /// switch to the tab with this view, wherever it lives
+    fn activate_id(&mut self, id: EntityId, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some((pane, ix)) = self.find_id(id) {
+            self.activate_tab(pane, ix, window, cx);
+        }
+    }
+
+    /// a click on a status bar piece: ports open in the browser, totals list every tab
+    fn status_clicked(&mut self, click: Click, window: &mut Window, cx: &mut Context<Self>) {
+        match click {
+            Click::Port(port) => open_link(format!("http://localhost:{port}"), cx),
+            Click::TotalCpu | Click::TotalMemory => self.open_usage_picker(click, window, cx),
+        }
+    }
+
+    /// palette listing cpu or memory of every tab, most first, picking one switches to it
+    fn open_usage_picker(&mut self, click: Click, window: &mut Window, cx: &mut Context<Self>) {
+        let several_panes = self.layout.panes().len() > 1;
+        let mut rows = Vec::new();
+        for (pane_number, pane) in self.layout.panes().into_iter().enumerate() {
+            for (ix, tab) in pane.tabs.iter().enumerate() {
+                let pid = tab.view.read(cx).terminal().read(cx).shell_pid;
+                let sample = ProcessSampler::shared().sample(pid).unwrap_or_default();
+                let (amount, text) = match click {
+                    Click::TotalCpu => (
+                        f64::from(sample.cpu_percent),
+                        tab_title::percent(sample.cpu_percent),
+                    ),
+                    _ => (sample.rss_bytes as f64, tab_title::bytes(sample.rss_bytes)),
+                };
+                // the number tells the rows apart, so a pick finds its tab again
+                let number = if several_panes {
+                    format!("{}.{}", pane_number + 1, ix + 1)
+                } else {
+                    (ix + 1).to_string()
+                };
+                let command = Command {
+                    name: format!("{text}  {}", self.tab_title(pane.id, ix, cx)),
+                    category: Some(number),
+                    pinned: false,
+                    actions: Vec::new(),
+                };
+                rows.push((amount, command, tab.view.entity_id()));
+            }
+        }
+        rows.sort_by(|a, b| b.0.total_cmp(&a.0));
+        let commands = rows.iter().map(|(_, command, _)| command.clone()).collect();
+        let palette = cx.new(|cx| CommandPalette::tab_picker(commands, cx));
+        self.open_overlay(&palette, window, cx);
+        self._overlay_subscriptions.push(cx.subscribe_in(
+            &palette,
+            window,
+            move |this, _, command: &Command, window, cx| {
+                this.close_overlay(window, cx);
+                if let Some((_, _, id)) = rows.iter().find(|(_, row, _)| row == command) {
+                    this.activate_id(*id, window, cx);
+                }
+            },
+        ));
+        self.palette = Some(palette);
+    }
+
     /// remember a command run from the palette, most recent first, oldest dropped
     fn record_recent(&mut self, label: String) {
         self.recent_commands.retain(|recent| *recent != label);
@@ -2013,6 +2252,11 @@ impl Workspace {
 
     fn title_inputs(&self, cx: &App) -> TitleSnapshot {
         let settings = Settings::get(cx);
+        let status_bar = &settings.status_bar;
+        let status_blocks = status_bar
+            .enable
+            .then(|| [status_bar.left.clone(), status_bar.right.clone()]);
+        let sampled = shows_samples(settings);
         let mut inputs = Vec::new();
         let mut active = 0;
         for pane in self.layout.panes() {
@@ -2028,14 +2272,26 @@ impl Workspace {
                         shell_pid: terminal.shell_pid,
                         title: terminal.title(&settings.default_title),
                         profile_icon: tab.profile_icon.clone(),
+                        progress: terminal.progress(),
+                        sample: sampled
+                            .then(|| ProcessSampler::shared().sample(terminal.shell_pid))
+                            .flatten(),
+                        total: None,
                     },
                 ));
+            }
+        }
+        if sampled {
+            let total = TreeSample::total(inputs.iter().filter_map(|(_, i)| i.sample.as_ref()));
+            for (_, inputs) in &mut inputs {
+                inputs.total = Some(total.clone());
             }
         }
         (
             settings.tab_title.clone(),
             settings.window_title.clone(),
-            settings.tab_icon.clone(),
+            status_blocks,
+            settings.icons.clone(),
             TabIcons::get(cx).clone(),
             active,
             inputs,
@@ -2044,23 +2300,25 @@ impl Workspace {
 
     fn set_titles(
         &mut self,
-        titles: Vec<(EntityId, String, String)>,
+        titles: Vec<(EntityId, TabTitle)>,
         window_title: String,
+        status: [Vec<Piece>; 2],
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let window_title = if window_title.is_empty() {
             Settings::get(cx).default_title.clone()
         } else {
-            window_title
+            tab_title::spin(&window_title, self.spinner_frame)
         };
         // linux can't read the title back, so the last one is kept here
         if self.window_title != window_title {
             window.set_window_title(&window_title);
             self.window_title = window_title;
         }
-        let mut changed = false;
-        for (id, title, icon) in titles {
+        let mut changed = self.status != status;
+        self.status = status;
+        for (id, built) in titles {
             // tabs closed while building are skipped
             let Some((pane_id, ix)) = self.find_id(id) else {
                 continue;
@@ -2069,15 +2327,65 @@ impl Workspace {
                 .pane_mut(pane_id)
                 .expect("pane id comes from the layout")
                 .tabs[ix];
-            if tab.title != title || tab.icon != icon {
-                tab.title = title;
-                tab.icon = icon;
+            if tab.title != built.title
+                || tab.icon_at != built.icon_at
+                || tab.ports_at != built.ports_at
+                || tab.icon != built.icon
+            {
+                tab.title = built.title;
+                tab.icon_at = built.icon_at;
+                tab.ports_at = built.ports_at;
+                tab.icon = built.icon;
                 changed = true;
             }
         }
         if changed {
             cx.notify();
         }
+        self.start_spinner(window, cx);
+    }
+
+    /// turn busy progress spinners until no title has one
+    fn start_spinner(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.spinning || !self.has_spinner() {
+            return;
+        }
+        self.spinning = true;
+        cx.spawn_in(window, async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(tab_title::SPINNER_INTERVAL)
+                    .await;
+                let Ok(true) = this.update_in(cx, |this, window, cx| {
+                    if !this.has_spinner() {
+                        this.spinning = false;
+                        return false;
+                    }
+                    this.spinner_frame += 1;
+                    this.window_title = tab_title::spin(&this.window_title, this.spinner_frame);
+                    window.set_window_title(&this.window_title);
+                    cx.notify();
+                    true
+                }) else {
+                    break;
+                };
+            }
+        })
+        .detach();
+    }
+
+    fn has_spinner(&self) -> bool {
+        tab_title::has_spinner(&self.window_title)
+            || self
+                .status
+                .iter()
+                .flatten()
+                .any(|piece| tab_title::has_spinner(&piece.text))
+            || self.layout.panes().iter().any(|pane| {
+                pane.tabs
+                    .iter()
+                    .any(|tab| tab_title::has_spinner(&tab.title))
+            })
     }
 
     fn new_tab(&mut self, _: &NewTab, window: &mut Window, cx: &mut Context<Self>) {
@@ -3208,7 +3516,7 @@ mod tests {
     #[gpui::test]
     fn tab_icon_follows_running_program(cx: &mut TestAppContext) {
         let (before, during) =
-            icon_while_sleeping(cx, r#"{"tab_icon": {"dynamic": true, "default": "D"}}"#);
+            icon_while_sleeping(cx, r#"{"icons": {"dynamic": true, "default": "D"}}"#);
         assert_eq!(before, "D");
         assert_eq!(during, "S");
     }
@@ -3216,16 +3524,31 @@ mod tests {
     #[gpui::test]
     fn disabled_dynamic_icon_stays_default(cx: &mut TestAppContext) {
         let (before, during) =
-            icon_while_sleeping(cx, r#"{"tab_icon": {"dynamic": false, "default": "D"}}"#);
+            icon_while_sleeping(cx, r#"{"icons": {"dynamic": false, "default": "D"}}"#);
         assert_eq!(before, "D");
         assert_eq!(during, "D");
+    }
+
+    #[gpui::test]
+    fn icon_sits_where_its_block_is(cx: &mut TestAppContext) {
+        let settings =
+            Settings::parse(r#"{"tab_title": [{"text": "a"}, "icon", {"text": "bc"}]}"#).unwrap();
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        let tab = |cx: &mut VisualTestContext| {
+            ws.update(cx, |ws, _| {
+                let tab = &ws.focused_pane().tabs[0];
+                (tab.title.clone(), tab.icon_at.clone())
+            })
+        };
+        wait_until(cx, "title never built", |cx| tab(cx).0 == "abc");
+        assert_eq!(tab(cx).1, [1]);
     }
 
     #[gpui::test]
     fn profile_icon_never_changes(cx: &mut TestAppContext) {
         let (before, during) = icon_while_sleeping(
             cx,
-            r#"{"tab_icon": {"dynamic": true, "default": "D"},
+            r#"{"icons": {"dynamic": true, "default": "D"},
                 "profiles": [{"name": "p", "command": "system", "icon": "P"}]}"#,
         );
         assert_eq!(before, "P");
@@ -3651,6 +3974,222 @@ mod tests {
         cx.run_until_parked();
         assert!(!palette_open(&ws, cx));
         assert_eq!(views(&ws, cx).len(), 2);
+    }
+
+    fn open_with_menu_bar<'a>(
+        cx: &'a mut TestAppContext,
+        mode: &str,
+    ) -> (Entity<Workspace>, &'a mut VisualTestContext) {
+        let json = format!(r#"{{"window": {{"menu_bar": "{mode}"}}}}"#);
+        open_with_settings(cx, 1, "{}", Settings::parse(&json).unwrap())
+    }
+
+    fn menu_bar_open(ws: &Entity<Workspace>, cx: &mut VisualTestContext) -> bool {
+        ws.update_in(cx, |ws, window, cx| {
+            ws.menu_bar.focus_handle(cx).is_focused(window)
+        }) || cx.debug_bounds("menu-dropdown").is_some()
+    }
+
+    /// workspace with these tab title and status bar blocks
+    fn open_with_status<'a>(
+        cx: &'a mut TestAppContext,
+        tab_title: &str,
+        left: &str,
+        right: &str,
+    ) -> (Entity<Workspace>, &'a mut VisualTestContext) {
+        let json = format!(
+            r#"{{"tab_title": {tab_title}, "status_bar": {{"enable": true, "left": {left},
+                "right": {right}}}}}"#
+        );
+        open_with_settings(cx, 1, "{}", Settings::parse(&json).unwrap())
+    }
+
+    /// port the first status bar side shows, once the sampler found one
+    fn status_port(ws: &Entity<Workspace>, cx: &mut VisualTestContext) -> u16 {
+        let port = |cx: &mut VisualTestContext| {
+            ws.update(cx, |ws, _| {
+                ws.status[0].iter().find_map(|piece| match piece.click {
+                    Some(Click::Port(port)) => Some(port),
+                    _ => None,
+                })
+            })
+        };
+        wait_until(cx, "port never showed in the status bar", |cx| {
+            port(cx).is_some()
+        });
+        port(cx).unwrap()
+    }
+
+    #[gpui::test]
+    fn status_bar_sits_below_the_panes_only_when_enabled(cx: &mut TestAppContext) {
+        let json = r#"{"status_bar": {"enable": false}}"#;
+        let (_, cx) = open_with_settings(cx, 1, "{}", Settings::parse(json).unwrap());
+        assert!(cx.debug_bounds("status-bar").is_none());
+        let (ws, cx) = open_with_status(cx, "[]", r#"[{"text": "left"}]"#, r#"["number"]"#);
+        let bar = cx.debug_bounds("status-bar").unwrap();
+        assert!(cx.debug_bounds("pane-terminal-0").unwrap().bottom() <= bar.top());
+        wait_until(cx, "status never built", |cx| {
+            ws.update(cx, |ws, _| !ws.status[1].is_empty())
+        });
+        let texts = ws.update(cx, |ws, _| {
+            ws.status
+                .clone()
+                .map(|side| side.into_iter().map(|piece| piece.text).collect::<Vec<_>>())
+        });
+        assert_eq!(texts, [vec!["left"], vec!["1"]]);
+    }
+
+    #[gpui::test]
+    fn listening_port_shows_in_status_title_and_palette(cx: &mut TestAppContext) {
+        let (ws, cx) = open_with_status(cx, r#"["ports"]"#, r#"["ports"]"#, r#"["total_cpu"]"#);
+        send_to(
+            &ws,
+            cx,
+            0,
+            "exec python3 -m http.server 0 --bind 127.0.0.1\r",
+        );
+        let port = status_port(&ws, cx);
+        // the tab title holds the same port, with its range for clicks
+        let text = format!(":{port}");
+        wait_until(cx, "port never showed in the tab title", |cx| {
+            ws.update(cx, |ws, _| ws.focused_pane().tabs[0].title == text)
+        });
+        let ports_at = ws.update(cx, |ws, _| ws.focused_pane().tabs[0].ports_at.clone());
+        assert_eq!(ports_at, [(0..text.len(), port)]);
+        assert!(
+            cx.debug_bounds(format!("status-Port({port})").leak())
+                .is_some()
+        );
+        assert!(cx.debug_bounds("status-TotalCpu").is_some());
+        // from another tab, the palette goes back to the one serving it
+        ws.update_in(cx, |ws, window, cx| ws.add_tab(window, cx));
+        cx.run_until_parked();
+        assert_eq!(current(&ws, cx), 1);
+        ws.update_in(cx, |ws, window, cx| {
+            ws.toggle_command_palette(&ToggleCommandPalette, window, cx)
+        });
+        type_keys(cx, "s e r v i n g");
+        assert_eq!(
+            palette_names(&ws, cx),
+            [format!("tabs: go to tab serving :{port}")]
+        );
+        type_keys(cx, "enter");
+        assert!(!palette_open(&ws, cx));
+        assert_eq!(current(&ws, cx), 0);
+        assert!(ws.update(cx, |ws, _| ws.recent_commands.is_empty()));
+    }
+
+    #[gpui::test]
+    fn total_click_lists_tabs_most_first(cx: &mut TestAppContext) {
+        let (ws, cx) = open_with_status(cx, "[]", "[]", r#"["total_memory"]"#);
+        ws.update_in(cx, |ws, window, cx| ws.add_tab(window, cx));
+        // the first tab holds far more memory than a bare shell
+        send_to(
+            &ws,
+            cx,
+            0,
+            "exec python3 -c 'b = b\"x\" * (64 << 20); input()'\r",
+        );
+        let first = terminal(&ws, cx, 0).update(cx, |t, _| t.shell_pid);
+        wait_until(cx, "memory never measured", |cx| {
+            cx.debug_bounds("status-TotalMemory").is_some()
+                && ProcessSampler::shared()
+                    .sample(first)
+                    .is_some_and(|sample| sample.rss_bytes > 64 << 20)
+        });
+        assert_eq!(current(&ws, cx), 1);
+        let total = cx.debug_bounds("status-TotalMemory").unwrap().center();
+        click(cx, total, 1);
+        release(cx, total);
+        cx.run_until_parked();
+        assert!(palette_open(&ws, cx));
+        let names = palette_names(&ws, cx);
+        assert_eq!(names.len(), 2);
+        assert!(names[0].starts_with("1: "), "{names:?}");
+        assert!(names[1].starts_with("2: "), "{names:?}");
+        type_keys(cx, "enter");
+        assert!(!palette_open(&ws, cx));
+        assert_eq!(current(&ws, cx), 0);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[gpui::test]
+    fn menu_bar_is_shown_only_when_asked(cx: &mut TestAppContext) {
+        let (_, cx) = open_with_menu_bar(cx, "never");
+        assert!(cx.debug_bounds("menu-bar").is_none());
+        let (_, cx) = open_with_menu_bar(cx, "always");
+        let bar = cx.debug_bounds("menu-bar").unwrap();
+        // the panes start below it
+        assert!(cx.debug_bounds("pane-terminal-0").unwrap().top() >= bar.bottom());
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[gpui::test]
+    fn menu_bar_click_runs_the_item(cx: &mut TestAppContext) {
+        let (ws, cx) = open_with_menu_bar(cx, "always");
+        // "Shell" > "New Tab"
+        let shell = cx.debug_bounds("menu-1").unwrap().center();
+        click(cx, shell, 1);
+        release(cx, shell);
+        cx.run_until_parked();
+        assert!(menu_bar_open(&ws, cx));
+        let item = cx.debug_bounds("menu-item-0").unwrap().center();
+        click(cx, item, 1);
+        release(cx, item);
+        cx.run_until_parked();
+        assert!(!menu_bar_open(&ws, cx));
+        assert_eq!(views(&ws, cx).len(), 2);
+        // focus is back on the terminal
+        assert_eq!(current(&ws, cx), 1);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[gpui::test]
+    fn menu_bar_click_outside_closes_it(cx: &mut TestAppContext) {
+        let (ws, cx) = open_with_menu_bar(cx, "always");
+        let shell = cx.debug_bounds("menu-1").unwrap().center();
+        click(cx, shell, 1);
+        cx.run_until_parked();
+        assert!(menu_bar_open(&ws, cx));
+        // a click on the open title closes it too
+        click(cx, shell, 1);
+        cx.run_until_parked();
+        assert!(!menu_bar_open(&ws, cx));
+        click(cx, shell, 1);
+        cx.run_until_parked();
+        let terminal = cx.debug_bounds("pane-terminal-0").unwrap().center();
+        click(cx, terminal, 1);
+        release(cx, terminal);
+        cx.run_until_parked();
+        assert!(!menu_bar_open(&ws, cx));
+        assert_eq!(views(&ws, cx).len(), 1);
+        assert_eq!(current(&ws, cx), 0);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[gpui::test]
+    fn menu_bar_alt_and_arrows_run_an_item(cx: &mut TestAppContext) {
+        let (ws, cx) = open_with_menu_bar(cx, "always");
+        // alt alone opens the first menu, escape closes it again
+        cx.simulate_modifiers_change(Modifiers::alt());
+        cx.simulate_modifiers_change(Modifiers::none());
+        cx.run_until_parked();
+        assert!(menu_bar_open(&ws, cx));
+        type_keys(cx, "escape");
+        assert!(!menu_bar_open(&ws, cx));
+        assert_eq!(current(&ws, cx), 0);
+        // alt as part of a shortcut opens nothing
+        cx.simulate_modifiers_change(Modifiers::alt());
+        type_keys(cx, "alt-x");
+        cx.simulate_modifiers_change(Modifiers::none());
+        cx.run_until_parked();
+        assert!(!menu_bar_open(&ws, cx));
+        // "View" > "Command Palette"
+        cx.simulate_modifiers_change(Modifiers::alt());
+        cx.simulate_modifiers_change(Modifiers::none());
+        type_keys(cx, "right right right down up enter");
+        assert!(!menu_bar_open(&ws, cx));
+        assert!(palette_open(&ws, cx));
     }
 
     #[gpui::test]
@@ -4740,7 +5279,7 @@ mod tests {
     #[gpui::test]
     fn padding_moves_and_shrinks_the_grid(cx: &mut TestAppContext) {
         let settings = window_settings(
-            r#"{"decorations": "full", "padding": {"x": 30, "y": 20}, "padding_balance": false}"#,
+            r#"{"decorations": "server", "padding": {"x": 30, "y": 20}, "padding_balance": false}"#,
         );
         let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
         cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
@@ -4755,7 +5294,7 @@ mod tests {
     #[gpui::test]
     fn balanced_padding_centers_the_grid(cx: &mut TestAppContext) {
         let settings = window_settings(
-            r#"{"decorations": "full", "padding": {"x": 30, "y": 20}, "padding_balance": true}"#,
+            r#"{"decorations": "server", "padding": {"x": 30, "y": 20}, "padding_balance": true}"#,
         );
         let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
         cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
@@ -4778,7 +5317,7 @@ mod tests {
     #[gpui::test]
     fn startup_size_fits_columns_and_rows(cx: &mut TestAppContext) {
         let settings = window_settings(
-            r#"{"decorations": "full", "padding": {"x": 7, "y": 3}, "columns": 83, "rows": 27,
+            r#"{"decorations": "server", "padding": {"x": 7, "y": 3}, "columns": 83, "rows": 27,
                 "startup": "windowed", "remember_size": false}"#,
         );
         let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
@@ -4832,7 +5371,7 @@ mod tests {
 
     #[gpui::test]
     fn frameless_window_shows_tab_bar_with_drag_area(cx: &mut TestAppContext) {
-        let settings = window_settings(r#"{"decorations": "full"}"#);
+        let settings = window_settings(r#"{"decorations": "server"}"#);
         let (_ws, cx) = open_with_settings(cx, 1, "{}", settings);
         cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
         assert!(cx.debug_bounds("drag-area").is_none());
@@ -4855,10 +5394,22 @@ mod tests {
         let settings = window_settings(r#"{"decorations": "client"}"#);
         let (ws, cx) = open_with_settings(cx, 2, "{}", settings);
         cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
-        for id in ["window-minimize", "window-maximize", "window-close"] {
+        let ids = [
+            "window-fullscreen",
+            "window-minimize",
+            "window-maximize",
+            "window-close",
+        ];
+        for (id, next) in ids.iter().zip(ids.iter().skip(1)) {
             let button = cx.debug_bounds(id).unwrap_or_else(|| panic!("no {id}"));
             assert!(button.left() > gpui::px(450.), "{id} is not on the right");
+            assert!(button.right() <= cx.debug_bounds(next).unwrap().left());
         }
+        let fullscreen = cx.debug_bounds("window-fullscreen").unwrap().center();
+        cx.simulate_click(fullscreen, Modifiers::none());
+        assert!(cx.update(|window, _| window.is_fullscreen()));
+        cx.simulate_click(fullscreen, Modifiers::none());
+        assert!(!cx.update(|window, _| window.is_fullscreen()));
         run_actions(&ws, cx, r#""split_left""#);
         cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
         // the moved tab is on the left, the buttons stay at the right edge
@@ -4871,6 +5422,67 @@ mod tests {
         cx.simulate_click(close.center(), Modifiers::none());
         cx.run_until_parked();
         assert_eq!(dialog(&ws, cx).map(|d| d.0), Some(CloseTarget::Window));
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[gpui::test]
+    fn one_tab_hides_the_tab_bar_under_a_top_row(cx: &mut TestAppContext) {
+        let ids = |cx: &mut VisualTestContext| {
+            ["tab-title-0", "menu-bar", "title-bar", "window-close"]
+                .map(|id| cx.debug_bounds(id).is_some())
+        };
+        // the menu bar moves the window and holds the buttons
+        let settings = window_settings(r#"{"decorations": "client", "menu_bar": "always"}"#);
+        let (_, cx) = open_with_settings(cx, 1, "{}", settings);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        assert_eq!(ids(cx), [false, true, false, true]);
+        let settings = window_settings(r#"{"decorations": "none", "menu_bar": "always"}"#);
+        let (_, cx) = open_with_settings(cx, 1, "{}", settings);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        assert_eq!(ids(cx), [false, true, false, false]);
+        // without menus a client frame gets an empty title bar
+        let settings = window_settings(r#"{"decorations": "client", "menu_bar": "never"}"#);
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        assert_eq!(ids(cx), [false, false, true, true]);
+        assert!(cx.debug_bounds("menu-drag-area").is_some());
+        // a second tab brings the tab bar back with the buttons on it
+        run_actions(&ws, cx, r#""new_tab""#);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        assert_eq!(ids(cx), [true, false, false, true]);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[gpui::test]
+    fn client_frame_puts_window_buttons_on_the_menu_bar(cx: &mut TestAppContext) {
+        let settings = window_settings(r#"{"decorations": "client", "menu_bar": "always"}"#);
+        let (_, cx) = open_with_settings(cx, 2, "{}", settings);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        // the menu bar is the top row, the tab bar below it has no buttons
+        let bar = cx.debug_bounds("menu-bar").expect("no menu bar");
+        for id in [
+            "window-fullscreen",
+            "window-minimize",
+            "window-maximize",
+            "window-close",
+        ] {
+            let button = cx.debug_bounds(id).unwrap_or_else(|| panic!("no {id}"));
+            assert!(
+                button.bottom() <= bar.bottom(),
+                "{id} is below the menu bar"
+            );
+            assert!(button.left() > gpui::px(450.), "{id} is not on the right");
+        }
+        // the free room between the menus and the buttons moves the window
+        let area = cx.debug_bounds("menu-drag-area").expect("no drag area");
+        assert!(area.top() >= bar.top() && area.bottom() <= bar.bottom());
+        assert!(area.right() <= cx.debug_bounds("window-fullscreen").unwrap().left());
+        // a framed window has neither
+        let settings = window_settings(r#"{"decorations": "server", "menu_bar": "always"}"#);
+        let (_, cx) = open_with_settings(cx, 2, "{}", settings);
+        assert!(cx.debug_bounds("menu-bar").is_some());
+        assert!(cx.debug_bounds("menu-drag-area").is_none());
+        assert!(cx.debug_bounds("window-close").is_none());
     }
 
     #[test]
@@ -4925,7 +5537,7 @@ mod tests {
             );
         }
         for (mode, expected) in [
-            ("full", gpui::WindowDecorations::Server),
+            ("server", gpui::WindowDecorations::Server),
             ("none", gpui::WindowDecorations::Client),
             ("client", gpui::WindowDecorations::Client),
         ] {
@@ -5135,6 +5747,39 @@ mod tests {
         cx.simulate_input("(");
         cx.run_until_parked();
         assert!(count(cx).is_err());
+    }
+
+    #[gpui::test]
+    fn search_arrows_walk_matches(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 1);
+        print_line(&ws, cx, "hit_a hit_b");
+        run_actions(&ws, cx, r#""search""#);
+        let bar = search_bar(&ws, cx).expect("palette action opens the bar");
+        cx.simulate_input("hit_");
+        cx.run_until_parked();
+        let active = |cx: &mut VisualTestContext| {
+            bar.read_with(cx, |bar, _| bar.status().clone())
+                .unwrap()
+                .active
+        };
+        let start = active(cx);
+        let center = cx.debug_bounds("search-prev").unwrap().center();
+        click(cx, center, 1);
+        release(cx, center);
+        cx.run_until_parked();
+        let moved = active(cx);
+        assert_ne!(moved, start);
+        let center = cx.debug_bounds("search-next").unwrap().center();
+        click(cx, center, 1);
+        release(cx, center);
+        cx.run_until_parked();
+        assert_eq!(active(cx), start);
+        cx.simulate_keystrokes("up");
+        cx.run_until_parked();
+        assert_eq!(active(cx), moved);
+        cx.simulate_keystrokes("down");
+        cx.run_until_parked();
+        assert_eq!(active(cx), start);
     }
 
     fn active_view(ws: &Entity<Workspace>, cx: &mut VisualTestContext) -> Entity<TerminalView> {

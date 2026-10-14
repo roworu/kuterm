@@ -1,12 +1,13 @@
 //! drawing the workspace: tab bar on top, active terminal below
 // TODO: need a setting on where to put tabs (top, bottom, left?, right?)
 
-use std::{cell::RefCell, collections::HashMap, sync::LazyLock};
+use std::{cell::RefCell, collections::HashMap, ops::Range, sync::LazyLock};
 
 use gpui::{
     AnyElement, App, Context, CursorStyle, DispatchPhase, Div, DragMoveEvent, ExternalPaths,
-    MouseButton, MouseMoveEvent, PlatformInput, ScrollHandle, Stateful, StyleRefinement, Window,
-    anchored, canvas, deferred, div, prelude::*, px, relative, rems,
+    ModifiersChangedEvent, MouseButton, MouseDownEvent, MouseMoveEvent, PlatformInput,
+    ScrollHandle, Stateful, StyleRefinement, Window, anchored, canvas, deferred, div, prelude::*,
+    px, relative, rems,
 };
 use skrifa::{
     FontRef, MetadataProvider,
@@ -14,16 +15,24 @@ use skrifa::{
 };
 
 use super::{
-    DropSide, LayoutNode, Pane, SplitAxis, Workspace, end_truncated::EndTruncated,
-    window::shows_tab_bar,
+    DropSide, LayoutNode, Pane, SplitAxis, Workspace,
+    end_truncated::EndTruncated,
+    tab_title::{self, Piece},
+    window::{client_frame, shows_tab_bar},
 };
 use crate::{
-    settings::{Decorations, NewTabButton, Settings, TabIconPosition, TabTitleAlign},
+    settings::{BellTarget, Decorations, NewTabButton, Settings, TabTitleAlign},
     theme::Theme,
+    ui::terminal_view::open_link,
 };
 
 // tab bar text size in rems, the icon offset is scaled by it
 const TEXT_SIZE: f32 = 0.875;
+
+/// status bar height in rems
+pub(super) const STATUS_BAR_HEIGHT: f32 = 1.5;
+// status bar text size in rems, smaller than the tabs so the bar stays quiet
+const STATUS_TEXT_SIZE: f32 = 0.75;
 
 // nerd font bell, shown on a background tab that rang
 const BELL_ICON: &str = "\u{f0f3}";
@@ -81,15 +90,90 @@ fn tab_row(scroll: &ScrollHandle) -> Stateful<Div> {
         .track_scroll(scroll)
 }
 
-/// tab sized from settings, with its icon and title
-fn tab(ix: usize, title: String, icon: String, settings: &Settings) -> Stateful<Div> {
+/// title text with `icon` drawn at each byte offset of `icon_at`, the link modifier and a click
+/// on a port of `ports_at` opens it
+fn title_with_icons(
+    ix: usize,
+    title: &str,
+    icon: &str,
+    icon_at: &[usize],
+    ports_at: &[(Range<usize>, u16)],
+) -> Div {
+    let drop = rems(icon_drop(icon) * TEXT_SIZE);
+    // shrinks below its text, so long titles are cut at the end whatever the align
+    let text = |text: &str| {
+        div()
+            .debug_selector(move || format!("tab-text-{ix}"))
+            .flex()
+            .min_w_0()
+            .overflow_hidden()
+            .child(EndTruncated::new(text.to_owned()))
+    };
+    let mut row = div()
+        .debug_selector(move || format!("tab-title-{ix}"))
+        .flex()
+        .items_center()
+        .gap_1()
+        .min_w_0()
+        .overflow_hidden();
+    let mut start = 0;
+    let mut icons = icon_at.iter().copied().peekable();
+    let mut ports = ports_at.iter().peekable();
+    loop {
+        let next_port = ports.peek().map(|(range, _)| range.start);
+        // an icon goes before a port at the same offset, the blocks came in that order
+        if let Some(at) = icons.next_if(|&at| next_port.is_none_or(|port| at <= port)) {
+            if at > start {
+                row = row.child(text(&title[start..at]));
+                start = at;
+            }
+            row = row.child(
+                div()
+                    .debug_selector(move || format!("tab-icon-{ix}"))
+                    .flex_none()
+                    .relative()
+                    .top(drop)
+                    .child(icon.to_owned()),
+            );
+        } else if let Some((range, port)) = ports.next() {
+            if range.start > start {
+                row = row.child(text(&title[start..range.start]));
+            }
+            let port = *port;
+            row = row.child(
+                div()
+                    .debug_selector(move || format!("tab-port-{port}"))
+                    .flex_none()
+                    .child(title[range.clone()].to_owned())
+                    .on_mouse_down(MouseButton::Left, move |event: &MouseDownEvent, _, cx| {
+                        if Settings::get(cx).links.modifier.held(&event.modifiers) {
+                            open_link(format!("http://localhost:{port}"), cx);
+                            // the tab under it is neither picked nor dragged
+                            cx.stop_propagation();
+                        }
+                    }),
+            );
+            start = range.end;
+        } else {
+            break;
+        }
+    }
+    if start < title.len() {
+        row = row.child(text(&title[start..]));
+    }
+    row
+}
+
+/// tab sized from settings, with its title and icons
+fn tab(
+    ix: usize,
+    title: &str,
+    icon: &str,
+    icon_at: &[usize],
+    ports_at: &[(Range<usize>, u16)],
+    settings: &Settings,
+) -> Stateful<Div> {
     let expand = settings.expand_tabs;
-    let icon = div()
-        .debug_selector(move || format!("tab-icon-{ix}"))
-        .flex_none()
-        .relative()
-        .top(rems(icon_drop(&icon) * TEXT_SIZE))
-        .child(icon);
     let title = div()
         .flex()
         .flex_1()
@@ -99,15 +183,7 @@ fn tab(ix: usize, title: String, icon: String, settings: &Settings) -> Stateful<
             TabTitleAlign::Center => row.justify_center(),
             TabTitleAlign::Right => row.justify_end(),
         })
-        // shrinks below its text, so long titles are cut at the end whatever the align
-        .child(
-            div()
-                .debug_selector(move || format!("tab-title-{ix}"))
-                .flex()
-                .min_w_0()
-                .overflow_hidden()
-                .child(EndTruncated::new(title)),
-        );
+        .child(title_with_icons(ix, title, icon, icon_at, ports_at));
     div()
         .id(("tab", ix))
         .flex()
@@ -121,10 +197,7 @@ fn tab(ix: usize, title: String, icon: String, settings: &Settings) -> Stateful<
         .when(!expand, |tab| {
             tab.flex_none().w(px(settings.tab_width as f32))
         })
-        .map(|tab| match settings.tab_icon.position {
-            TabIconPosition::Left => tab.child(icon).child(title),
-            TabIconPosition::Right => tab.child(title).child(icon),
-        })
+        .child(title)
 }
 
 /// a tab picked up with the mouse, drawn as its own preview while dragging
@@ -135,18 +208,13 @@ struct DraggedTab {
     ix: usize,
     title: String,
     icon: String,
+    icon_at: Vec<usize>,
 }
 
 impl Render for DraggedTab {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = Theme::get(cx);
         let settings = Settings::get(cx);
-        let icon = div()
-            .flex_none()
-            .relative()
-            .top(rems(icon_drop(&self.icon) * TEXT_SIZE))
-            .child(self.icon.clone());
-        let title = div().min_w_0().overflow_hidden().child(self.title.clone());
         div()
             .id("dragged-tab")
             .flex()
@@ -161,10 +229,13 @@ impl Render for DraggedTab {
             .text_color(theme.text)
             .border_1()
             .border_color(theme.border)
-            .map(|tab| match settings.tab_icon.position {
-                TabIconPosition::Left => tab.child(icon).child(title),
-                TabIconPosition::Right => tab.child(title).child(icon),
-            })
+            .child(title_with_icons(
+                self.ix,
+                &self.title,
+                &self.icon,
+                &self.icon_at,
+                &[],
+            ))
     }
 }
 
@@ -211,18 +282,40 @@ impl Workspace {
 
     fn render_tab(&self, pane: usize, ix: usize, cx: &Context<Self>) -> Stateful<Div> {
         let is_active = self.pane(pane).is_some_and(|state| ix == state.active);
-        let theme = Theme::get(cx);
         let settings = Settings::get(cx);
-        let indicator = theme.text;
-        let title = self.tab_title(pane, ix, cx);
+        let title = tab_title::spin(&self.tab_title(pane, ix, cx), self.spinner_frame);
         let tab_state = &self.pane(pane).expect("pane from caller").tabs[ix];
+        // a tab with a profile theme takes its colors, so profiles are easy to tell apart
+        let terminal = tab_state.view.read(cx).terminal().read(cx);
+        let profile_theme = terminal.profile_theme();
+        let theme = terminal.theme(cx);
+        let indicator = theme.text;
         let icon = tab_state.icon.clone();
+        let icon_at = tab_state.icon_at.clone();
         let bell = tab_state.bell;
-        tab(ix, title.clone(), icon.clone(), settings)
+        let flash = tab_state
+            .view
+            .read(cx)
+            .bell_color(cx)
+            .filter(|_| settings.bell.visual.target == BellTarget::Tab);
+        let background = match profile_theme {
+            Some(profile) => profile.terminal_background,
+            None if is_active => theme.tab_active_background,
+            None => theme.tab_bar_background,
+        };
+        // a spinner frame has the same length, so the ranges still fit
+        tab(ix, &title, &icon, &icon_at, &tab_state.ports_at, settings)
             .group("tab")
             .border_r_1()
             .border_color(theme.border)
-            .when(is_active, |tab| tab.bg(theme.tab_active_background))
+            // the terminal background, not the bright tab colors, so the tab blends with its pane
+            .when_some(profile_theme, |tab, theme| {
+                tab.bg(theme.terminal_background)
+            })
+            .when(is_active && profile_theme.is_none(), |tab| {
+                tab.bg(theme.tab_active_background)
+            })
+            .when_some(flash, |tab, flash| tab.bg(background.blend(flash)))
             .text_color(if is_active {
                 theme.text
             } else {
@@ -244,6 +337,7 @@ impl Workspace {
                         ix,
                         title,
                         icon,
+                        icon_at,
                     },
                     |dragged: &DraggedTab, _, _, cx| cx.new(|_| dragged.clone()),
                 )
@@ -338,7 +432,12 @@ impl Workspace {
         let theme = Theme::get(cx);
         let pane_id = pane.id;
         let show_bar = shows_tab_bar(settings, pane.tabs.len());
-        let framed = settings.window.decorations == Decorations::Full;
+        let flash = pane
+            .tabs
+            .get(pane.active)
+            .and_then(|tab| tab.view.read(cx).bell_color(cx))
+            .filter(|_| settings.bell.visual.target == BellTarget::Tab);
+        let framed = settings.window.decorations == Decorations::Server;
         // fixed width tabs only take the room they need, so the button follows the last one.
         // expanded tabs fill the row anyway, which puts the button at the right end.
         // without a frame the room after the tabs is left free for moving the window
@@ -361,8 +460,10 @@ impl Workspace {
                 NewTabButton::Right => bar.child(tab_row).children(drag_area).child(new_tab),
                 NewTabButton::AfterTabs => bar.child(tab_row).child(new_tab).children(drag_area),
             })
+            // the menu bar is the top row when shown, so the buttons go there instead
             .when(
                 settings.window.decorations == Decorations::Client
+                    && !settings.window.menu_bar.shown()
                     && self.layout.corner_pane_id() == Some(pane_id),
                 |bar| bar.child(self.render_window_buttons(cx)),
             );
@@ -410,6 +511,10 @@ impl Workspace {
                     .clone()
                     .cached(StyleRefinement::default().size_full())
             }))
+            // a hidden tab bar has no tab to flash, the pane edges stay out of the way of text
+            .when_some(flash.filter(|_| !show_bar), |terminal, flash| {
+                terminal.child(div().absolute().inset_0().border_2().border_color(flash))
+            })
             .when_some(zone, |terminal, side| {
                 terminal.child(drop_overlay(side, theme))
             })
@@ -559,6 +664,61 @@ impl Workspace {
     }
 
     /// profile list opened with a right click on "+", picking one opens a tab with it
+    /// bar under the panes with the status pieces of the active tab on both sides
+    fn render_status_bar(&self, cx: &Context<Self>) -> Stateful<Div> {
+        let theme = Theme::get(cx);
+        let side = |name: &'static str, pieces: &[Piece]| {
+            let items = pieces
+                .iter()
+                .enumerate()
+                // a space between two ports is a gap here
+                .filter(|(_, piece)| !piece.text.trim().is_empty())
+                .map(|(ix, piece)| {
+                    let item = div()
+                        .id((name, ix))
+                        .flex_none()
+                        .whitespace_nowrap()
+                        .child(tab_title::spin(&piece.text, self.spinner_frame));
+                    match piece.click {
+                        Some(click) => item
+                            .debug_selector(move || format!("status-{click:?}"))
+                            .cursor_pointer()
+                            .hover(|item| item.underline())
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.status_clicked(click, window, cx)
+                            })),
+                        None => item,
+                    }
+                });
+            div()
+                .flex()
+                .items_center()
+                .gap_3()
+                .min_w_0()
+                .overflow_hidden()
+                .children(items)
+        };
+        div()
+            .id("status-bar")
+            .debug_selector(|| "status-bar".into())
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_between()
+            .gap_6()
+            .w_full()
+            .h(rems(STATUS_BAR_HEIGHT))
+            .px_3()
+            .bg(theme.tab_bar_background)
+            .border_t_1()
+            .border_color(theme.border)
+            .text_size(rems(STATUS_TEXT_SIZE))
+            .text_color(theme.text_muted)
+            .hover(|bar| bar.text_color(theme.text))
+            .child(side("status-left", &self.status[0]))
+            .child(side("status-right", &self.status[1]))
+    }
+
     fn render_profile_menu(&self, cx: &Context<Self>) -> Option<AnyElement> {
         let (pane, position) = self.profile_menu?;
         let theme = Theme::get(cx);
@@ -644,7 +804,21 @@ impl Render for Workspace {
             Some(pane) => self.render_pane(pane, cx),
             None => self.render_layout(&self.layout, &[], cx),
         };
-        div()
+        // a terminal view only animates its own flash, and not at all in a background tab
+        if settings.bell.visual.target == BellTarget::Tab
+            && self
+                .layout
+                .panes()
+                .into_iter()
+                .flat_map(|pane| &pane.tabs)
+                .any(|tab| tab.view.read(cx).bell_color(cx).is_some())
+        {
+            window.request_animation_frame();
+        }
+        // its own row above the panes, each pane has its own tab bar but the menus belong to
+        // the whole window
+        let menu_bar = settings.window.menu_bar.shown();
+        let workspace = div()
             .key_context("Workspace")
             .on_action(cx.listener(Self::new_tab))
             .on_action(cx.listener(Self::close_tab))
@@ -657,6 +831,19 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::minimize))
             .on_action(cx.listener(Self::zoom))
             .on_action(cx.listener(Self::run_action))
+            .when(menu_bar, |workspace| {
+                workspace
+                    .capture_key_down(cx.listener(|this, _, _, cx| {
+                        this.menu_bar.update(cx, |bar, _| bar.key_pressed());
+                    }))
+                    .on_modifiers_changed(cx.listener(
+                        |this, event: &ModifiersChangedEvent, window, cx| {
+                            this.menu_bar.update(cx, |bar, cx| {
+                                bar.modifiers_changed(&event.modifiers, window, cx)
+                            });
+                        },
+                    ))
+            })
             .relative()
             .size_full()
             .flex()
@@ -664,14 +851,21 @@ impl Render for Workspace {
             .bg(theme.terminal_background.opacity(settings.window.opacity))
             .font_family(settings.ui_font_family.clone())
             .text_size(rems(TEXT_SIZE))
+            .when(self.shows_top_row(cx), |workspace| {
+                workspace.child(self.render_menu_row(cx))
+            })
             .child(layout)
+            .when(settings.status_bar.enable, |workspace| {
+                workspace.child(self.render_status_bar(cx))
+            })
             .children(self.render_profile_menu(cx))
             .children(self.render_notifications(cx))
             .children(self.render_overlay())
             .child(canvas(
                 |_, _, _| {},
                 |_, _, window, _| track_file_drags(window),
-            ))
+            ));
+        client_frame(workspace, window, cx)
     }
 }
 
@@ -706,17 +900,17 @@ mod tests {
     struct TabRow {
         titles: Vec<String>,
         icon: String,
+        icon_at: Vec<usize>,
         settings: Settings,
         scroll: ScrollHandle,
     }
 
     impl Render for TabRow {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-            let tabs = self
-                .titles
-                .iter()
-                .enumerate()
-                .map(|(ix, title)| tab(ix, title.clone(), self.icon.clone(), &self.settings));
+            let tabs =
+                self.titles.iter().enumerate().map(|(ix, title)| {
+                    tab(ix, title, &self.icon, &self.icon_at, &[], &self.settings)
+                });
             div().size_full().flex().text_size(rems(TEXT_SIZE)).child(
                 div()
                     .flex()
@@ -737,6 +931,7 @@ mod tests {
         let (row, cx) = cx.add_window_view(|_, _| TabRow {
             titles: (1..=count).map(|n| format!("tab {n}")).collect(),
             icon: "I".into(),
+            icon_at: vec![0],
             settings,
             scroll: ScrollHandle::new(),
         });
@@ -849,11 +1044,12 @@ mod tests {
         cx.debug_bounds("tab-title-0").unwrap()
     }
 
+    fn text_bounds(cx: &mut VisualTestContext) -> Bounds<Pixels> {
+        cx.debug_bounds("tab-text-0").unwrap()
+    }
+
     fn align_json(align: &str) -> String {
-        format!(
-            r#"{{"expand_tabs": false, "tab_width": 200, "tab_title_align": "{align}",
-                "tab_icon": {{"position": "left"}}}}"#
-        )
+        format!(r#"{{"expand_tabs": false, "tab_width": 200, "tab_title_align": "{align}"}}"#)
     }
 
     fn icon_bounds(cx: &mut VisualTestContext) -> Bounds<Pixels> {
@@ -865,45 +1061,44 @@ mod tests {
         // px_3 padding puts the icon and title 12px inside each tab edge, gap_1 is 4px between them
         let (row, cx) = layout(&align_json("left"), 1, cx);
         let tab = tab_bounds(&row, cx)[0];
-        let title = title_bounds(cx);
-        let start = icon_bounds(cx).right() + px(4.);
-        assert!(title.size.width < px(160.));
-        assert_close(title.left(), start);
+        let text = text_bounds(cx);
+        assert!(text.size.width < px(160.));
+        assert_close(icon_bounds(cx).left(), tab.left() + px(12.));
+        assert_close(text.left(), icon_bounds(cx).right() + px(4.));
 
         let (_, cx) = layout(&align_json("right"), 1, cx);
-        assert_close(title_bounds(cx).right(), tab.right() - px(12.));
+        assert_close(text_bounds(cx).right(), tab.right() - px(12.));
 
+        // the icon moves with the text it sits next to
         let (_, cx) = layout(&align_json("center"), 1, cx);
-        let end = tab.right() - px(12.);
-        assert_close(title_bounds(cx).center().x, start + (end - start) / 2.);
+        assert_close(title_bounds(cx).center().x, tab.center().x);
+        assert_close(text_bounds(cx).left(), icon_bounds(cx).right() + px(4.));
     }
 
     #[gpui::test]
     fn long_title_is_cut_for_every_align(cx: &mut TestAppContext) {
-        for position in ["left", "right"] {
+        let long = "a much much much much much longer title than the tab";
+        for icon_first in [true, false] {
             for align in ["left", "center", "right"] {
-                let json = format!(
-                    r#"{{"expand_tabs": false, "tab_width": 200, "tab_title_align": "{align}",
-                        "tab_icon": {{"position": "{position}"}}}}"#
-                );
-                let (row, cx) = layout(&json, 1, cx);
+                let (row, cx) = layout(&align_json(align), 1, cx);
                 row.update(cx, |row, cx| {
-                    row.titles[0] = "a much much much much much longer title than the tab".into();
+                    row.titles[0] = long.into();
+                    row.icon_at = vec![if icon_first { 0 } else { long.len() }];
                     cx.notify();
                 });
                 cx.run_until_parked();
                 let tab = tab_bounds(&row, cx)[0];
-                let title = title_bounds(cx);
+                let text = text_bounds(cx);
                 let icon = icon_bounds(cx);
                 // the icon keeps its place and width, the title is cut next to it
                 assert!(icon.size.width > px(0.));
-                if position == "left" {
+                if icon_first {
                     assert_close(icon.left(), tab.left() + px(12.));
-                    assert_close(title.left(), icon.right() + px(4.));
-                    assert_close(title.right(), tab.right() - px(12.));
+                    assert_close(text.left(), icon.right() + px(4.));
+                    assert_close(text.right(), tab.right() - px(12.));
                 } else {
-                    assert_close(title.left(), tab.left() + px(12.));
-                    assert_close(title.right(), icon.left() - px(4.));
+                    assert_close(text.left(), tab.left() + px(12.));
+                    assert_close(text.right(), icon.left() - px(4.));
                     assert_close(icon.right(), tab.right() - px(12.));
                 }
             }
@@ -911,23 +1106,30 @@ mod tests {
     }
 
     #[gpui::test]
-    fn icon_follows_position(cx: &mut TestAppContext) {
-        let json = |position: &str| {
-            format!(
-                r#"{{"expand_tabs": false, "tab_width": 200, "tab_icon": {{"position": "{position}"}}}}"#
-            )
-        };
-        let (row, cx) = layout(&json("left"), 1, cx);
+    fn icon_is_drawn_where_its_block_is(cx: &mut TestAppContext) {
+        let (row, cx) = layout(&align_json("left"), 1, cx);
         let tab = tab_bounds(&row, cx)[0];
-        let (icon, title) = (icon_bounds(cx), title_bounds(cx));
+        let (icon, text) = (icon_bounds(cx), text_bounds(cx));
         assert_close(icon.left(), tab.left() + px(12.));
-        assert!(icon.right() <= title.left());
+        assert!(icon.right() <= text.left());
 
-        let (_, cx) = layout(&json("right"), 1, cx);
-        let (icon, title) = (icon_bounds(cx), title_bounds(cx));
-        assert_close(icon.right(), tab.right() - px(12.));
-        assert_close(title.left(), tab.left() + px(12.));
-        assert!(title.right() <= icon.left());
+        row.update(cx, |row, cx| {
+            row.icon_at = vec!["tab 1".len()];
+            cx.notify();
+        });
+        cx.run_until_parked();
+        let (icon, text) = (icon_bounds(cx), text_bounds(cx));
+        assert_close(text.left(), tab.left() + px(12.));
+        assert_close(icon.left(), text.right() + px(4.));
+
+        // no icon block, no icon
+        row.update(cx, |row, cx| {
+            row.icon_at = Vec::new();
+            cx.notify();
+        });
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("tab-icon-0").is_none());
+        assert_close(text_bounds(cx).left(), tab.left() + px(12.));
     }
 
     #[test]
@@ -950,7 +1152,7 @@ mod tests {
     fn icon_is_moved_down_to_the_baseline(cx: &mut TestAppContext) {
         let (row, cx) = layout(r#"{"expand_tabs": false, "tab_width": 200}"#, 1, cx);
         let letter_top = icon_bounds(cx).top();
-        assert_close(letter_top, title_bounds(cx).top());
+        assert_close(letter_top, text_bounds(cx).top());
         row.update(cx, |row, cx| {
             row.icon = "\u{e795}".into();
             cx.notify();
@@ -959,6 +1161,6 @@ mod tests {
         // rems are 16px in the test window
         let drop = px(icon_drop("\u{e795}") * TEXT_SIZE * 16.);
         assert!(drop > px(0.));
-        assert_close(icon_bounds(cx).top(), title_bounds(cx).top() + drop);
+        assert_close(icon_bounds(cx).top(), text_bounds(cx).top() + drop);
     }
 }

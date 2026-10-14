@@ -71,6 +71,15 @@ pub(crate) fn section(name: &str, value: Value) -> Value {
     Value::Object(Map::from_iter([(name.to_string(), value)]))
 }
 
+fn keybindings_section(value: Value) -> Value {
+    section("keybindings", value)
+}
+
+/// `value` as the "icons.dynamic_app_icons" section of settings
+pub(crate) fn icons_section(value: Value) -> Value {
+    section("icons", section("dynamic_app_icons", value))
+}
+
 // old configs set "terminal.font_family" and "font_size", they now live in "terminal.font".
 // a key already set in "font" wins
 fn move_flat_font_keys(user: &mut Value) {
@@ -123,9 +132,12 @@ fn read_layers(load: &mut ConfigLoad) -> Result<Vec<Layer>, String> {
     create_default_file(&main, DEFAULT_SETTINGS);
     read_with_imports(&main, &mut Vec::new(), &mut layers, load)?;
     let cli = Cli::get();
-    for (path, name) in [
-        (&cli.keybindings_file, "keybindings"),
-        (&cli.tab_icons_file, "tab_icons"),
+    for (path, wrap) in [
+        (
+            &cli.keybindings_file,
+            keybindings_section as fn(Value) -> Value,
+        ),
+        (&cli.tab_icons_file, icons_section),
     ] {
         let Some(path) = path else { continue };
         load.files.push(path.clone());
@@ -134,7 +146,7 @@ fn read_layers(load: &mut ConfigLoad) -> Result<Vec<Layer>, String> {
                 .push(format!("{} not found, skipped", path.display()));
             continue;
         }
-        layers.push((path.clone(), section(name, read(path)?)));
+        layers.push((path.clone(), wrap(read(path)?)));
     }
     Ok(layers)
 }
@@ -239,7 +251,8 @@ fn parse(user: Value) -> Result<Config, String> {
         keybindings: Keybindings::from_full(&full)
             .map_err(|error| format!("keybindings: {error}"))?,
         commands: Commands::from_full(&full).map_err(|error| format!("commands: {error}"))?,
-        tab_icons: TabIcons::from_full(&full).map_err(|error| format!("tab_icons: {error}"))?,
+        tab_icons: TabIcons::from_full(&full)
+            .map_err(|error| format!("icons.dynamic_app_icons: {error}"))?,
         settings: Settings::from_full(full).map_err(|error| error.to_string())?,
     })
 }
@@ -295,7 +308,7 @@ mod tests {
                         "ui_font_size": 13,
                         "keybindings": {"new_tab": "ctrl-shift-y", "close_tab": null},
                         "commands": [{"name": "only", "actions": ["new_tab"]}],
-                        "tab_icons": {"interpreters": ["ruby"]},
+                        "icons": {"dynamic_app_icons": {"interpreters": ["ruby"]}},
                     }"#,
                 )],
             );

@@ -10,6 +10,7 @@ mod keys;
 mod links;
 mod mouse;
 mod process;
+mod sampler;
 mod scanner;
 mod scrollback;
 mod search;
@@ -45,7 +46,8 @@ pub use mouse::{MouseAction, MouseButton};
 #[cfg(test)]
 pub(crate) use process::tests::{Kill, spawn};
 pub use process::{ForegroundProcess, children, foreground_process, process_info};
-pub use scanner::ScanEvent;
+pub use sampler::{ProcessSampler, TreeSample};
+pub use scanner::{Progress, ScanEvent};
 pub use search::{SearchQuery, SearchStatus};
 pub use vi::ViKey;
 
@@ -125,6 +127,8 @@ pub struct Terminal {
     scan_events: scanner::ScanEvents,
     /// folder the shell reported with osc 7
     reported_cwd: Option<std::path::PathBuf>,
+    /// progress the running program reported with osc 9;4
+    progress: Option<Progress>,
     /// when the running command started, from shell integration marks
     command_started: Option<std::time::Instant>,
     /// images the program showed
@@ -148,6 +152,11 @@ impl Terminal {
     /// profile theme when it has one, otherwise the global theme
     pub fn theme<'a>(&'a self, cx: &'a App) -> &'a Theme {
         self.theme.as_ref().unwrap_or_else(|| Theme::get(cx))
+    }
+
+    /// theme of the profile, none when the tab uses the global theme
+    pub fn profile_theme(&self) -> Option<&Theme> {
+        self.theme.as_ref()
     }
 
     /// load the profile theme for this system appearance, its names come from `themes`
@@ -300,6 +309,11 @@ impl Terminal {
         self.graphics.lock().unwrap().take_dropped()
     }
 
+    /// progress the running program reported, none when it reports nothing
+    pub fn progress(&self) -> Option<Progress> {
+        self.progress
+    }
+
     /// folder the shell reported through shell integration, none when it never did
     pub fn reported_cwd(&self) -> Option<&std::path::Path> {
         self.reported_cwd.as_deref()
@@ -315,6 +329,8 @@ impl Terminal {
                 ScanEvent::PromptStart => {}
                 ScanEvent::CommandStart => self.command_started = Some(at),
                 ScanEvent::CommandEnd(exit) => {
+                    // a program killed mid way never takes its progress down
+                    self.progress = None;
                     // a prompt drawn without running anything ends nothing
                     if let Some(started) = self.command_started.take() {
                         events.push(Event::CommandFinished {
@@ -325,6 +341,7 @@ impl Terminal {
                 }
                 ScanEvent::Cwd(path) => self.reported_cwd = Some(path),
                 ScanEvent::Notify { title, body } => events.push(Event::Notify { title, body }),
+                ScanEvent::Progress(progress) => self.progress = progress,
                 ScanEvent::Reply(bytes) => self.write_to_pty(bytes),
             }
         }
