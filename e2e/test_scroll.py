@@ -113,11 +113,11 @@ def test_scroll_multiplier(app_factory):
             script=LINES.format(n=300), themes={"dark": {"scrollbar": "#ff00ff"}},
             name=f"scroll_multiplier_{multiplier}")
         app.wait(lambda: thumb(app) and thumb(app)[3] >= 598, msg=f"thumb at the bottom, got {thumb(app)}")
-        time.sleep(0.5)
+        app.wait_still("output done")
         bottom = thumb(app)[3]
         app.wheel(450, 300, up=True, clicks=2)
         app.wait(lambda: thumb(app) and thumb(app)[3] < bottom, msg="thumb moved up")
-        time.sleep(0.5)
+        app.wait_still("both wheel steps")
         moved[multiplier] = bottom - thumb(app)[3]
         app.snap(f"2 wheel steps with scroll_multiplier {multiplier}")
         app.close()
@@ -130,7 +130,7 @@ def test_smooth_scroll(app_factory, enable):
     app = scroll_app(app_factory, {"enable": "on"}, lines=500,
                      smooth_scroll={"enable": enable, "duration": 1000, "easing": "linear"})
     app.wait(lambda: thumb(app) and thumb(app)[3] >= 598, msg=f"thumb at the bottom, got {thumb(app)}")
-    time.sleep(0.5)
+    app.wait_still("output done")
     app.wheel(450, 300, up=True, clicks=5)
     frames = []
     start = time.monotonic()
@@ -169,9 +169,7 @@ def mark_selected(app_factory, **terminal) -> tuple:
     app = app_factory({"theme": {"mode": "dark"}, "terminal": {"scrollbar": {"auto_hide": 0}, **terminal}},
                       script=MARK_SCRIPT)
     row = app.expected_pty(900, 600)[0] - 2
-    app.wait(lambda: near(app.shot()[slice(*app.cell_rect(0, row)[1::2])], DARK["terminal_foreground"], 30).any(),
-             msg="MARK printed")
-    time.sleep(0.5)
+    app.wait_line(row, 4)
     x0, y0, _, y1 = app.cell_rect(0, row)
     _, _, x1, _ = app.cell_rect(3, row)
     app.drag((x0 + 1, (y0 + y1) // 2), (x1 - 1, (y0 + y1) // 2))
@@ -209,10 +207,11 @@ def test_selection_dropped_from_history_clears(app_factory):
     app.step(1)
     app.step(2)
     app.wait(lambda: near(app.shot(), DARK["terminal_foreground"], 30).any(), msg="output")
-    time.sleep(1)
+    app.wait_still("output done")
     assert selected_rows(app) == []
     set_clipboard("before")
     app.key("ctrl+shift+c")
+    # the clipboard must stay, so there is nothing to wait for
     time.sleep(0.5)
     assert get_clipboard() == "before"
     assert app.alive()

@@ -1,7 +1,5 @@
 """hidpi: the app at x11 scale factors 2 and 1.5, sizes in physical pixels follow the scale"""
 
-import time
-
 import pytest
 
 from harness import App, bundled_theme, get_clipboard, mask_bbox, near
@@ -73,7 +71,7 @@ def test_drag_selects_scaled_cells(app_factory, scale):
     """a drag over scaled cells selects the text under them"""
     app = scaled(app_factory, scale, {"window_title": ["number"]})
     app.run("clear; echo alpha bravo charlie")
-    time.sleep(1)
+    app.wait_line(0, 19)
     x0, y0, _, y1 = app.cell_rect(6, 0)
     _, _, x1, _ = app.cell_rect(10, 0)
     # xdotool moves in physical pixels, like the screenshots

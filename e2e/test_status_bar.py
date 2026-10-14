@@ -63,7 +63,7 @@ def test_ports_show_and_open(app_factory):
     app.wait(lambda: status_text(app, app.shot(), "right"), msg="totals in the status bar")
     box = app.wait(lambda: status_text(app, app.shot(), "left"), msg="port in the status bar", timeout=15)
     # the same refresh builds the tab title
-    time.sleep(0.5)
+    app.wait(lambda: title_text(app, app.shot()), msg="port in the tab title")
     app.snap("server listening on 8123, its port in the status bar and the tab title")
     app.click((box[0] + box[2]) // 2, (box[1] + box[3]) // 2)
     app.wait(out.exists, msg="port opened from the status bar")

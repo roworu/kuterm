@@ -105,8 +105,7 @@ def test_builtin_box_drawing_off_uses_the_font(app_factory):
                        "terminal": {"line_height": {"custom": 2.5}, "builtin_box_drawing": False}}, script=BLOCKS)
     app.wait(lambda: ink_bbox(app.shot()[: app.line_height(), :200], DARK["terminal_background"]) is not None,
              msg="blocks")
-    time.sleep(0.5)
-    img = app.shot()
+    img = app.wait_still("all blocks drawn")
     x0, y0, x1, y1 = app.cell_rect(0, 0, 4, 2)
     red = (abs(img.astype(int) - RED).max(axis=-1) <= 3)
     assert not red[y0:y1, (x0 + x1) // 2].all()
@@ -129,7 +128,7 @@ def test_minimum_contrast_lifts_invisible_text(app_factory):
     for minimum in [1, 4.5]:
         app = app_factory({"theme": {"mode": "dark"}, "terminal": {"minimum_contrast": minimum}}, script=script)
         app.wait(lambda: app.cells_color(0, 0, 4) != tuple(DARK["terminal_background"]), msg="blocks")
-        time.sleep(0.5)
+        app.wait_still("all blocks drawn")
         color = app.cells_color(0, 0, 4)
         assert close_to(color, RED, 3) == (minimum == 1), color
         app.snap(f"minimum_contrast {minimum}")

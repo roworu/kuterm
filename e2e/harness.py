@@ -158,12 +158,16 @@ def ink_bbox(img: np.ndarray, background: tuple, threshold: int = 40) -> tuple |
 # which display server the apps run on: "x11" (xvfb and openbox) or "wayland" (headless sway)
 BACKEND = os.environ.get("E2E_BACKEND", "x11")
 
+# pytest-xdist worker like "gw2", every worker runs its own display, bus and runtime dir
+WORKER = os.environ.get("PYTEST_XDIST_WORKER", "")
+WORKER_NUMBER = int(WORKER[2:]) if WORKER else 0
+
 
 class Session:
     display = os.environ.get("DISPLAY", ":99")
     wayland_display = "wayland-1"
     sway_socket = ""
-    runtime_dir = "/tmp/e2e-runtime"
+    runtime_dir = f"/tmp/e2e-runtime-{WORKER}" if WORKER else "/tmp/e2e-runtime"
     bus_address = ""
 
 
@@ -698,12 +702,45 @@ class App:
 
     def palette(self, query: str, run: bool = True) -> None:
         """open the command palette with its default key, type a query and run the best match"""
+        # the middle columns below the bars, where the panel opens, away from the cursor
+        def area() -> np.ndarray:
+            img = self.shot()
+            w = img.shape[1]
+            return img[self.top() :, w * 2 // 5 : w * 3 // 5]
+
+        before = area()
         self.key("ctrl+shift+p")
-        time.sleep(0.4)
+        # keys only reach the palette once it is drawn, it filters and runs as they come
+        self.wait(lambda: (area() != before).any(), msg="palette open")
         self.type(query)
-        time.sleep(0.2)
         if run:
             self.key("Return")
+
+    def wait_line(self, row: int, cols: int, top: int = 0, timeout: float = 10.0) -> None:
+        """wait until row shows text over exactly its first cols cells, like the output of a
+        command run after clear: the typed command line before it is longer"""
+        x0, y0, _, y1 = self.cell_rect(0, row, top=top)
+        last, end = self.cell_rect(cols - 1, row, top=top)[0], self.cell_rect(cols, row, top=top)[0]
+        right = self.cell_rect(cols + 20, row, top=top)[2]
+
+        def check() -> bool:
+            band = self.shot()[y0:y1, x0:right]
+            box = ink_bbox(band, dominant(band))
+            return box is not None and last - x0 < box[2] <= end - x0 + 2
+
+        self.wait(check, msg=f"text over {cols} cells of row {row}", timeout=timeout)
+
+    def wait_still(self, msg: str = "the window to settle", timeout: float = 10.0) -> np.ndarray:
+        """wait until two screenshots in a row are the same, like after an animation"""
+        last = [None]
+
+        def check():
+            img = self.shot()
+            same = last[0] is not None and np.array_equal(img, last[0])
+            last[0] = img
+            return img if same else None
+
+        return self.wait(check, msg=msg, timeout=timeout)
 
     def step(self, n: int) -> None:
         """let the script run past `step n`"""
@@ -730,7 +767,8 @@ class App:
         """(rows, cols) the shell sees, read with stty in an interactive bash"""
         path = self.file(name)
         path.unlink(missing_ok=True)
-        self.run(f"stty size > {path}")
+        # the shell creates the file before stty writes to it
+        self.run(f"stty size > {path}.part && mv {path}.part {path}")
         return tuple(map(int, self.wait_file(name).split()))
 
     # layout, mirrors the element code so the tests can find cells and the bar

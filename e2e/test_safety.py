@@ -80,11 +80,7 @@ def test_programs_can_copy_to_the_clipboard(app_factory):
     # wayland only lets a window take the clipboard after some input, like a user would give
     app.click(450, 300)
     app.step(1)
-    time.sleep(0.5)
-    deadline = time.monotonic() + 10
-    while get_clipboard() != "copied by a program" and time.monotonic() < deadline:
-        time.sleep(0.2)
-    assert get_clipboard() == "copied by a program"
+    app.wait(lambda: get_clipboard() == "copied by a program", msg=f"clipboard, got {get_clipboard()!r}")
 
 
 ASK_THEME = unique_theme(0xa5)
@@ -158,7 +154,8 @@ def test_clipboard_read_allowed_by_settings(app_factory, report_note):
     assert base64.b64encode(b"shared text").decode() in got
 
 
-PASTE_PROBE = ("stty raw -echo; step 1; "
+# "ready" shows the tty is raw, the cursor after it is one more cell
+PASTE_PROBE = ("stty raw -echo; printf ready; step 1; "
                'timeout --foreground 3 cat > "$T2_TMP/got"; stty sane; touch "$T2_TMP/done"')
 
 
@@ -172,9 +169,9 @@ def test_paste_protection_asks_before_multiline_paste(app_factory, answer):
     """without bracketed paste, pasting lines asks first with a preview, y pastes, escape drops it"""
     app = app_factory({"theme": {"mode": "dark"}}, themes={"dark": ASK_THEME}, script=PASTE_PROBE)
     set_clipboard("echo one\necho two\n")
-    time.sleep(0.5)
+    app.wait(lambda: get_clipboard() == "echo one\necho two\n", msg="clipboard owner up")
+    app.wait_line(0, 6)
     app.step(1)
-    time.sleep(0.3)
     app.key("ctrl+shift+v")
     app.wait(lambda: dialog_shown(app), msg="paste dialog")
     app.snap("paste dialog with a preview")
@@ -190,9 +187,9 @@ def test_paste_protection_off_pastes_right_away(app_factory):
     app = app_factory({"theme": {"mode": "dark"}, "terminal": {"paste_protection": False}},
                       themes={"dark": ASK_THEME}, script=PASTE_PROBE)
     set_clipboard("echo one\necho two\n")
-    time.sleep(0.5)
+    app.wait(lambda: get_clipboard() == "echo one\necho two\n", msg="clipboard owner up")
+    app.wait_line(0, 6)
     app.step(1)
-    time.sleep(0.3)
     app.key("ctrl+shift+v")
     app.wait_file("done", timeout=10)
     assert "echo one\recho two\r" in app.file("got").read_bytes().decode(errors="replace")
@@ -209,12 +206,14 @@ def test_title_is_not_reported_back(app_factory, report_note):
 def test_paste_cannot_end_bracketed_paste_early(app_factory, report_note):
     """pasted text holding the end marker cannot break out and run as typed keys"""
     app = app_factory({"theme": {"mode": "dark"}},
-                      script="printf '\\033[?2004h'; stty raw -echo; step 1; "
+                      script="printf '\\033[?2004h'; stty raw -echo; printf ready; step 1; "
                              'timeout --foreground 3 cat > "$T2_TMP/got"; touch "$T2_TMP/done"')
     set_clipboard("safe\x1b[201~echo pwned\r")
-    time.sleep(0.5)
+    # text mode reads the carriage return as a newline
+    app.wait(lambda: get_clipboard().startswith("safe"), msg="clipboard owner up")
+    # the app read the mode once it shows what came after it, the cursor is one more cell
+    app.wait_line(0, 6)
     app.step(1)
-    time.sleep(0.3)
     app.key("ctrl+shift+v")
     app.wait_file("done", timeout=10)
     got = app.file("got").read_text(errors="replace")

@@ -283,7 +283,8 @@ def test_drag_tab_to_a_side_splits_the_pane(app_factory):
 def test_focus_follows_mouse(app_factory):
     """with focus_follows_mouse, moving the mouse over a pane focuses it, typing goes there"""
     app = bar_app(app_factory, tab_width=200, focus_follows_mouse=True, **PLAIN)
-    time.sleep(1)
+    # the prompt and the cursor after it
+    app.wait_line(0, 3, top=app.top())
     app.run("export WHO=first")
     open_tabs(app, 2)
     app.run("export WHO=second")
@@ -438,7 +439,7 @@ def reference(app_factory, title: str):
     """the title drawn uncut in a tab much wider than it"""
     if title not in _references:
         app = cut_app(app_factory, title, expand_tabs=False, tab_width=880)
-        time.sleep(1)
+        app.wait_still("the title drawn")
         # stop short of the tab's border, it is ink too
         _references[title] = trim(text_mask(app, app.shot(), 0, 860))
         app.close()
@@ -512,7 +513,7 @@ def test_long_titles_are_cut_only_at_the_end(app_factory, align, layout):
     ref = reference(app_factory, LONG)
     app = cut_app(app_factory, LONG, tab_title_align=align, **layout)
     open_tabs(app, tabs)
-    time.sleep(0.5)
+    app.wait_still("the tabs laid out")
     check_tabs(app, ref, reference(app_factory, "…"), tabs)
     app.snap(f"{tabs} tabs with a long title, {align} aligned")
 
@@ -524,7 +525,7 @@ def test_titles_of_every_kind_are_cut_only_at_the_end(app_factory, title):
     ref = reference(app_factory, title)
     app = cut_app(app_factory, title, expand_tabs=True)
     open_tabs(app, 6)
-    time.sleep(0.5)
+    app.wait_still("the tabs laid out")
     check_tabs(app, ref, reference(app_factory, "…"), 6)
     app.snap(f"six expanded tabs titled {title!r}")
 
@@ -537,6 +538,6 @@ def test_cut_follows_window_resize(app_factory):
     for width in (900, 640, 480, 900):
         app.resize(width, 600)
         app.wait(lambda: app.size()[0] == width, msg=f"width {width}")
-        time.sleep(0.5)
+        app.wait_still("the tabs laid out")
         check_tabs(app, ref, reference(app_factory, "…"), 3)
     app.snap("titles cut again after resizing")

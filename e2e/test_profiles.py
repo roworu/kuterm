@@ -28,7 +28,7 @@ def test_profile_command_with_arguments(app_factory):
     app = app_factory({"theme": {"mode": "dark"}, "profiles": [{"name": "script", "command": {
         "with_arguments": {"program": "/bin/sh", "args": ["-c", 'echo "$0 $1" | tee "$T2_TMP/out"; sleep 100', "a", "b"]}}}]})
     app.wait_file("out", "a b")
-    time.sleep(0.3)
+    app.wait_line(0, 3)
     app.snap('the profile printed its arguments "a b"')
 
 
@@ -78,10 +78,7 @@ def test_profile_theme_colors_its_tab(app_factory):
                       commands={"commands": [{"name": "open red", "actions": [{"new_tab_with_profile": "red"}]}]})
     app.wait(lambda: close_to(dominant(app.shot()), C["terminal_background"]), msg="global theme")
     app.snap("default profile, global theme")
-    app.key("ctrl+shift+p")
-    time.sleep(0.5)
-    app.type("open red")
-    app.key("Return")
+    app.palette("open red")
     app.wait_title("2")
     app.wait(lambda: close_to(dominant(app.shot()), as_rgb(other)["terminal_background"]), msg="profile theme")
     h = app.bar_height()

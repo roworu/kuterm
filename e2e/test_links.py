@@ -55,9 +55,10 @@ def test_osc8_hyperlink_opens_its_target(app_factory):
                       script="printf '\\033]8;;https://hidden.test/x\\033\\\\click here\\033]8;;\\033\\\\\\n'")
     app.wait(lambda: near(app.shot()[:60], DARK["terminal_foreground"], 30).any(), msg="link printed")
     x0, y0, x1, y1 = app.cell_rect(2, 0)
+    plain = underline_ink(app, 0, 0, 10)
     with app.hold("ctrl"):
         app.mouse((x0 + x1) // 2, (y0 + y1) // 2)
-        time.sleep(0.3)
+        app.wait(lambda: underline_ink(app, 0, 0, 10) > plain + 50, msg="underline under the link")
         app.button(1, True)
         app.button(1, False)
     app.wait(out.exists, msg="hyperlink opened")
@@ -67,8 +68,7 @@ def test_osc8_hyperlink_opens_its_target(app_factory):
 def test_hints_label_and_copy(app_factory):
     """ctrl-shift-e labels the hash on screen, typing its label copies it"""
     app = app_factory({"theme": {"mode": "dark"}}, script="printf 'commit 1a2b3c4d5e\\n'")
-    app.wait(lambda: near(app.shot()[:60], DARK["terminal_foreground"], 30).any(), msg="hash printed")
-    time.sleep(0.3)
+    app.wait_line(0, 17)
     app.key("ctrl+shift+e")
     x0, y0, x1, y1 = app.cell_rect(7, 0)
     app.wait(lambda: near(app.shot()[y0:y1, x0:x1], DARK["cursor"], 2).sum() > 30, msg="label over the hash")

@@ -1,7 +1,5 @@
 """answers to terminal queries programs rely on: cursor position, device attributes, colors, size, env"""
 
-import time
-
 import pytest
 
 from harness import App, bundled_theme
@@ -67,9 +65,10 @@ def test_focus_reports(app_factory, report_note):
     app = app_factory({"theme": {"mode": "dark"}, "window_title": ["number"]},
                       # new tabs run this script too, only the first one records
                       script='mkdir "$T2_TMP/first" 2>/dev/null || exec sleep 100000; '
-                             "printf '\\033[?1004h'; stty raw -echo; timeout --foreground 6 cat > \"$T2_TMP/got\"; "
-                             'stty sane; touch "$T2_TMP/done"')
-    time.sleep(1)
+                             "printf '\\033[?1004h'; stty raw -echo; printf ready; "
+                             'timeout --foreground 6 cat > "$T2_TMP/got"; stty sane; touch "$T2_TMP/done"')
+    # the app read the mode once it shows what came after it, the cursor is one more cell
+    app.wait_line(0, 6)
     app.key("ctrl+shift+t")
     app.wait_title("2")
     app.key("alt+1")

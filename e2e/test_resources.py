@@ -6,11 +6,16 @@ the measured numbers are written to the report.
 
 import time
 
+import pytest
+
 from harness import BACKEND, App, bundled_theme, close_to, dominant
 
 FEATURE = "performance and resources"
 
 DARK = bundled_theme(True)
+
+# timed tests run on one worker of a parallel run, one after another
+timed = pytest.mark.xdist_group("timed")
 
 
 def plain(app_factory, **settings) -> App:
@@ -31,6 +36,7 @@ def cycle_tabs(app: App, count: int) -> None:
     time.sleep(2)
 
 
+@timed
 def test_startup_time(app_factory, report_note):
     """the first frame is painted within a few seconds of launch"""
     app = app_factory({"theme": {"mode": "dark"}}, start=False)
@@ -41,6 +47,7 @@ def test_startup_time(app_factory, report_note):
     assert took < 15
 
 
+@timed
 def test_idle_cpu(app_factory, report_note):
     """an idle window with a few tabs uses almost no cpu, nothing repaints without a reason"""
     app = plain(app_factory)
@@ -53,6 +60,7 @@ def test_idle_cpu(app_factory, report_note):
     assert usage < 0.05
 
 
+@timed
 def test_idle_cpu_after_cursor_stops_blinking(app_factory, report_note):
     """a blinking cursor stops after cursor_blink_timeout, then the window goes idle"""
     app = plain(app_factory, terminal={"cursor_blink": "on", "cursor_blink_interval": 500,
@@ -65,6 +73,7 @@ def test_idle_cpu_after_cursor_stops_blinking(app_factory, report_note):
     assert usage < 0.05
 
 
+@timed
 def test_idle_cpu_while_unfocused_with_notification(app_factory, report_note):
     """a notification and a hidden window do not keep the cpu busy"""
     app = app_factory({"theme": {"mode": "dark"}, "notifications": {"timeout": 0},
@@ -77,6 +86,7 @@ def test_idle_cpu_while_unfocused_with_notification(app_factory, report_note):
     assert usage < 0.05
 
 
+@timed
 def test_output_speed(app_factory, report_note):
     """a burst of output is drawn quickly and the cpu goes back to idle after it"""
     app = plain(app_factory)

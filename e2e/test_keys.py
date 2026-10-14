@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from harness import App, bundled_theme, close_to, get_clipboard, near, set_clipboard
+from harness import App, bundled_theme, close_to, get_clipboard, ink_bbox, near, set_clipboard
 
 FEATURE = "keyboard, keybindings and clipboard"
 
@@ -70,6 +70,7 @@ def test_alt_number_activates_tab(app_factory):
     app.key("alt+3")
     app.wait_title("3")
     app.key("alt+7")
+    # nothing may happen, so there is nothing to wait for
     time.sleep(1.5)
     assert app.title() == "3"
 
@@ -113,14 +114,19 @@ def test_paste_is_bracketed_only_when_asked(app_factory, bracketed):
     """pasted text is wrapped in bracketed paste marks only when the program turned it on"""
     mode = "\\033[?2004h" if bracketed else "\\033[?2004l"
     app = app_factory({"theme": {"mode": "dark"}},
-                      script=f"printf '{mode}'; stty raw -echo; head -c 20 > \"$T2_TMP/got.tmp\"; stty sane; "
-                             'mv "$T2_TMP/got.tmp" "$T2_TMP/got"; echo; echo got:; cat -v "$T2_TMP/got"')
+                      script=f"printf '{mode}'; stty raw -echo; printf ready; head -c 20 > \"$T2_TMP/got.tmp\"; "
+                             'stty sane; mv "$T2_TMP/got.tmp" "$T2_TMP/got"; echo; echo got:; cat -v "$T2_TMP/got"')
     set_clipboard("hi")
-    time.sleep(0.5)
+    # the app read the mode once it shows what came after it, the cursor is one more cell
+    app.wait_line(0, 6)
+    app.wait(lambda: get_clipboard() == "hi", msg="clipboard owner up")
     app.key("ctrl+shift+v")
     app.type("x" * 20)
     got = app.wait_file("got")
-    time.sleep(0.3)
+    # cat -v prints what the program read on the third row
+    x0, y0, _, y1 = app.cell_rect(0, 2)
+    app.wait(lambda: ink_bbox(app.shot()[y0:y1, x0:], DARK["terminal_background"]), msg="what the program read")
+    app.wait_still("what the program read")
     app.snap("what the program read, escapes shown by cat -v")
     assert ("\x1b[200~hi\x1b[201~" in got) == bracketed, repr(got)
     assert "hi" in got
@@ -135,11 +141,12 @@ def test_paste_is_bracketed_only_when_asked(app_factory, bracketed):
 def test_kitty_keyboard_protocol(app_factory, flags, keys, expected):
     """a program that turns on kitty's keyboard protocol gets keys it can tell apart"""
     app = app_factory({"theme": {"mode": "dark"}},
-                      script=f"stty raw -echo; printf '\\033[>{flags}u'; step 1; "
+                      script=f"stty raw -echo; printf '\\033[>{flags}u'; printf ready; step 1; "
                              'timeout --foreground 2 cat > "$T2_TMP/got"; stty sane; touch "$T2_TMP/done"')
-    time.sleep(0.5)
+    # the app read the flags once it shows what came after them (and the cursor), keys wait
+    # in the tty for cat
+    app.wait_line(0, 6)
     app.step(1)
-    time.sleep(0.3)
     for key in keys:
         app.key(key)
     app.wait_file("done", timeout=10)
@@ -153,11 +160,11 @@ def test_keymap_send_text_chord_and_unbind(app_factory):
                        "keymap": [{"keys": "ctrl-a c", "action": "new_tab"},
                                   {"keys": "ctrl-shift-k", "action": {"send_text": "\u001b[2Jsent"}},
                                   {"keys": "ctrl-shift-w", "action": "unbind"}]},
-                      script="stty raw -echo; step 1; "
+                      script="stty raw -echo; printf ready; step 1; "
                              'timeout --foreground 3 cat > "$T2_TMP/got"; stty sane; touch "$T2_TMP/done"')
-    time.sleep(0.5)
+    # keys wait in the raw tty until cat reads them, the cursor is one more cell
+    app.wait_line(0, 6)
     app.step(1)
-    time.sleep(0.3)
     app.key("ctrl+shift+k", "ctrl+shift+w")
     app.wait_file("done", timeout=10)
     got = app.file("got").read_bytes().decode(errors="replace")
@@ -172,8 +179,7 @@ def test_mouse_selection_and_copy(app_factory):
     """dragging selects text in the selection color, ctrl-shift-c copies it"""
     app = keyed(app_factory)
     app.run("clear; echo SELECTME-please")
-    app.wait(lambda: near(app.shot()[: app.line_height() * 3], DARK["terminal_foreground"], 30).any(), msg="text")
-    time.sleep(0.5)
+    app.wait_line(0, 15)
     x0, y0, _, y1 = app.cell_rect(0, 0)
     _, _, x1, _ = app.cell_rect(7, 0)
     app.drag((x0 + 1, (y0 + y1) // 2), (x1 - 1, (y0 + y1) // 2))
@@ -188,7 +194,7 @@ def test_double_click_selects_word(app_factory):
     """a double click selects the word under the pointer"""
     app = keyed(app_factory)
     app.run("clear; echo alpha bravo charlie")
-    time.sleep(1)
+    app.wait_line(0, 19)
     x0, y0, x1, y1 = app.cell_rect(8, 0)
     app.click((x0 + x1) // 2, (y0 + y1) // 2, repeat=2)
     app.key("ctrl+shift+c")
@@ -199,7 +205,7 @@ def test_word_separators(app_factory):
     """word_separators decides where a double clicked word ends"""
     app = keyed(app_factory, terminal={"word_separators": " -"})
     app.run("clear; echo alpha-bravo charlie")
-    time.sleep(1)
+    app.wait_line(0, 19)
     x0, y0, x1, y1 = app.cell_rect(8, 0)
     app.click((x0 + x1) // 2, (y0 + y1) // 2, repeat=2)
     app.key("ctrl+shift+c")
@@ -211,7 +217,7 @@ def test_copy_trim_trailing_whitespace(app_factory, trim):
     """copy_trim_trailing_whitespace drops spaces and tabs at the end of copied lines"""
     app = keyed(app_factory, terminal={"copy_trim_trailing_whitespace": trim})
     app.run("clear; printf 'padded \\t\\n'")
-    time.sleep(1)
+    app.wait_line(0, 6)
     x0, y0, x1, y1 = app.cell_rect(2, 0)
     app.click((x0 + x1) // 2, (y0 + y1) // 2, repeat=3)
     app.key("ctrl+shift+c")
@@ -229,7 +235,7 @@ def test_triple_click_selects_line(app_factory):
     """a triple click selects the whole line under the pointer"""
     app = keyed(app_factory)
     app.run("clear; echo alpha bravo charlie")
-    time.sleep(1)
+    app.wait_line(0, 19)
     x0, y0, x1, y1 = app.cell_rect(8, 0)
     app.click((x0 + x1) // 2, (y0 + y1) // 2, repeat=3)
     app.wait(lambda: selected(app, 14, 0, 3), msg="line selected")
@@ -243,7 +249,7 @@ def test_shift_click_extends_selection(app_factory):
     """a click then a shift+click selects everything between them"""
     app = keyed(app_factory)
     app.run("clear; echo alpha bravo charlie")
-    time.sleep(1)
+    app.wait_line(0, 19)
     x0, y0, _, y1 = app.cell_rect(0, 0)
     _, _, x1, _ = app.cell_rect(18, 0)
     y = (y0 + y1) // 2
@@ -267,6 +273,7 @@ def test_null_disables_action(app_factory, action, keys):
         app.wait_title("2")
     before = app.title()
     app.key(keys)
+    # nothing may happen, so there is nothing to wait for
     time.sleep(1.5)
     assert app.title() == before
 
@@ -275,6 +282,7 @@ def test_override_moves_action_to_new_key(app_factory):
     """an action bound to another key works there, the old key does nothing"""
     app = keyed(app_factory, keybindings={"new_tab": "ctrl-alt-n"})
     app.key("ctrl+shift+t")
+    # the old key must do nothing, so there is nothing to wait for
     time.sleep(1.5)
     assert app.title() == "1"
     app.key("ctrl+alt+n")
@@ -321,12 +329,13 @@ def test_invalid_keybindings_section_keeps_the_last_good_keys(app_factory):
 def test_wheel_scrolls_history_and_typing_jumps_back(app_factory):
     """the wheel scrolls into history, typing goes back to the prompt"""
     app = keyed(app_factory)
-    app.run("clear; for i in $(seq 1 200); do echo line $i; done")
-    time.sleep(1)
+    app.run("clear; for i in $(seq 1 200); do echo line $i; done; echo end")
+    app.wait_line(app.layout_pty()[0] - 2, 3)
     bottom = app.shot()
     app.wheel(450, 300, up=True, clicks=10)
     app.wait(lambda: (app.shot() != bottom).any(), msg="scrolled view")
-    time.sleep(0.5)
+    # smooth scrolling takes a few frames, the cursor is out of view
+    app.wait_still("scrolling to end")
     app.snap("scrolled up with the wheel")
     app.type("x")
     app.wait(lambda: (app.shot()[: -app.line_height() * 2] == bottom[: -app.line_height() * 2]).mean() > 0.95,

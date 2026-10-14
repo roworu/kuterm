@@ -174,11 +174,13 @@ def test_click_on_pin_unpins_and_saves(app_factory):
     pin = mask_bbox(near(region, C["text_muted"], 40))
     assert pin is not None
     app.mouse(x1 - 60 + (pin[0] + pin[2]) // 2, top + 4 + (pin[1] + pin[3]) // 2)
-    time.sleep(0.3)
+    app.wait(lambda: not np.array_equal(app.shot()[top + 4 : top + 36, x1 - 60 : x1 - 4], region),
+             msg="unpin icon")
     app.snap("hovering the pin shows the unpin icon")
     app.click(x1 - 60 + (pin[0] + pin[2]) // 2, top + 4 + (pin[1] + pin[3]) // 2)
     pins = app.home / ".local/state/kuterm/pinned_commands.json"
-    app.wait(pins.exists, msg="pins saved")
+    # the file shows up before its content is written
+    app.wait(lambda: pins.exists() and json.loads(pins.read_text()), msg="pins saved")
     assert json.loads(pins.read_text())["overrides"] == {"zzz": False}
 
 
@@ -250,11 +252,10 @@ def test_copy_and_paste_actions(app_factory):
     app.key("Return")
     app.wait_file("pasted", "from clipboard")
     app.run("clear; echo COPYTHIS")
-    time.sleep(1)
+    app.wait_line(0, 8)
     x0, y0, _, y1 = app.cell_rect(0, 0)
     _, _, x1, _ = app.cell_rect(7, 0)
     app.drag((x0 + 1, (y0 + y1) // 2), (x1 - 1, (y0 + y1) // 2))
-    time.sleep(0.3)
     app.palette("copy it")
     app.wait(lambda: get_clipboard() == "COPYTHIS", msg=f"clipboard, got {get_clipboard()!r}")
 
@@ -265,8 +266,8 @@ def test_scroll_actions(app_factory):
         {"name": "to top", "actions": ["scroll_top"]}, {"name": "to bottom", "actions": ["scroll_bottom"]},
         {"name": "up some", "actions": [{"scroll_up": 20}]}, {"name": "down some", "actions": [{"scroll_down": 5}]},
     ], terminal={"scrollbar": {"enable": "on", "auto_hide": 0}, "smooth_scroll": {"enable": False}})
-    app.run("clear; seq 1 300")
-    time.sleep(1)
+    app.run("clear; seq 1 300; echo done.")
+    app.wait_line(app.layout_pty()[0] - 2, 5)
 
     def thumb():
         img = app.shot()
@@ -289,7 +290,6 @@ def test_about_page(app_factory):
     """the about action shows the version page until a key is pressed"""
     app = palette_app(app_factory, [{"name": "show about", "actions": ["about"]}])
     app.palette("show about")
-    time.sleep(0.5)
     app.wait(lambda: panel(app), msg="about page")
     app.snap("about page")
     app.key("space")

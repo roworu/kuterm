@@ -2,11 +2,11 @@
 
 import json
 import subprocess
-import time
+from pathlib import Path
 
 import pytest
 
-from harness import BIN, App, session_env, xdo
+from harness import BIN, App, Session, session_env, xdo
 
 FEATURE = "remote control"
 
@@ -16,7 +16,7 @@ SOCKET = {"theme": {"mode": "dark"}, "window_title": ["number"], "remote_control
 def test_msg_new_tab_send_text_and_list_tabs(app_factory):
     """kuterm msg run in a tab reaches its own kuterm through $KUTERM_SOCKET"""
     app = app_factory(dict(SOCKET))
-    time.sleep(0.5)
+    listening(app)
     app.run(f"{BIN} msg new-tab --cwd /tmp")
     app.wait_title("2")
     app.run(f"{BIN} msg list-tabs --json > {app.file('tabs.json')}")
@@ -26,6 +26,12 @@ def test_msg_new_tab_send_text_and_list_tabs(app_factory):
     # the text is typed into the shell once this command is done, its newline runs it
     app.run(f"{BIN} msg send-text $'touch {app.file('typed')}\\n'")
     app.wait(app.file("typed").exists, msg="text sent by msg ran")
+
+
+def listening(app: App) -> None:
+    """wait for the app's remote control socket"""
+    socket = Path(Session.runtime_dir) / f"kuterm-{app.proc.pid}.sock"
+    app.wait(socket.exists, msg=f"socket {socket}")
 
 
 def windows(app: App) -> list:
@@ -42,7 +48,7 @@ def env_of(app: App) -> dict:
 def test_single_instance_opens_a_window_in_the_running_app(app_factory):
     """kuterm --single-instance asks the running kuterm for a window and exits"""
     app = app_factory(dict(SOCKET))
-    time.sleep(0.5)
+    listening(app)
     done = subprocess.run([str(BIN), "--single-instance"], env=env_of(app), timeout=20,
                           capture_output=True)
     assert done.returncode == 0, done.stderr

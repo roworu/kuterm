@@ -31,8 +31,14 @@ e2e tests drive the real binary and check pixels (`e2e/`, pytest), on xvfb with 
 sh e2e/run.sh
 # the same tests on wayland, --backend goes first
 sh e2e/run.sh --backend wayland -k palette
+# both backends at once, lines prefixed with the backend, fails if either fails
+sh e2e/run.sh --backend all
+# 4 parallel sessions by default, E2E_WORKERS=0 runs one test at a time
+E2E_WORKERS=0 sh e2e/run.sh -k palette
 ```
 
+- tests run in parallel with pytest-xdist, every worker gets its own display, session bus and runtime dir, and the reports of all workers are merged into one. a test must not look at processes, files or windows outside its own app. tests that measure cpu or speed share one `xdist_group`, so they run one after another.
+- wait for what shows on screen (`app.wait`, `wait_title`, `wait_line`, `wait_still`) instead of fixed sleeps; a sleep is only for checking that something does *not* happen, or for pacing input.
 - tests talk to the display only through `App` in `e2e/harness.py` (keys, mouse, screenshots, titles, clipboard), which picks xdotool/xwininfo or swaymsg/grim/wl-clipboard by backend.
 - wayland input comes from `e2e/fake_input.py`, one virtual keyboard and pointer for the whole session; headless sway has no devices of its own.
 - `@pytest.mark.x11_only` / `@pytest.mark.wayland_only` skip tests on the other backend.

@@ -1,9 +1,7 @@
 """shell integration: bash gets kuterm's marks, prompts can be jumped to, output copied,
 new tabs open in the folder of the shell, programs can send notifications"""
 
-import time
-
-from harness import App, as_rgb, get_clipboard, mask_bbox, near, unique_theme
+from harness import App, as_rgb, dominant, get_clipboard, ink_bbox, mask_bbox, near, unique_theme
 
 FEATURE = "shell integration"
 
@@ -14,11 +12,20 @@ C = as_rgb(THEME)
 BASH = {"program": "/bin/bash"}
 
 
+def prompt_shown(app: App, row: int) -> bool:
+    """the injected script sets bash's own prompt, wider than the cursor alone"""
+    x0, y0, _, y1 = app.cell_rect(0, row)
+    band = app.shot()[y0:y1, x0:]
+    box = ink_bbox(band, dominant(band))
+    return box is not None and box[2] > app.cell_rect(3, row)[0] - x0
+
+
 def integrated(app_factory, **settings) -> App:
     app = app_factory({"theme": {"mode": "dark"}, "window_title": ["number", {"text": " "}, "folder"],
                        "profiles": [{"name": "bash", "command": BASH, "env": {"PS1": "$ "}}],
                        **settings}, themes={"dark": THEME})
-    time.sleep(1)
+    # bash prints its prompt once the injected script ran
+    app.wait(lambda: prompt_shown(app, 0), msg="prompt")
     return app
 
 
@@ -27,7 +34,10 @@ def test_copy_last_output_and_jump_to_prompts(app_factory):
     app = integrated(app_factory)
     app.run("for i in $(seq 1 60); do echo filler_$i; done")
     app.run("printf 'first line\\nsecond line\\n'")
-    time.sleep(0.5)
+    # the output, then the next prompt
+    rows = app.layout_pty()[0]
+    app.wait_line(rows - 2, 11)
+    app.wait(lambda: prompt_shown(app, rows - 1), msg="prompt after the output")
     app.palette("copy last output")
     app.wait(lambda: get_clipboard() == "first line\nsecond line", msg=f"clipboard, got {get_clipboard()!r}")
     before = app.shot()

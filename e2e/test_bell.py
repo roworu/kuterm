@@ -57,7 +57,6 @@ def test_visual_bell_flashes_edges_without_tab_bar(app_factory):
                        "window": {"decorations": "server"},
                        "bell": {"visual": {"enable": True, "color": "#ff00ff", "duration": 1500,
                                            "target": "tab"}}}, script=RING)
-    time.sleep(0.5)
     app.step(1)
     app.wait(lambda: near(app.shot()[200:400, :2], MAGENTA, 60).mean() > 0.5, msg="magenta edge")
     app.snap("bell rang without tab bar, edges flashed")
@@ -68,7 +67,6 @@ def test_visual_bell_off(app_factory):
     """with bell.visual.enable false the terminal does not flash"""
     app = app_factory({"theme": {"mode": "dark"},
                        "bell": {"visual": {"enable": False, "color": "#ff00ff", "duration": 1500}}}, script=RING)
-    time.sleep(0.5)
     app.step(1)
     deadline = time.monotonic() + 1
     while time.monotonic() < deadline:
@@ -92,7 +90,7 @@ def test_tab_indicator(app_factory):
         app.mouse(450, 500)
         app.key("ctrl+shift+t")
         app.wait_title("2")
-        time.sleep(0.5)
+        app.wait_still("the second tab drawn")
         background = DARK["tab_bar_background"]
         before = bell_ink(app, background)
         # both tabs run the script, the bell of the first one rings in the background

@@ -1,7 +1,5 @@
 """wide and combining characters: cell positions, wrapping, selection, window and tab titles"""
 
-import time
-
 from harness import App, bundled_theme, get_clipboard, ink, mask_bbox, near
 
 FEATURE = "unicode text"
@@ -79,7 +77,7 @@ def test_combining_accent_stays_in_its_cell(app_factory):
     # two spaces keep the marker away, so only the e and its accent are measured
     app = printed(app_factory, f"e\\314\\201  {MARK}\\ne")
     wait_mark(app, 3)
-    time.sleep(0.3)
+    app.wait(lambda: glyph_box(app, app.shot(), 1, 1), msg="plain e")
     img = app.shot()
     accented = glyph_box(app, img, 0, 3)
     # the cursor waits right after the plain e

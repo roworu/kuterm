@@ -26,6 +26,8 @@ class Entry:
     # (title, text) shown as is, for cases without a window
     notes: list = field(default_factory=list)
     duration: float = 0.0
+    # place in the collected tests, workers of a parallel run report out of order
+    order: int = 0
 
     def freeze(self, app) -> None:
         """keep only what the app was started with, the app itself goes away"""
@@ -41,6 +43,8 @@ class Report:
     def __init__(self) -> None:
         self.entries: dict = {}
         self.started = time.time()
+        # node id to its place in the collected tests
+        self.order: dict = {}
 
     def entry(self, item) -> Entry:
         """report entry of a test item, created on first use"""
@@ -49,7 +53,8 @@ class Report:
             module = item.module
             feature = getattr(module, "FEATURE", None) or (module.__doc__ or item.module.__name__).split("\n")[0]
             params = dict(getattr(getattr(item, "callspec", None), "params", {}))
-            self.entries[item.nodeid] = Entry(feature, item.name, doc, params)
+            order = self.order.get(item.nodeid, len(self.entries))
+            self.entries[item.nodeid] = Entry(feature, item.name, doc, params, order=order)
         return self.entries[item.nodeid]
 
     def record(self, item, rep) -> None:
@@ -64,12 +69,30 @@ class Report:
             elif rep.skipped and isinstance(rep.longrepr, tuple):
                 entry.error = rep.longrepr[2]
 
+    def dump(self, path: Path) -> None:
+        """save the entries of a parallel worker for the controller to merge"""
+        entries = {}
+        for nodeid, entry in self.entries.items():
+            data = dict(vars(entry))
+            # apps not frozen yet are gone with the worker
+            data["states"] = [s for s in entry.states if isinstance(s, dict)]
+            data["shots"] = [(caption, str(shot)) for caption, shot in entry.shots]
+            entries[nodeid] = data
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(entries))
+
+    def load(self, path: Path) -> None:
+        """add the entries a worker saved with dump()"""
+        for nodeid, data in json.loads(path.read_text()).items():
+            data["shots"] = [tuple(shot) for shot in data["shots"]]
+            self.entries[nodeid] = Entry(**data)
+
     def write(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(self.render())
 
     def render(self) -> str:
-        entries = list(self.entries.values())
+        entries = sorted(self.entries.values(), key=lambda e: e.order)
         features: dict = {}
         for entry in entries:
             features.setdefault(entry.feature, []).append(entry)
