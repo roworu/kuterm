@@ -3,7 +3,7 @@
 //! lately
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     sync::{LazyLock, Mutex},
     time::{Duration, Instant},
 };
@@ -11,6 +11,8 @@ use std::{
 const SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
 // a tree nobody asked about for this long is dropped, and the thread stops with the last one
 const IDLE_AFTER: Duration = Duration::from_secs(5);
+/// cpu percents kept for graphs, one per sample
+pub const CPU_HISTORY: usize = 24;
 
 /// numbers of one process tree, or of several added up
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -24,6 +26,8 @@ pub struct TreeSample {
     pub received_per_sec: u64,
     /// tcp bytes sent per second
     pub sent_per_sec: u64,
+    /// cpu percent of the last samples, oldest first, up to `CPU_HISTORY`
+    pub cpu_history: Vec<f32>,
 }
 
 impl TreeSample {
@@ -31,6 +35,21 @@ impl TreeSample {
     pub fn total<'a>(samples: impl IntoIterator<Item = &'a TreeSample>) -> TreeSample {
         let mut total = TreeSample::default();
         for sample in samples {
+            // the newest samples line up, a tree sampled for less time is shorter
+            let len = sample.cpu_history.len();
+            if len > total.cpu_history.len() {
+                let missing = len - total.cpu_history.len();
+                total
+                    .cpu_history
+                    .splice(0..0, std::iter::repeat_n(0., missing));
+            }
+            let offset = total.cpu_history.len() - len;
+            for (sum, cpu) in total.cpu_history[offset..]
+                .iter_mut()
+                .zip(&sample.cpu_history)
+            {
+                *sum += cpu;
+            }
             total.cpu_percent += sample.cpu_percent;
             total.rss_bytes += sample.rss_bytes;
             total.ports.extend(&sample.ports);
@@ -48,6 +67,7 @@ struct Root {
     sample: Option<TreeSample>,
     /// counters of the last measure, for the next rates
     last: Option<Last>,
+    cpu_history: VecDeque<f32>,
 }
 
 /// counters of a tree when it was last measured
@@ -87,6 +107,7 @@ impl ProcessSampler {
             asked: Instant::now(),
             sample: None,
             last: None,
+            cpu_history: VecDeque::new(),
         });
         entry.asked = Instant::now();
         let sample = entry.sample.clone();
@@ -126,7 +147,17 @@ impl ProcessSampler {
                 for (pid, measured) in measured {
                     if let Some(root) = state.roots.get_mut(&pid) {
                         (root.sample, root.last) = match measured {
-                            Some((sample, last)) => (Some(sample), Some(last)),
+                            // the first measure has no cpu use yet, so it is not graphed
+                            Some((mut sample, last)) => {
+                                if root.sample.is_some() {
+                                    root.cpu_history.push_back(sample.cpu_percent);
+                                }
+                                if root.cpu_history.len() > CPU_HISTORY {
+                                    root.cpu_history.pop_front();
+                                }
+                                sample.cpu_history = root.cpu_history.iter().copied().collect();
+                                (Some(sample), Some(last))
+                            }
                             None => (None, None),
                         };
                     }
@@ -450,6 +481,7 @@ mod tests {
             cpu_percent: 10.,
             rss_bytes: 100,
             ports: vec![5173, 8080],
+            cpu_history: vec![1., 2., 3.],
             ..TreeSample::default()
         };
         let b = TreeSample {
@@ -458,12 +490,15 @@ mod tests {
             ports: vec![3000, 8080],
             received_per_sec: 7,
             sent_per_sec: 9,
+            cpu_history: vec![10.],
         };
         let total = TreeSample::total([&a, &b]);
         assert_eq!(total.cpu_percent, 12.5);
         assert_eq!(total.rss_bytes, 150);
         assert_eq!(total.ports, [3000, 5173, 8080]);
         assert_eq!((total.received_per_sec, total.sent_per_sec), (7, 9));
+        // the newest samples line up
+        assert_eq!(total.cpu_history, [1., 2., 13.]);
         assert_eq!(TreeSample::total([]), TreeSample::default());
     }
 

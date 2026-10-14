@@ -10,6 +10,7 @@ mod notifications;
 mod session;
 mod tab_bar;
 mod tab_icon;
+mod tab_menu;
 mod tab_title;
 mod window;
 
@@ -56,6 +57,7 @@ use crate::{
             PasteConfirmed,
         },
         terminal_view::{ClipboardEvent, TerminalView, copied_text, open_link},
+        text_input::TextInput,
     },
 };
 
@@ -143,6 +145,10 @@ struct Tab {
     bell: bool,
     /// file only this tab uses, like the history its pager shows, removed with the tab
     temp_file: Option<PathBuf>,
+    /// title typed with "rename_tab", shown in place of the `tab_title` blocks
+    custom_title: Option<String>,
+    /// kept small at the front of its pane, with no close button
+    pinned: bool,
     _subscriptions: [Subscription; 2],
 }
 
@@ -543,6 +549,12 @@ pub struct Workspace {
     spinning: bool,
     /// pane and place the profile menu was opened at, none while it is closed
     profile_menu: Option<(usize, Point<Pixels>)>,
+    /// tab and place its right click menu was opened at, none while it is closed
+    tab_menu: Option<(EntityId, Point<Pixels>)>,
+    /// tab being renamed and the field its title is typed into
+    renaming: Option<(EntityId, Entity<TextInput>)>,
+    /// columns and rows of the active tab the titles were last built with
+    titled_size: (usize, usize),
     /// open command palette, none while it is closed
     palette: Option<Entity<CommandPalette>>,
     /// open about page, none while it is closed
@@ -794,6 +806,9 @@ impl Workspace {
             spinner_frame: 0,
             spinning: false,
             profile_menu: None,
+            tab_menu: None,
+            renaming: None,
+            titled_size: (0, 0),
             palette: None,
             about: None,
             confirm_close: None,
@@ -1062,6 +1077,8 @@ impl Workspace {
             pending_input: Vec::new(),
             bell: false,
             temp_file: None,
+            custom_title: None,
+            pinned: false,
             _subscriptions: [subscription, clipboard_subscription],
         });
         let ix = pane.tabs.len() - 1;
@@ -1199,7 +1216,17 @@ impl Workspace {
             let Some(pane) = self.pane_mut(pane_id) else {
                 return;
             };
-            if from == to || from >= pane.tabs.len() || to >= pane.tabs.len() {
+            if from >= pane.tabs.len() || to >= pane.tabs.len() {
+                return;
+            }
+            // pinned tabs stay in front of the others
+            let pinned = pane.tabs.iter().filter(|tab| tab.pinned).count();
+            let to = if pane.tabs[from].pinned {
+                to.min(pinned - 1)
+            } else {
+                to.max(pinned)
+            };
+            if from == to {
                 return;
             }
             let tab = pane.tabs.remove(from);
@@ -1342,7 +1369,12 @@ impl Workspace {
         let Some(dst) = self.pane_mut(dst_pane) else {
             return;
         };
-        let ix = dst_ix.min(dst.tabs.len());
+        let pinned = dst.tabs.iter().filter(|tab| tab.pinned).count();
+        let ix = if tab.pinned {
+            dst_ix.min(pinned)
+        } else {
+            dst_ix.clamp(pinned, dst.tabs.len())
+        };
         dst.tabs.insert(ix, tab);
         dst.active = ix;
         self.focus_pane(dst_pane, window, cx);
@@ -1379,7 +1411,7 @@ impl Workspace {
     /// close every tab of the focused pane, asking once when programs still run in them
     fn request_close_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let count = self.focused_pane().tabs.len();
-        self.request_close_range(self.focused, 0..count, window, cx);
+        self.request_close_range(self.focused, (0..count).collect(), window, cx);
     }
 
     /// every tab with its title and folder, for remote control
@@ -1538,28 +1570,46 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let count = self.pane(pane_id).expect("pane from caller").tabs.len();
-        let range = if right { ix + 1..count } else { 0..ix };
-        self.request_close_range(pane_id, range, window, cx);
+        let tabs = &self.pane(pane_id).expect("pane from caller").tabs;
+        let range = if right { ix + 1..tabs.len() } else { 0..ix };
+        let unpinned = range.filter(|&ix| !tabs[ix].pinned).collect();
+        self.request_close_range(pane_id, unpinned, window, cx);
     }
 
-    /// close the tabs in `range` of `pane_id`, asking once when programs still run in them
-    fn request_close_range(
+    /// close every tab of `pane_id` but `ix` and pinned ones, asking once when programs still
+    /// run in them
+    fn request_close_others(
         &mut self,
         pane_id: usize,
-        range: std::ops::Range<usize>,
+        ix: usize,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.confirm_close.is_some() || range.is_empty() {
+        let tabs = &self.pane(pane_id).expect("pane from caller").tabs;
+        let others = (0..tabs.len())
+            .filter(|&other| other != ix && !tabs[other].pinned)
+            .collect();
+        self.request_close_range(pane_id, others, window, cx);
+    }
+
+    /// close the tabs at `indices` of `pane_id`, asking once when programs still run in them
+    fn request_close_range(
+        &mut self,
+        pane_id: usize,
+        indices: Vec<usize>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.confirm_close.is_some() || indices.is_empty() {
             return;
         }
-        let ids: Vec<EntityId> = range
-            .clone()
-            .map(|ix| self.view_at(pane_id, ix).entity_id())
+        let ids: Vec<EntityId> = indices
+            .iter()
+            .map(|&ix| self.view_at(pane_id, ix).entity_id())
             .collect();
         let names: Vec<String> = if Settings::get(cx).close_running_tab_warn {
-            range
+            indices
+                .into_iter()
                 .filter_map(|ix| self.running_program(pane_id, ix, cx))
                 .collect()
         } else {
@@ -1871,6 +1921,27 @@ impl Workspace {
                 CommandAction::CloseTabsToLeft => {
                     self.request_close_tabs_side(pane, ix, false, window, cx);
                     target = None;
+                }
+                CommandAction::CloseOtherTabs => {
+                    self.request_close_others(pane, ix, window, cx);
+                    target = None;
+                }
+                CommandAction::RenameTab => self.start_rename(pane, ix, window, cx),
+                CommandAction::PinTab => self.toggle_pin(pane, ix, cx),
+                CommandAction::DuplicateTab => {
+                    self.duplicate_tab(pane, ix, window, cx);
+                    target = None;
+                }
+                CommandAction::CopyFolder => {
+                    let tab = &self.pane(pane).expect("pane of target").tabs[ix];
+                    match tab_cwd(tab, cx) {
+                        Some(cwd) => {
+                            let text = cwd.display().to_string();
+                            cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
+                            self.notify_copied(&text, cx);
+                        }
+                        None => self.show_notification("the tab's folder is unknown", None, cx),
+                    }
                 }
                 CommandAction::SplitLeft
                 | CommandAction::SplitRight
@@ -2279,6 +2350,7 @@ impl Workspace {
             .then(|| [status_bar.left.clone(), status_bar.right.clone()]);
         let sampled = shows_samples(settings);
         let memory_unit = StatusBarState::get(cx).memory_unit(status_bar.memory_unit);
+        let clock = tab_title::clock(&status_bar.clock_format);
         let mut inputs = Vec::new();
         let mut active = 0;
         for pane in self.layout.panes() {
@@ -2300,6 +2372,8 @@ impl Workspace {
                             .flatten(),
                         total: None,
                         memory_unit,
+                        clock: clock.clone(),
+                        size: terminal_size(terminal),
                     },
                 ));
             }
@@ -2542,6 +2616,12 @@ fn tab_cwd(tab: &Tab, cx: &App) -> Option<PathBuf> {
         return Some(cwd.to_path_buf());
     }
     crate::terminal::process_info(terminal.shell_pid)?.cwd
+}
+
+/// columns and rows of a terminal
+fn terminal_size(terminal: &Terminal) -> (usize, usize) {
+    let bounds = terminal.last_content.terminal_bounds;
+    (bounds.num_columns(), bounds.num_lines())
 }
 
 /// program names joined for a dialog, cut short after a few
@@ -3819,6 +3899,118 @@ mod tests {
         let command = Commands::parse(&json).unwrap().commands.remove(0);
         ws.update_in(cx, |ws, window, cx| ws.run_command(&command, window, cx));
         cx.run_until_parked();
+    }
+
+    fn tab_center(cx: &mut VisualTestContext, ix: usize) -> Point<Pixels> {
+        cx.debug_bounds(format!("tab-title-{ix}").leak())
+            .expect("no such tab")
+            .center()
+    }
+
+    fn custom_title(
+        ws: &Entity<Workspace>,
+        cx: &mut VisualTestContext,
+        ix: usize,
+    ) -> Option<String> {
+        ws.update(cx, |ws, _| ws.focused_pane().tabs[ix].custom_title.clone())
+    }
+
+    #[gpui::test]
+    fn double_click_renames_a_tab(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 2);
+        let at = tab_center(cx, 1);
+        for count in [1, 2] {
+            click(cx, at, count);
+            cx.simulate_event(MouseUpEvent {
+                position: at,
+                modifiers: Modifiers::default(),
+                button: MouseButton::Left,
+                click_count: count,
+            });
+        }
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("rename-tab-1").is_some());
+        // the shown title is selected, so typing replaces it
+        type_keys(cx, "w o r k enter");
+        assert_eq!(custom_title(&ws, cx, 1).as_deref(), Some("work"));
+        assert_eq!(
+            ws.update(cx, |ws, cx| ws.tab_title(ws.focused, 1, cx)),
+            "work"
+        );
+        assert!(cx.debug_bounds("rename-tab-1").is_none());
+        // typing goes back to the terminal
+        assert_eq!(current(&ws, cx), 1);
+
+        run_actions(&ws, cx, r#""rename_tab""#);
+        type_keys(cx, "x escape");
+        assert_eq!(custom_title(&ws, cx, 1).as_deref(), Some("work"));
+        // an empty title goes back to the blocks
+        run_actions(&ws, cx, r#""rename_tab""#);
+        type_keys(cx, "backspace enter");
+        assert_eq!(custom_title(&ws, cx, 1), None);
+    }
+
+    #[gpui::test]
+    fn pinned_tabs_stay_in_front_and_survive_closing_others(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 4);
+        let ids = views(&ws, cx);
+        run_actions(&ws, cx, r#"{"activate_tab": 3}, "pin_tab""#);
+        assert_eq!(views(&ws, cx), [ids[2], ids[0], ids[1], ids[3]]);
+        assert_eq!(current(&ws, cx), 0);
+        assert!(cx.debug_bounds("close-tab-0").is_none());
+        assert!(cx.debug_bounds("close-tab-1").is_some());
+        // dragging can't put a tab in front of a pinned one, nor a pinned one after it
+        ws.update(cx, |ws, cx| ws.move_tab(ws.focused, 3, 0, cx));
+        assert_eq!(views(&ws, cx), [ids[2], ids[3], ids[0], ids[1]]);
+        ws.update(cx, |ws, cx| ws.move_tab(ws.focused, 0, 3, cx));
+        assert_eq!(views(&ws, cx)[0], ids[2]);
+        // a middle click leaves it open
+        let at = tab_center(cx, 0);
+        cx.simulate_event(MouseDownEvent {
+            position: at,
+            modifiers: Modifiers::default(),
+            button: MouseButton::Middle,
+            click_count: 1,
+            first_mouse: false,
+        });
+        cx.run_until_parked();
+        assert_eq!(views(&ws, cx).len(), 4);
+
+        run_actions(&ws, cx, r#"{"activate_tab": 3}, "close_other_tabs""#);
+        assert_eq!(views(&ws, cx), [ids[2], ids[0]]);
+        run_actions(&ws, cx, r#"{"activate_tab": 1}, "pin_tab""#);
+        assert!(ws.update(cx, |ws, _| ws.focused_pane().tabs.iter().all(|t| !t.pinned)));
+        assert_eq!(views(&ws, cx), [ids[2], ids[0]]);
+    }
+
+    #[gpui::test]
+    fn tab_menu_acts_on_the_clicked_tab(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 2);
+        let ids = views(&ws, cx);
+        let at = tab_center(cx, 0);
+        right_click(cx, at);
+        assert!(cx.debug_bounds("tab-menu").is_some());
+        let duplicate = cx.debug_bounds("tab-menu-duplicate").unwrap().center();
+        click(cx, duplicate, 1);
+        release(cx, duplicate);
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("tab-menu").is_none());
+        // the copy opens right after the clicked tab, with its profile
+        let now = views(&ws, cx);
+        assert_eq!(now.len(), 3);
+        assert_eq!((now[0], now[2]), (ids[0], ids[1]));
+        assert_eq!(current(&ws, cx), 1);
+
+        let at = tab_center(cx, 2);
+        right_click(cx, at);
+        let pin = cx.debug_bounds("tab-menu-pin").unwrap().center();
+        click(cx, pin, 1);
+        release(cx, pin);
+        cx.run_until_parked();
+        assert_eq!(views(&ws, cx)[0], ids[1]);
+        let at = tab_center(cx, 0);
+        right_click(cx, at);
+        assert!(cx.debug_bounds("tab-menu-unpin").is_some());
     }
 
     #[gpui::test]
@@ -6307,6 +6499,11 @@ mod tests {
                 crate::terminal::process_info(shell_pid).and_then(|p| p.cwd) == Some(tmp.clone())
             });
             run_actions(&ws, cx, r#""split_down""#);
+            ws.update(cx, |ws, _| {
+                let tab = &mut ws.pane_mut(ws.layout.pane_ids()[0]).unwrap().tabs[0];
+                tab.custom_title = Some("work".into());
+                tab.pinned = true;
+            });
             ws.update(cx, |ws, cx| ws.save_session(cx));
             assert!(dir.join("state/kuterm/session.json").exists());
             // only a first window restores
@@ -6327,6 +6524,11 @@ mod tests {
                 (panes, pid)
             });
             assert_eq!(panes, 2);
+            let kept = restored.update(cx, |ws, _| {
+                let tab = &ws.pane(ws.layout.pane_ids()[0]).unwrap().tabs[0];
+                (tab.custom_title.clone(), tab.pinned)
+            });
+            assert_eq!(kept, (Some("work".into()), true));
             // the moved tab was focused and its shell was in the temp folder
             wait_until(cx, "restored shell is elsewhere", |_| {
                 crate::terminal::process_info(cwd).and_then(|p| p.cwd) == Some(tmp.clone())

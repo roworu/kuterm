@@ -101,6 +101,14 @@ impl TextInput {
         &self.content
     }
 
+    /// replace the text, selected whole so typing replaces it
+    pub fn set_content(&mut self, text: impl Into<SharedString>, cx: &mut Context<Self>) {
+        self.content = text.into();
+        self.selected_range = 0..self.content.len();
+        self.selection_reversed = false;
+        cx.notify();
+    }
+
     fn left(&mut self, _: &Left, _: &mut Window, cx: &mut Context<Self>) {
         if self.selected_range.is_empty() {
             self.move_to(self.previous_boundary(self.cursor_offset()), cx);

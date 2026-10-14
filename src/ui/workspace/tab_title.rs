@@ -1,11 +1,12 @@
 //! building tab titles from the blocks set in settings
 
 use std::{
+    collections::HashMap,
     io::Read,
     ops::Range,
-    path::Path,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::OnceLock,
+    sync::{Mutex, OnceLock},
     time::{Duration, Instant},
 };
 
@@ -16,6 +17,12 @@ use crate::{
 
 // a hung command would freeze every tab title, so it is abandoned after this
 const EXEC_TIMEOUT: Duration = Duration::from_secs(2);
+// git status walks the whole work tree, too slow to run on every title refresh
+const GIT_CACHE_FOR: Duration = Duration::from_secs(2);
+// nerd font branch
+const GIT_ICON: &str = "\u{e0a0}";
+// samples a cpu graph shows as text, two per braille character
+const TEXT_GRAPH_SAMPLES: usize = 16;
 // nerd font spinner frames, titles are built with the first and turned with `spin`
 const SPINNER: [char; 6] = [
     '\u{ee06}', '\u{ee07}', '\u{ee08}', '\u{ee09}', '\u{ee0a}', '\u{ee0b}',
@@ -35,6 +42,10 @@ pub(super) struct TitleInputs {
     /// numbers of all tabs added up, none while nothing shows them
     pub total: Option<TreeSample>,
     pub memory_unit: MemoryUnit,
+    /// time of day for clock blocks
+    pub clock: String,
+    /// columns and rows of the terminal
+    pub size: (usize, usize),
 }
 
 /// byte range in a title and the port written there
@@ -62,6 +73,9 @@ pub(super) struct Piece {
     /// where the tab icon goes, with no text
     pub icon: bool,
     pub click: Option<Click>,
+    /// cpu use from 0 to 1, oldest first, drawn as a chart where the bar can draw. `text`
+    /// holds the same as braille dots
+    pub graph: Option<Vec<f32>>,
 }
 
 impl Piece {
@@ -108,6 +122,27 @@ pub(super) fn build_pieces(
             },
             TabTitleBlock::Cpu => sample.map(|s| percent(s.cpu_percent)).unwrap_or_default(),
             TabTitleBlock::Network => sample.map(network).unwrap_or_default(),
+            TabTitleBlock::Clock => inputs.clock.clone(),
+            TabTitleBlock::Size => format!("{}×{}", inputs.size.0, inputs.size.1),
+            TabTitleBlock::Git => cwd.and_then(git).unwrap_or_default(),
+            TabTitleBlock::CpuGraph | TabTitleBlock::TotalCpuGraph => {
+                let (from, click) = if *block == TabTitleBlock::CpuGraph {
+                    (sample, None)
+                } else {
+                    (total, Some(Click::TotalCpu))
+                };
+                let Some(from) = from.filter(|s| !s.cpu_history.is_empty()) else {
+                    continue;
+                };
+                let graph = cpu_graph(&from.cpu_history);
+                pieces.push(Piece {
+                    text: braille(&graph),
+                    icon: false,
+                    click,
+                    graph: Some(graph),
+                });
+                continue;
+            }
             TabTitleBlock::Memory
             | TabTitleBlock::TotalCpu
             | TabTitleBlock::TotalMemory
@@ -129,8 +164,8 @@ pub(super) fn build_pieces(
                 };
                 pieces.push(Piece {
                     text,
-                    icon: false,
                     click: Some(click),
+                    ..Piece::default()
                 });
                 continue;
             }
@@ -146,8 +181,8 @@ pub(super) fn build_pieces(
                     }
                     pieces.push(Piece {
                         text: format!(":{port}"),
-                        icon: false,
                         click: Some(Click::Port(port)),
+                        ..Piece::default()
                     });
                 }
                 continue;
@@ -211,6 +246,38 @@ pub(super) fn bytes(bytes: u64, unit: MemoryUnit) -> String {
     } else {
         format!("{value:.0} {}", UNITS[unit])
     }
+}
+
+/// cpu percents scaled from 0 to 1. 100% is one busy core, a tree busy on more cores
+/// scales the graph down so it still fits
+pub(super) fn cpu_graph(history: &[f32]) -> Vec<f32> {
+    let top = history.iter().copied().fold(100., f32::max);
+    history
+        .iter()
+        .map(|cpu| (cpu / top).clamp(0., 1.))
+        .collect()
+}
+
+/// the newest values of a graph as braille dots, two to a character, filled from the bottom.
+/// the lowest row is always set, so an idle graph still shows as a line
+pub(super) fn braille(graph: &[f32]) -> String {
+    // dots from the bottom up, left column then right column
+    const LEFT: [u32; 4] = [0x40, 0x04, 0x02, 0x01];
+    const RIGHT: [u32; 4] = [0x80, 0x20, 0x10, 0x08];
+    let newest = &graph[graph.len().saturating_sub(TEXT_GRAPH_SAMPLES)..];
+    let level = |value: f32| ((value * 4.).round() as usize).clamp(1, 4);
+    let mut values = newest.to_vec();
+    if values.len() % 2 == 1 {
+        values.insert(0, 0.);
+    }
+    values
+        .chunks(2)
+        .map(|pair| {
+            let dots: u32 = LEFT[..level(pair[0])].iter().sum::<u32>()
+                + RIGHT[..level(pair[1])].iter().sum::<u32>();
+            char::from_u32(0x2800 + dots).unwrap_or(' ')
+        })
+        .collect()
 }
 
 /// tcp traffic like "↓1.2 MB/s ↑4.0 KB/s"
@@ -337,7 +404,106 @@ fn folder_name(cwd: &Path) -> String {
     )
 }
 
+/// branch like " main* ↑1 ↓2", none outside a repository. cached for a moment per folder
+fn git(cwd: &Path) -> Option<String> {
+    // when each folder was read, and what it gave
+    type Cache = HashMap<PathBuf, (Instant, Option<String>)>;
+    static CACHE: Mutex<Option<Cache>> = Mutex::new(None);
+    if let Some((at, text)) = CACHE.lock().unwrap().get_or_insert_default().get(cwd)
+        && at.elapsed() < GIT_CACHE_FOR
+    {
+        return text.clone();
+    }
+    // no locks, so a refresh never gets in the way of git commands typed in the tab
+    let output = run(
+        "git --no-optional-locks status --porcelain=v2 --branch 2>/dev/null",
+        Some(cwd),
+    );
+    let text = output.as_deref().and_then(git_status);
+    let mut cache = CACHE.lock().unwrap();
+    let cache = cache.get_or_insert_default();
+    // folders of closed tabs would pile up
+    if cache.len() > 64 {
+        cache.clear();
+    }
+    cache.insert(cwd.to_path_buf(), (Instant::now(), text.clone()));
+    text
+}
+
+/// branch text from `git status --porcelain=v2 --branch` output
+fn git_status(output: &str) -> Option<String> {
+    let mut oid = "";
+    let mut head = None;
+    let (mut ahead, mut behind) = (0, 0);
+    let mut dirty = false;
+    for line in output.lines() {
+        if let Some(value) = line.strip_prefix("# branch.oid ") {
+            oid = value;
+        } else if let Some(value) = line.strip_prefix("# branch.head ") {
+            head = Some(value);
+        } else if let Some(value) = line.strip_prefix("# branch.ab ") {
+            let mut counts = value.split_whitespace();
+            ahead = counts
+                .next()
+                .and_then(|n| n.parse::<i32>().ok())
+                .unwrap_or(0);
+            behind = counts
+                .next()
+                .and_then(|n| n.parse::<i32>().ok())
+                .unwrap_or(0);
+        } else if !line.starts_with('#') && !line.is_empty() {
+            dirty = true;
+        }
+    }
+    let head = match head? {
+        // a detached head shows its commit, like git's own prompt does
+        "(detached)" => oid.get(..7).unwrap_or(oid),
+        head => head,
+    };
+    let mut text = format!("{GIT_ICON} {head}");
+    if dirty {
+        text.push('*');
+    }
+    if ahead > 0 {
+        text.push_str(&format!(" ↑{ahead}"));
+    }
+    if behind < 0 {
+        text.push_str(&format!(" ↓{}", -behind));
+    }
+    Some(text)
+}
+
+/// time of day now in strftime `format`
+pub(super) fn clock(format: &str) -> String {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        let Ok(format) = std::ffi::CString::new(format) else {
+            return String::new();
+        };
+        let mut buf = [0u8; 128];
+        let written = unsafe {
+            let now = libc::time(std::ptr::null_mut());
+            let mut tm: libc::tm = std::mem::zeroed();
+            if libc::localtime_r(&now, &mut tm).is_null() {
+                return String::new();
+            }
+            libc::strftime(buf.as_mut_ptr().cast(), buf.len(), format.as_ptr(), &tm)
+        };
+        String::from_utf8_lossy(&buf[..written]).into_owned()
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        let _ = format;
+        String::new()
+    }
+}
+
 fn exec(command: &str, cwd: Option<&Path>) -> Option<String> {
+    Some(run(command, cwd)?.lines().next()?.trim().to_string())
+}
+
+/// whole output of a shell command, none when it failed to start or ran too long
+fn run(command: &str, cwd: Option<&Path>) -> Option<String> {
     let mut cmd = Command::new("sh");
     cmd.args(["-c", command])
         .stdin(Stdio::null())
@@ -368,13 +534,7 @@ fn exec(command: &str, cwd: Option<&Path>) -> Option<String> {
     let output = output_rx
         .recv_timeout(deadline.saturating_duration_since(Instant::now()))
         .ok()?;
-    Some(
-        String::from_utf8_lossy(&output)
-            .lines()
-            .next()?
-            .trim()
-            .to_string(),
-    )
+    Some(String::from_utf8_lossy(&output).into_owned())
 }
 
 #[cfg(test)]
@@ -392,6 +552,8 @@ mod tests {
             sample: None,
             total: None,
             memory_unit: MemoryUnit::Auto,
+            clock: "14:05".into(),
+            size: (120, 40),
         };
         build_title(
             blocks,
@@ -424,6 +586,8 @@ mod tests {
             sample: None,
             total: None,
             memory_unit: MemoryUnit::Auto,
+            clock: "14:05".into(),
+            size: (120, 40),
         };
         let blocks = [
             TabTitleBlock::Icon,
@@ -450,6 +614,8 @@ mod tests {
             sample: None,
             total: None,
             memory_unit: MemoryUnit::Auto,
+            clock: "14:05".into(),
+            size: (120, 40),
         };
         let build = |progress| build_title(&[TabTitleBlock::Progress], &inputs(progress), None).0;
         assert_eq!(build(None), "");
@@ -470,6 +636,8 @@ mod tests {
             sample: None,
             total: None,
             memory_unit: MemoryUnit::Auto,
+            clock: "14:05".into(),
+            size: (120, 40),
         };
         let blocks = [TabTitleBlock::Text("a".into()), TabTitleBlock::Progress];
         let busy = build_title(&blocks, &inputs, None).0;
@@ -567,6 +735,7 @@ mod tests {
                 ports: vec![5173, 8080],
                 received_per_sec: 1536,
                 sent_per_sec: 12,
+                cpu_history: Vec::new(),
             }),
             total: Some(TreeSample {
                 cpu_percent: 150.,
@@ -574,8 +743,11 @@ mod tests {
                 ports: vec![3000, 5173, 8080],
                 received_per_sec: 5 << 20,
                 sent_per_sec: 1 << 10,
+                cpu_history: Vec::new(),
             }),
             memory_unit: MemoryUnit::Auto,
+            clock: "14:05".into(),
+            size: (120, 40),
         }
     }
 
@@ -671,6 +843,82 @@ mod tests {
         assert_eq!(bytes(1536, MemoryUnit::Mb), "0.00 MB");
         assert_eq!(bytes(34 << 20, MemoryUnit::Gb), "0.03 GB");
         assert_eq!(bytes(5 << 40, MemoryUnit::Gb), "5120 GB");
+    }
+
+    #[test]
+    fn clock_size_and_graph_blocks() {
+        let mut inputs = sampled_inputs();
+        inputs.sample.as_mut().unwrap().cpu_history = vec![0., 50., 100., 400.];
+        let pieces = build_pieces(
+            &[
+                TabTitleBlock::Clock,
+                TabTitleBlock::Size,
+                TabTitleBlock::CpuGraph,
+                TabTitleBlock::TotalCpuGraph,
+            ],
+            &inputs,
+            None,
+        );
+        assert_eq!(pieces[0].text, "14:05");
+        assert_eq!(pieces[1].text, "120×40");
+        // 400% on four cores sets the top, the rest is scaled to it
+        assert_eq!(pieces[2].graph, Some(vec![0., 0.125, 0.25, 1.]));
+        assert_eq!(pieces[2].text, "⣀⣸");
+        // the total has no history yet, so it is left out
+        assert_eq!(pieces.len(), 3);
+    }
+
+    #[test]
+    fn braille_fills_from_the_bottom() {
+        assert_eq!(braille(&[]), "");
+        assert_eq!(braille(&[0., 0.]), "⣀");
+        assert_eq!(braille(&[1., 1.]), "⣿");
+        assert_eq!(braille(&[0.5, 0.25]), "⣄");
+        // an odd count is padded at the old end, only the newest samples fit
+        assert_eq!(braille(&[1.]), "⣸");
+        assert_eq!(braille(&[1.; 40]).chars().count(), TEXT_GRAPH_SAMPLES / 2);
+    }
+
+    #[test]
+    fn git_status_shows_branch_changes_and_upstream() {
+        let clean = "# branch.oid 1234567890abcdef\n# branch.head main\n";
+        assert_eq!(git_status(clean).unwrap(), format!("{GIT_ICON} main"));
+        let busy = "# branch.oid 1234567890abcdef\n# branch.head dev\n\
+            # branch.upstream origin/dev\n# branch.ab +2 -1\n1 .M N... 1 1 1 a b src/x.rs\n";
+        assert_eq!(git_status(busy).unwrap(), format!("{GIT_ICON} dev* ↑2 ↓1"));
+        let detached = "# branch.oid 1234567890abcdef\n# branch.head (detached)\n? new\n";
+        assert_eq!(
+            git_status(detached).unwrap(),
+            format!("{GIT_ICON} 1234567*")
+        );
+        assert_eq!(git_status(""), None);
+    }
+
+    #[test]
+    fn git_block_reads_the_repository_of_the_folder() {
+        let dir = std::env::temp_dir().join(format!("kuterm-git-block-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(git(&dir), None);
+        let ok = Command::new("git")
+            .args(["init", "-q", "-b", "trunk"])
+            .current_dir(&dir)
+            .status()
+            .is_ok_and(|status| status.success());
+        // git is in the dev image, a host without it has nothing to check
+        if ok {
+            // the "no repository" answer is cached for a moment
+            std::thread::sleep(GIT_CACHE_FOR);
+            assert_eq!(git(&dir), Some(format!("{GIT_ICON} trunk")));
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn clock_follows_its_format() {
+        let time = clock("%H:%M");
+        assert_eq!(time.len(), 5, "{time}");
+        assert_eq!(&time[2..3], ":");
+        assert_eq!(clock("text"), "text");
     }
 
     #[test]

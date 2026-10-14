@@ -84,6 +84,8 @@ pub struct StatusBarSettings {
     pub right: Vec<TabTitleBlock>,
     /// unit memory shows in until a click on it picks another
     pub memory_unit: MemoryUnit,
+    /// strftime format of clock blocks
+    pub clock_format: String,
 }
 
 /// images programs show with kitty's graphics protocol

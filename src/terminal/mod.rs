@@ -46,7 +46,7 @@ pub use mouse::{MouseAction, MouseButton};
 #[cfg(test)]
 pub(crate) use process::tests::{Kill, spawn};
 pub use process::{ForegroundProcess, children, foreground_process, process_info};
-pub use sampler::{ProcessSampler, TreeSample};
+pub use sampler::{CPU_HISTORY, ProcessSampler, TreeSample};
 pub use scanner::{Progress, ScanEvent};
 pub use search::{SearchQuery, SearchStatus};
 pub use vi::ViKey;

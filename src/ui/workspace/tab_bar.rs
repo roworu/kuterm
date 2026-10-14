@@ -4,10 +4,10 @@
 use std::{cell::RefCell, collections::HashMap, ops::Range, sync::LazyLock};
 
 use gpui::{
-    AnyElement, App, Context, CursorStyle, DispatchPhase, Div, DragMoveEvent, ExternalPaths,
-    ModifiersChangedEvent, MouseButton, MouseDownEvent, MouseMoveEvent, PlatformInput,
-    ScrollHandle, Stateful, StyleRefinement, Window, anchored, canvas, deferred, div, prelude::*,
-    px, relative, rems,
+    AnyElement, App, ClickEvent, Context, CursorStyle, DispatchPhase, Div, DragMoveEvent,
+    ExternalPaths, KeyDownEvent, ModifiersChangedEvent, MouseButton, MouseDownEvent,
+    MouseMoveEvent, PlatformInput, ScrollHandle, Stateful, StyleRefinement, Window, anchored,
+    canvas, deferred, div, prelude::*, px, relative, rems,
 };
 use skrifa::{
     FontRef, MetadataProvider,
@@ -22,6 +22,7 @@ use super::{
 };
 use crate::{
     settings::{BellTarget, Decorations, NewTabButton, Settings, TabTitleAlign},
+    terminal::CPU_HISTORY,
     theme::Theme,
     ui::terminal_view::open_link,
 };
@@ -74,6 +75,68 @@ fn measure_icon_drop(icon: &str) -> f32 {
         .map(|bounds| bounds.y_min)
         .reduce(f32::min)
         .map_or(0., |y_min| y_min / units_per_em)
+}
+
+/// cpu graph as thin bars, newest on the right. older bars fade, busier ones turn from green
+/// to yellow to red, and slots without samples yet are a flat line
+fn graph_bars(graph: &[f32], theme: &Theme) -> Div {
+    let empty = CPU_HISTORY.saturating_sub(graph.len());
+    let newest = &graph[graph.len().saturating_sub(CPU_HISTORY)..];
+    let bar = || div().flex_none().w(px(3.)).rounded_t(px(1.));
+    let bars = newest.iter().enumerate().map(|(ix, &value)| {
+        let color = match value {
+            v if v < 0.5 => theme.ansi[2],
+            v if v < 0.8 => theme.ansi[3],
+            _ => theme.ansi[1],
+        };
+        let age = (empty + ix) as f32 / (CPU_HISTORY - 1).max(1) as f32;
+        bar()
+            .h(relative(value.max(0.08)))
+            .bg(color.opacity(0.35 + 0.65 * age))
+    });
+    div()
+        .flex()
+        .items_end()
+        .gap(px(1.))
+        .h(rems(0.9))
+        .px(px(2.))
+        .pt(px(2.))
+        .rounded_sm()
+        // a faint track, so the graph reads as one widget even while idle
+        .bg(theme.text_muted.opacity(0.1))
+        .children((0..empty).map(|_| bar().h(px(1.)).bg(theme.border)))
+        .children(bars)
+}
+
+/// floating menu at the pointer, closed by a click anywhere else
+pub(super) fn popup_menu(id: &'static str, theme: &Theme) -> Stateful<Div> {
+    div()
+        .id(id)
+        .debug_selector(move || id.into())
+        .flex()
+        .flex_col()
+        .py_1()
+        .bg(theme.tab_bar_background)
+        .border_1()
+        .border_color(theme.border)
+        .text_color(theme.text)
+        // keeps clicks from reaching the terminal below
+        .occlude()
+}
+
+/// one row of a popup menu
+pub(super) fn menu_item(
+    id: impl Into<gpui::ElementId>,
+    label: &str,
+    theme: &Theme,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .px_3()
+        .py_1()
+        .whitespace_nowrap()
+        .hover(|item| item.bg(theme.tab_active_background))
+        .child(label.to_owned())
 }
 
 /// row holding the tabs, fills the bar next to the new tab button
@@ -165,6 +228,7 @@ fn title_with_icons(
 }
 
 /// tab sized from settings, with its title and icons
+#[cfg(test)]
 fn tab(
     ix: usize,
     title: &str,
@@ -173,7 +237,22 @@ fn tab(
     ports_at: &[(Range<usize>, u16)],
     settings: &Settings,
 ) -> Stateful<Div> {
-    let expand = settings.expand_tabs;
+    tab_with(
+        ix,
+        title_with_icons(ix, title, icon, icon_at, ports_at),
+        false,
+        settings,
+    )
+}
+
+/// tab sized from settings around `content`, a compact one only as wide as its content
+fn tab_with(
+    ix: usize,
+    content: impl IntoElement,
+    compact: bool,
+    settings: &Settings,
+) -> Stateful<Div> {
+    let expand = settings.expand_tabs && !compact;
     let title = div()
         .flex()
         .flex_1()
@@ -183,7 +262,7 @@ fn tab(
             TabTitleAlign::Center => row.justify_center(),
             TabTitleAlign::Right => row.justify_end(),
         })
-        .child(title_with_icons(ix, title, icon, icon_at, ports_at));
+        .child(content);
     div()
         .id(("tab", ix))
         .flex()
@@ -194,9 +273,10 @@ fn tab(
         // zero basis with flex_1 splits the row equally, whatever the titles are
         .when(expand, |tab| tab.flex_1().min_w_0())
         // keep their width and overflow the row instead of squeezing together
-        .when(!expand, |tab| {
+        .when(!expand && !compact, |tab| {
             tab.flex_none().w(px(settings.tab_width as f32))
         })
+        .when(compact, |tab| tab.flex_none())
         .child(title)
 }
 
@@ -267,6 +347,9 @@ impl Workspace {
     /// title shown for tab `ix` of pane `pane_id`, also listed by the tab picker
     pub(super) fn tab_title(&self, pane_id: usize, ix: usize, cx: &App) -> String {
         let tab_state = &self.pane(pane_id).expect("pane from caller").tabs[ix];
+        if let Some(custom) = &tab_state.custom_title {
+            return custom.clone();
+        }
         // the program title stands in until the first refresh, or when the blocks are empty
         if tab_state.title.is_empty() {
             tab_state
@@ -291,7 +374,26 @@ impl Workspace {
         let theme = terminal.theme(cx);
         let indicator = theme.text;
         let icon = tab_state.icon.clone();
-        let icon_at = tab_state.icon_at.clone();
+        let pinned = tab_state.pinned;
+        let id = tab_state.view.entity_id();
+        let renaming = self
+            .renaming
+            .as_ref()
+            .filter(|(renamed, _)| *renamed == id)
+            .map(|(_, input)| input.clone());
+        // a title of its own or a pinned tab keeps the icon in front, when the blocks show one
+        let (title, icon_at, ports_at) = match (&tab_state.custom_title, pinned) {
+            (Some(custom), _) => {
+                let icon_at = if tab_state.icon_at.is_empty() {
+                    vec![]
+                } else {
+                    vec![0]
+                };
+                (custom.clone(), icon_at, Vec::new())
+            }
+            (None, true) => (String::new(), vec![0], Vec::new()),
+            (None, false) => (title, tab_state.icon_at.clone(), tab_state.ports_at.clone()),
+        };
         let bell = tab_state.bell;
         let flash = tab_state
             .view
@@ -304,7 +406,32 @@ impl Workspace {
             None => theme.tab_bar_background,
         };
         // a spinner frame has the same length, so the ranges still fit
-        tab(ix, &title, &icon, &icon_at, &tab_state.ports_at, settings)
+        let content = match renaming {
+            Some(input) => div()
+                .id(("rename-tab", ix))
+                .debug_selector(move || format!("rename-tab-{ix}"))
+                .flex_1()
+                .min_w(rems(6.))
+                .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                    match event.keystroke.key.as_str() {
+                        "enter" => this.finish_rename(true, window, cx),
+                        "escape" => this.finish_rename(false, window, cx),
+                        _ => return,
+                    }
+                    cx.stop_propagation();
+                }))
+                // clicks in the field move its caret, they don't pick or drag the tab
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .on_click(|_, _, cx| cx.stop_propagation())
+                .on_mouse_down_out(
+                    cx.listener(|this, _, window, cx| this.finish_rename(true, window, cx)),
+                )
+                .child(input)
+                .into_any_element(),
+            None => title_with_icons(ix, &title, &icon, &icon_at, &ports_at).into_any_element(),
+        };
+        let drag = settings.drag_tabs && self.renaming.is_none();
+        tab_with(ix, content, pinned, settings)
             .group("tab")
             .border_r_1()
             .border_color(theme.border)
@@ -321,16 +448,29 @@ impl Workspace {
             } else {
                 theme.text_muted
             })
-            .on_click(
-                cx.listener(move |this, _, window, cx| this.activate_tab(pane, ix, window, cx)),
-            )
+            .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+                this.activate_tab(pane, ix, window, cx);
+                if event.click_count() == 2 {
+                    this.start_rename(pane, ix, window, cx);
+                }
+            }))
             .on_mouse_down(
-                MouseButton::Middle,
-                cx.listener(move |this, _, window, cx| {
-                    this.request_close_tab(pane, ix, window, cx)
+                MouseButton::Right,
+                cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                    this.tab_menu = Some((id, event.position));
+                    cx.notify();
                 }),
             )
-            .when(settings.drag_tabs, |tab| {
+            // pinned tabs only close on purpose
+            .when(!pinned, |tab| {
+                tab.on_mouse_down(
+                    MouseButton::Middle,
+                    cx.listener(move |this, _, window, cx| {
+                        this.request_close_tab(pane, ix, window, cx)
+                    }),
+                )
+            })
+            .when(drag, |tab| {
                 tab.on_drag(
                     DraggedTab {
                         pane,
@@ -369,7 +509,7 @@ impl Workspace {
                         .child(BELL_ICON),
                 )
             })
-            .when(settings.show_tab_close_button, |tab| {
+            .when(settings.show_tab_close_button && !pinned, |tab| {
                 tab.child(
                     div()
                         .id(("close-tab", ix))
@@ -674,11 +814,11 @@ impl Workspace {
                 // a space between two ports is a gap here
                 .filter(|(_, piece)| !piece.text.trim().is_empty())
                 .map(|(ix, piece)| {
-                    let item = div()
-                        .id((name, ix))
-                        .flex_none()
-                        .whitespace_nowrap()
-                        .child(tab_title::spin(&piece.text, self.spinner_frame));
+                    let item = div().id((name, ix)).flex_none().whitespace_nowrap();
+                    let item = match &piece.graph {
+                        Some(graph) => item.child(graph_bars(graph, theme)),
+                        None => item.child(tab_title::spin(&piece.text, self.spinner_frame)),
+                    };
                     match piece.click {
                         Some(click) => item
                             .debug_selector(move || format!("status-{click:?}"))
@@ -727,31 +867,15 @@ impl Workspace {
             .iter()
             .enumerate()
             .map(|(ix, profile)| {
-                div()
-                    .id(("profile", ix))
+                menu_item(("profile", ix), &profile.name, theme)
                     .debug_selector(move || format!("profile-{ix}"))
-                    .px_3()
-                    .py_1()
-                    .whitespace_nowrap()
-                    .hover(|item| item.bg(theme.tab_active_background))
-                    .child(profile.name.clone())
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.profile_menu = None;
                         let profile = Settings::get(cx).profiles[ix].clone();
                         this.add_profile_tab(pane, &profile, true, window, cx);
                     }))
             });
-        let menu = div()
-            .id("profile-menu")
-            .flex()
-            .flex_col()
-            .py_1()
-            .bg(theme.tab_bar_background)
-            .border_1()
-            .border_color(theme.border)
-            .text_color(theme.text)
-            // keeps clicks from reaching the terminal below
-            .occlude()
+        let menu = popup_menu("profile-menu", theme)
             .children(items)
             .on_mouse_down_out(cx.listener(|this, _, _, cx| {
                 this.profile_menu = None;
@@ -798,6 +922,12 @@ impl Workspace {
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // size blocks follow resizes right away, not on the next timed refresh
+        let size = self.active_size(cx);
+        if size != self.titled_size {
+            self.titled_size = size;
+            self.refresh_titles();
+        }
         let settings = Settings::get(cx);
         let theme = Theme::get(cx);
         // ui scales in rems of the ui font size
@@ -861,6 +991,7 @@ impl Render for Workspace {
                 workspace.child(self.render_status_bar(cx))
             })
             .children(self.render_profile_menu(cx))
+            .children(self.render_tab_menu(cx))
             .children(self.render_notifications(cx))
             .children(self.render_overlay(cx))
             .child(canvas(

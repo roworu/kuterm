@@ -15,6 +15,11 @@ pub(super) struct SavedTab {
     pub(super) profile: String,
     pub(super) cwd: Option<PathBuf>,
     pub(super) title: String,
+    /// title typed with "rename_tab"
+    #[serde(default)]
+    pub(super) custom_title: Option<String>,
+    #[serde(default)]
+    pub(super) pinned: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -65,6 +70,8 @@ impl Workspace {
                             profile: tab.profile.clone(),
                             cwd: tab_cwd(tab, cx),
                             title: tab.title.clone(),
+                            custom_title: tab.custom_title.clone(),
+                            pinned: tab.pinned,
                         }
                     })
                     .collect();
@@ -179,7 +186,16 @@ impl Workspace {
                 if let Some(cwd) = tab.cwd.clone().filter(|cwd| cwd.is_dir()) {
                     profile.working_directory = Some(cwd);
                 }
+                let before = self.pane(id).map_or(0, |pane| pane.tabs.len());
                 self.add_profile_tab(id, &profile, false, window, cx);
+                // a tab that failed to spawn is left out
+                if let Some(pane) = self.pane_mut(id)
+                    && pane.tabs.len() > before
+                    && let Some(last) = pane.tabs.last_mut()
+                {
+                    last.custom_title = tab.custom_title.clone();
+                    last.pinned = tab.pinned;
+                }
             }
             let Some(pane) = self.pane_mut(id) else {
                 continue;

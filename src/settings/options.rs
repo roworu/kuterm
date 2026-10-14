@@ -152,6 +152,16 @@ pub enum TabTitleBlock {
     Network,
     /// tcp traffic of every tab added up
     TotalNetwork,
+    /// cpu use of the tab's programs over the last seconds
+    CpuGraph,
+    /// cpu use of every tab over the last seconds
+    TotalCpuGraph,
+    /// time of day, formatted with `status_bar.clock_format`
+    Clock,
+    /// columns and rows of the terminal, like "120×40"
+    Size,
+    /// git branch of the folder, a star when there are changes, commits ahead and behind
+    Git,
 }
 
 impl TabTitleBlock {
@@ -167,6 +177,8 @@ impl TabTitleBlock {
                 | Self::AllPorts
                 | Self::Network
                 | Self::TotalNetwork
+                | Self::CpuGraph
+                | Self::TotalCpuGraph
         )
     }
 }

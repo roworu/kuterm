@@ -25,6 +25,16 @@ pub enum CommandAction {
     CloseTabsToRight,
     /// close every tab to the left of the active one
     CloseTabsToLeft,
+    /// close every tab but the active one, pinned tabs stay
+    CloseOtherTabs,
+    /// give the active tab a title of its own, typed into the tab
+    RenameTab,
+    /// keep the active tab small at the front of its pane, or let it go again
+    PinTab,
+    /// open a tab with the active tab's profile and folder right next to it
+    DuplicateTab,
+    /// copy the active tab's folder to the clipboard
+    CopyFolder,
     /// split the focused pane and move its active tab into a new pane on the left
     SplitLeft,
     /// split the focused pane and move its active tab into a new pane on the right
@@ -179,7 +189,8 @@ mod tests {
             r#"{"commands": [{"name": "all", "actions": [
                 "about", "reload_config", "new_tab", {"new_tab_with_profile": "dev"},
                 "new_background_tab", {"new_background_tab_with_profile": "dev"}, "close_tab",
-                "close_tabs_to_right", "close_tabs_to_left",
+                "close_tabs_to_right", "close_tabs_to_left", "close_other_tabs", "rename_tab",
+                "pin_tab", "duplicate_tab", "copy_folder",
                 "split_left", "split_right", "split_up", "split_down",
                 "next_tab", "prev_tab", {"activate_tab": 2}, "pick_tab", "copy", "paste",
                 {"scroll_up": 10}, {"scroll_down": 3}, "scroll_top", "scroll_bottom",
@@ -205,6 +216,11 @@ mod tests {
                     CommandAction::CloseTab,
                     CommandAction::CloseTabsToRight,
                     CommandAction::CloseTabsToLeft,
+                    CommandAction::CloseOtherTabs,
+                    CommandAction::RenameTab,
+                    CommandAction::PinTab,
+                    CommandAction::DuplicateTab,
+                    CommandAction::CopyFolder,
                     CommandAction::SplitLeft,
                     CommandAction::SplitRight,
                     CommandAction::SplitUp,

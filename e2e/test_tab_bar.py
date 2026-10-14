@@ -541,3 +541,37 @@ def test_cut_follows_window_resize(app_factory):
         app.wait_still("the tabs laid out")
         check_tabs(app, ref, reference(app_factory, "…"), 3)
     app.snap("titles cut again after resizing")
+
+
+def test_rename_menu_and_pin(app_factory):
+    """a double click renames a tab in place, a right click opens the tab menu, a pinned tab
+    shrinks to its icon at the front"""
+    app = bar_app(app_factory, hide_bar_for_one_tab=False, tab_title=["icon", {"text": "title"}])
+    open_tabs(app, 2)
+    h = app.bar_height()
+    before = borders(app)
+    first = before[0] // 2
+
+    def selected() -> bool:
+        return bool(near(app.shot()[:h], C["selection"], 20).any())
+
+    def menu_open() -> bool:
+        return bool(near(app.shot()[h + 4 :], C["border"], 10).any())
+
+    app.click(first, h // 2, repeat=2)
+    # the whole title is selected, so typing replaces it
+    app.wait(selected, msg="title selected in the tab")
+    app.snap("double click: the title is selected for typing")
+    app.type("renamed")
+    app.key("Return")
+    app.wait(lambda: not selected(), msg="rename field closed")
+    app.snap("first tab renamed")
+    app.click(first, h // 2, button=3)
+    app.wait(menu_open, msg="tab menu")
+    app.snap("right click: tab menu")
+    app.click(450, 450)
+    app.wait(lambda: not menu_open(), msg="tab menu closed")
+    app.palette("pin or unpin")
+    # the pinned tab holds only its icon and title, so it is narrower than a full tab
+    app.wait(lambda: borders(app)[0] < before[0], msg="pinned tab shrinks")
+    app.snap("first tab pinned")

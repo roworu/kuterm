@@ -78,8 +78,15 @@
   //   "network"                                - tcp traffic of the programs of the tab,
   //                                              like "↓1.2 MB/s ↑4.0 KB/s". udp, like
   //                                              quic, is not counted
+  //   "cpu_graph"                              - cpu use of the last seconds as a small
+  //                                              chart, braille dots in titles
   //   "total_cpu", "total_memory", "all_ports",
-  //   "total_network"                          - the same for all tabs together
+  //   "total_network", "total_cpu_graph"       - the same for all tabs together
+  //   "clock"                                  - time of day, see "status_bar.clock_format"
+  //   "size"                                   - columns and rows of the tab, like "120×40"
+  //   "git"                                    - git branch of the folder, "*" when files
+  //                                              changed, ↑ and ↓ commits ahead and behind
+  //                                              its upstream. read at most every 2 seconds
   // titles refresh every second. an "exec" command still running after 2 seconds is
   // abandoned and shows nothing, so keep them fast. blocks with nothing to show, like a
   // failing "exec", are left empty.
@@ -122,11 +129,17 @@
   // cpu, memory, traffic and ports are only measured while something shows them
   "status_bar": {
     "enable": false,
-    "left": ["prompt", "folder", "cpu", "memory", "network", "ports"],
-    "right": [{ "text": "all tabs" }, "total_cpu", "total_memory", "total_network", "all_ports"],
+    "left": ["prompt", "folder", "git", "cpu_graph", "cpu", "memory", "network", "ports"],
+    "right": [
+      { "text": "all tabs" }, "total_cpu", "total_memory", "total_network", "all_ports",
+      "size", "clock",
+    ],
     // unit of memory in titles and the status bar: "auto", "kb", "mb" or "gb". a click on
     // "memory" switches to the next one and is remembered until this is changed
     "memory_unit": "auto",
+    // how "clock" blocks show the time, in strftime format: "%H:%M" gives "14:05",
+    // "%a %H:%M:%S" gives "Tue 14:05:09", "%I:%M %p" gives "02:05 PM"
+    "clock_format": "%H:%M",
   },
 
   // the command palette: a list of commands filtered as you type, opened with the
@@ -727,6 +740,15 @@
     "zoom_pane": null,
     // give all panes the same size
     "equalize_panes": null,
+    // type a title of its own for the active tab, empty goes back to "tab_title".
+    // a double click on a tab does it too
+    "rename_tab": null,
+    // pin the active tab: small, at the front of its pane, with no close button, or unpin it
+    "pin_tab": null,
+    // open a tab with the active tab's profile and folder next to it
+    "duplicate_tab": null,
+    // close every tab of the pane but the active one and pinned ones
+    "close_other_tabs": null,
     // scroll to the prompt above or below, needs shell integration
     "jump_to_prev_prompt": "ctrl-shift-up",
     "jump_to_next_prompt": "ctrl-shift-down",
@@ -823,6 +845,12 @@
   //   "close_tab"                        - close the active tab
   //   "close_tabs_to_right"              - close every tab to the right of the active one
   //   "close_tabs_to_left"               - close every tab to the left of the active one
+  //   "close_other_tabs"                 - close every tab but the active one.
+  //                                        the three closes above leave pinned tabs open
+  //   "rename_tab"                       - type a title of its own for the active tab
+  //   "pin_tab"                          - pin the active tab, or unpin it
+  //   "duplicate_tab"                    - open a tab with the active tab's profile and folder
+  //   "copy_folder"                      - copy the active tab's folder to the clipboard
   //   "split_left"                       - split the focused pane, moving its active tab left
   //   "split_right"                      - split the focused pane, moving its active tab right
   //   "split_up"                         - split the focused pane, moving its active tab above
@@ -887,6 +915,11 @@
     { "name": "close current", "category": "tabs", "actions": ["close_tab"] },
     { "name": "close tabs to the right", "category": "tabs", "actions": ["close_tabs_to_right"] },
     { "name": "close tabs to the left", "category": "tabs", "actions": ["close_tabs_to_left"] },
+    { "name": "close other tabs", "category": "tabs", "actions": ["close_other_tabs"] },
+    { "name": "rename", "category": "tabs", "actions": ["rename_tab"] },
+    { "name": "pin or unpin", "category": "tabs", "actions": ["pin_tab"] },
+    { "name": "duplicate", "category": "tabs", "actions": ["duplicate_tab"] },
+    { "name": "copy folder path", "category": "tabs", "actions": ["copy_folder"] },
     { "name": "split left", "category": "tabs", "actions": ["split_left"] },
     { "name": "split right", "category": "tabs", "actions": ["split_right"] },
     { "name": "split up", "category": "tabs", "actions": ["split_up"] },

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from harness import App, as_rgb, ink, mask_bbox, unique_theme
+from harness import App, as_rgb, ink, mask_bbox, near, unique_theme
 
 FEATURE = "status bar"
 
@@ -77,3 +77,23 @@ def test_ports_show_and_open(app_factory):
         app.button(1, False)
     app.wait(out.exists, msg="port opened from the tab title")
     assert out.read_text() == "http://localhost:8123"
+
+
+def test_cpu_graph_clock_and_size(app_factory):
+    """a busy loop fills the cpu graph with red bars, the clock and terminal size show on the right"""
+    settings = {
+        "theme": {"mode": "dark"},
+        "status_bar": {"enable": True, "left": ["cpu_graph", "cpu"], "right": ["size", "clock"]},
+    }
+    app = app_factory(settings, themes={"dark": THEME}, script="sh -c 'while :; do :; done' &")
+    app.mouse(450, 300)
+    app.wait(lambda: status_text(app, app.shot(), "right"), msg="size and clock in the status bar")
+
+    def red_bars() -> int:
+        img = app.shot()
+        h = round(round(1.5 * app.ui_font_size()) * app.scale)
+        return int(near(img[-h:, : img.shape[1] // 2], C["ansi"][1], 30).sum())
+
+    # one busy core is the top of the graph, the bars come once a second
+    app.wait(lambda: red_bars() > 150, msg="busy bars in the cpu graph", timeout=20)
+    app.snap("cpu graph of a busy loop, its percent, terminal size and clock")

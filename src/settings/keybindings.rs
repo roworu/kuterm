@@ -128,6 +128,10 @@ fn binding(action: &str, keys: &str, when: Option<&str>) -> Option<KeyBinding> {
         "open_scrollback" => KeyBinding::new(keys, RunAction(CommandAction::OpenScrollback), when),
         "zoom_pane" => KeyBinding::new(keys, RunAction(CommandAction::ZoomPane), when),
         "equalize_panes" => KeyBinding::new(keys, RunAction(CommandAction::EqualizePanes), when),
+        "close_other_tabs" => KeyBinding::new(keys, RunAction(CommandAction::CloseOtherTabs), when),
+        "rename_tab" => KeyBinding::new(keys, RunAction(CommandAction::RenameTab), when),
+        "pin_tab" => KeyBinding::new(keys, RunAction(CommandAction::PinTab), when),
+        "duplicate_tab" => KeyBinding::new(keys, RunAction(CommandAction::DuplicateTab), when),
         _ => {
             let number: usize = action.strip_prefix("activate_tab_")?.parse().ok()?;
             KeyBinding::new(keys, ActivateTab(number.checked_sub(1)?), when)
