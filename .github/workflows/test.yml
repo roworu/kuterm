@@ -1,10 +1,17 @@
 name: Test
 
 on:
+  # other branches are tested by their pull request, pushing them too would run everything twice
   push:
+    branches: [ "main" ]
     paths-ignore: [ "**.md", "LICENSE" ]
   pull_request:
     paths-ignore: [ "**.md", "LICENSE" ]
+
+# a new commit makes runs for the old one useless
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
