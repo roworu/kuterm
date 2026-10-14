@@ -378,6 +378,10 @@ class App:
             self.settings["profiles"] = [{"name": "test", "command": command}]
         if isinstance(self.settings, dict):
             window = self.settings.get("window", {})
+            if "decorations" not in window:
+                # tests are laid out without a title bar above one tab, test_decorations.py
+                # covers the frames that add one
+                window = self.settings["window"] = {**window, "decorations": "server"}
             if "remember_size" not in window:
                 # tests are laid out for a 900x600 window, the remembered size opens it at that
                 self.settings["window"] = {**window, "remember_size": True}
@@ -755,6 +759,29 @@ class App:
         """tab bar height with its bottom border, when shown"""
         # 2 rems, the border is drawn inside that height
         return round(round(2 * self.ui_font_size()) * self.scale)
+
+    def bars_above(self, tabs: int = 1) -> int:
+        """bars above the grid with `tabs` tabs in the top right pane: the menu bar or a title
+        bar, and the tab bar, like shows_top_row in window.rs"""
+        bundled = bundled_settings()
+        decorations = self._get("window", "decorations", default=bundled["window"]["decorations"])
+        menus = self._get("window", "menu_bar", default=bundled["window"]["menu_bar"]) == "always"
+        hide = self._get("hide_bar_for_one_tab", default=bundled["hide_bar_for_one_tab"])
+        # without a frame or menus the tab bar is the only place left to move the window from
+        tab_bar = not (hide and tabs == 1) or (decorations == "none" and not menus)
+        top_row = menus or (decorations == "client" and not tab_bar)
+        return int(top_row) + int(tab_bar)
+
+    def top(self, tabs: int = 1) -> int:
+        """physical pixels taken by the bars above the grid"""
+        return self.bars_above(tabs) * self.bar_height()
+
+    def layout_pty(self, w: int = 900, h: int = 600, tabs: int = 1) -> tuple:
+        """(rows, cols) for a window of w x h logical pixels with all its bars as set"""
+        status = self._get("status_bar", "enable", default=bundled_settings()["status_bar"]["enable"])
+        # bars are 2 rems high and the status bar 1.5, rems are the ui font size
+        bars = round(2 * self.ui_font_size()) * self.bars_above(tabs) + (1.5 * self.ui_font_size() if status else 0)
+        return self.expected_pty(w, h, top=bars)
 
     def _cell_width(self) -> float:
         default = bundled_settings()["terminal"]["cell_width"]

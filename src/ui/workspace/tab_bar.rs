@@ -763,7 +763,7 @@ impl Workspace {
     }
 
     /// command palette, about page, close tab or paste dialog, centered near the top like in zed
-    fn render_overlay(&self) -> Option<AnyElement> {
+    fn render_overlay(&self, cx: &App) -> Option<AnyElement> {
         let view = match (
             &self.palette,
             &self.about,
@@ -786,7 +786,9 @@ impl Workspace {
                     .flex()
                     .justify_center()
                     .items_start()
-                    .pt(rems(4.))
+                    // a gap below the bars, the menu bar and a tab bar together would
+                    // otherwise end right where it starts
+                    .pt(rems((self.top_bars_height(cx) + 2.).max(4.)))
                     .child(view),
             )
             .into_any_element(),
@@ -860,7 +862,7 @@ impl Render for Workspace {
             })
             .children(self.render_profile_menu(cx))
             .children(self.render_notifications(cx))
-            .children(self.render_overlay())
+            .children(self.render_overlay(cx))
             .child(canvas(
                 |_, _, _| {},
                 |_, _, window, _| track_file_drags(window),

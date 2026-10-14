@@ -263,11 +263,9 @@ pub(super) fn startup_grid(window_size: Size<Pixels>, cx: &App) -> TerminalBound
 }
 
 impl Workspace {
-    /// apply background and frame settings to an open window
+    /// apply background settings to an open window, its frame is kept from startup
     pub(super) fn apply_window_settings(&self, window: &mut Window, cx: &App) {
-        let settings = Settings::get(cx);
-        window.set_background_appearance(background_appearance(settings));
-        window.request_decorations(window_decorations(settings));
+        window.set_background_appearance(background_appearance(Settings::get(cx)));
     }
 
     /// remember the windowed size once resizing stops
@@ -295,14 +293,34 @@ impl Workspace {
         });
     }
 
-    /// true when the window has a row above the panes
-    pub(super) fn shows_top_row(&self, cx: &App) -> bool {
-        let corner_tabs = self
-            .layout
+    /// tabs of the top right pane, whose bars decide the row above the panes
+    fn corner_tabs(&self) -> usize {
+        self.layout
             .corner_pane_id()
             .and_then(|id| self.pane(id))
-            .map_or(0, |pane| pane.tabs.len());
-        shows_top_row(Settings::get(cx), corner_tabs)
+            .map_or(0, |pane| pane.tabs.len())
+    }
+
+    /// true when the window has a row above the panes
+    pub(super) fn shows_top_row(&self, cx: &App) -> bool {
+        shows_top_row(Settings::get(cx), self.corner_tabs())
+    }
+
+    /// rems taken at the top of the window by the row above the panes and the tab bar below it
+    pub(super) fn top_bars_height(&self, cx: &App) -> f32 {
+        let settings = Settings::get(cx);
+        let tabs = self.corner_tabs();
+        let top_row = if shows_top_row(settings, tabs) {
+            MENU_BAR_HEIGHT
+        } else {
+            0.
+        };
+        let tab_bar = if shows_tab_bar(settings, tabs) {
+            2.
+        } else {
+            0.
+        };
+        top_row + tab_bar
     }
 
     /// top row with the menus, and without a frame room to move the window and its buttons
