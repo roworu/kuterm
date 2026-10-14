@@ -4,10 +4,10 @@
 use std::{cell::RefCell, collections::HashMap, ops::Range, sync::LazyLock};
 
 use gpui::{
-    AnyElement, App, ClickEvent, Context, CursorStyle, DispatchPhase, Div, DragMoveEvent,
+    AnyElement, App, Bounds, ClickEvent, Context, CursorStyle, DispatchPhase, Div, DragMoveEvent,
     ExternalPaths, KeyDownEvent, ModifiersChangedEvent, MouseButton, MouseDownEvent,
-    MouseMoveEvent, PlatformInput, ScrollHandle, Stateful, StyleRefinement, Window, anchored,
-    canvas, deferred, div, prelude::*, px, relative, rems,
+    MouseMoveEvent, MouseUpEvent, PlatformInput, Point, ScrollHandle, Stateful, StyleRefinement,
+    Window, anchored, canvas, deferred, div, prelude::*, px, relative, rems,
 };
 use skrifa::{
     FontRef, MetadataProvider,
@@ -952,6 +952,31 @@ impl Render for Workspace {
         let menu_bar = settings.window.menu_bar.shown();
         let workspace = div()
             .key_context("Workspace")
+            // remembered while dragging, the drop outside the window has no drag value to read
+            .on_drag_move::<DraggedTab>(cx.listener(
+                |this, event: &DragMoveEvent<DraggedTab>, _, cx| {
+                    let dragged = event.drag(cx);
+                    this.tab_drag = Some((dragged.pane, dragged.ix));
+                },
+            ))
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|this, event: &MouseUpEvent, window, cx| {
+                    let dragged = this.tab_drag.take();
+                    let outside = !Bounds::new(Point::default(), window.viewport_size())
+                        .contains(&event.position);
+                    if let Some((pane, ix)) = dragged
+                        && outside
+                        && cx.has_active_drag()
+                    {
+                        this.tab_dropped_outside(pane, ix, event.position, window, cx);
+                    }
+                }),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _, _| this.tab_drag = None),
+            )
             .on_action(cx.listener(Self::new_tab))
             .on_action(cx.listener(Self::close_tab))
             .on_action(cx.listener(Self::next_tab))

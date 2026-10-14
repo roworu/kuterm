@@ -98,7 +98,9 @@
   // show the "×" close button on the active tab and on hovered ones.
   // a middle click on a tab closes it either way
   "show_tab_close_button": true,
-  // drag tabs with the mouse to reorder them
+  // drag tabs with the mouse to reorder them. a tab let go outside the window moves into a
+  // window of its own there, or into the kuterm window it was dropped on (x11 and macos,
+  // wayland tells apps nothing about other windows, so there it always gets a new one)
   "drag_tabs": true,
   // ask before closing a tab while a program still runs in it, like vim or a long build,
   // so its work is not lost by accident
@@ -749,6 +751,9 @@
     "duplicate_tab": null,
     // close every tab of the pane but the active one and pinned ones
     "close_other_tabs": null,
+    // move the active tab, its programs still running, into a window of its own.
+    // dragging a tab out of the window does it too
+    "move_tab_to_new_window": null,
     // scroll to the prompt above or below, needs shell integration
     "jump_to_prev_prompt": "ctrl-shift-up",
     "jump_to_next_prompt": "ctrl-shift-down",
@@ -851,6 +856,8 @@
   //   "pin_tab"                          - pin the active tab, or unpin it
   //   "duplicate_tab"                    - open a tab with the active tab's profile and folder
   //   "copy_folder"                      - copy the active tab's folder to the clipboard
+  //   "move_tab_to_new_window"           - move the active tab, its programs still running,
+  //                                        into a window of its own
   //   "split_left"                       - split the focused pane, moving its active tab left
   //   "split_right"                      - split the focused pane, moving its active tab right
   //   "split_up"                         - split the focused pane, moving its active tab above
@@ -920,6 +927,7 @@
     { "name": "pin or unpin", "category": "tabs", "actions": ["pin_tab"] },
     { "name": "duplicate", "category": "tabs", "actions": ["duplicate_tab"] },
     { "name": "copy folder path", "category": "tabs", "actions": ["copy_folder"] },
+    { "name": "move to new window", "category": "tabs", "actions": ["move_tab_to_new_window"] },
     { "name": "split left", "category": "tabs", "actions": ["split_left"] },
     { "name": "split right", "category": "tabs", "actions": ["split_right"] },
     { "name": "split up", "category": "tabs", "actions": ["split_up"] },

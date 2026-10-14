@@ -128,11 +128,12 @@ impl Workspace {
         let (pane, ix) = self.find_id(id)?;
         let theme = Theme::get(cx);
         let pinned = self.pane(pane)?.tabs[ix].pinned;
-        let rows: [Option<(&str, CommandAction)>; 12] = [
+        let rows: [Option<(&str, CommandAction)>; 13] = [
             Some(("rename", CommandAction::RenameTab)),
             Some((if pinned { "unpin" } else { "pin" }, CommandAction::PinTab)),
             Some(("duplicate", CommandAction::DuplicateTab)),
             Some(("copy folder path", CommandAction::CopyFolder)),
+            Some(("move to new window", CommandAction::MoveTabToNewWindow)),
             None,
             Some(("split right", CommandAction::SplitRight)),
             Some(("split down", CommandAction::SplitDown)),

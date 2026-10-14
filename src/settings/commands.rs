@@ -35,6 +35,8 @@ pub enum CommandAction {
     DuplicateTab,
     /// copy the active tab's folder to the clipboard
     CopyFolder,
+    /// move the active tab with its running programs into a window of its own
+    MoveTabToNewWindow,
     /// split the focused pane and move its active tab into a new pane on the left
     SplitLeft,
     /// split the focused pane and move its active tab into a new pane on the right
@@ -190,7 +192,7 @@ mod tests {
                 "about", "reload_config", "new_tab", {"new_tab_with_profile": "dev"},
                 "new_background_tab", {"new_background_tab_with_profile": "dev"}, "close_tab",
                 "close_tabs_to_right", "close_tabs_to_left", "close_other_tabs", "rename_tab",
-                "pin_tab", "duplicate_tab", "copy_folder",
+                "pin_tab", "duplicate_tab", "copy_folder", "move_tab_to_new_window",
                 "split_left", "split_right", "split_up", "split_down",
                 "next_tab", "prev_tab", {"activate_tab": 2}, "pick_tab", "copy", "paste",
                 {"scroll_up": 10}, {"scroll_down": 3}, "scroll_top", "scroll_bottom",
@@ -221,6 +223,7 @@ mod tests {
                     CommandAction::PinTab,
                     CommandAction::DuplicateTab,
                     CommandAction::CopyFolder,
+                    CommandAction::MoveTabToNewWindow,
                     CommandAction::SplitLeft,
                     CommandAction::SplitRight,
                     CommandAction::SplitUp,

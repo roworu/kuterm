@@ -132,6 +132,9 @@ fn binding(action: &str, keys: &str, when: Option<&str>) -> Option<KeyBinding> {
         "rename_tab" => KeyBinding::new(keys, RunAction(CommandAction::RenameTab), when),
         "pin_tab" => KeyBinding::new(keys, RunAction(CommandAction::PinTab), when),
         "duplicate_tab" => KeyBinding::new(keys, RunAction(CommandAction::DuplicateTab), when),
+        "move_tab_to_new_window" => {
+            KeyBinding::new(keys, RunAction(CommandAction::MoveTabToNewWindow), when)
+        }
         _ => {
             let number: usize = action.strip_prefix("activate_tab_")?.parse().ok()?;
             KeyBinding::new(keys, ActivateTab(number.checked_sub(1)?), when)

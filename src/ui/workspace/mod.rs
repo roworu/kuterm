@@ -12,6 +12,7 @@ mod tab_bar;
 mod tab_icon;
 mod tab_menu;
 mod tab_title;
+mod tear_off;
 mod window;
 
 use std::{
@@ -38,6 +39,7 @@ pub use global_menu::start as start_global_menu;
 use menu_bar::{MenuBar, MenuPicked};
 use notifications::Notification;
 use tab_title::{Click, Piece, TitleInputs};
+pub use tear_off::MovedTab;
 pub use window::{background_appearance, startup_bounds, window_decorations};
 
 use crate::{
@@ -555,6 +557,8 @@ pub struct Workspace {
     renaming: Option<(EntityId, Entity<TextInput>)>,
     /// columns and rows of the active tab the titles were last built with
     titled_size: (usize, usize),
+    /// pane and index of the tab being dragged, so a drop outside the window knows it
+    tab_drag: Option<(usize, usize)>,
     /// open command palette, none while it is closed
     palette: Option<Entity<CommandPalette>>,
     /// open about page, none while it is closed
@@ -651,6 +655,42 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let mut this = Self::empty(window, cx);
+        window::apply_startup_mode(window, cx);
+        if let Some(folder) = folder {
+            this.open_folder(folder, window, cx);
+        } else {
+            // only the first window brings the last session back, a window being built
+            // is not listed yet
+            let alone = cx.windows().is_empty();
+            if !(alone && this.open_session(window, cx)) {
+                match first {
+                    Some(builder) => {
+                        let profile = Settings::get(cx).default_profile().clone();
+                        this.add_builder_tab(this.focused, builder, &profile, true, window, cx);
+                    }
+                    None => this.add_tab(window, cx),
+                }
+            }
+        }
+        // config problems from launch, printed before any window could show them
+        if cx.has_global::<ConfigFiles>() {
+            for problem in std::mem::take(&mut cx.global_mut::<ConfigFiles>().problems) {
+                this.show_error(problem, cx);
+            }
+        }
+        this
+    }
+
+    /// create a workspace holding a tab moved out of another window
+    pub fn with_moved_tab(moved: MovedTab, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let mut this = Self::empty(window, cx);
+        this.adopt_tab(this.focused, moved, window, cx);
+        this
+    }
+
+    /// workspace with one empty pane, set up for its window
+    fn empty(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let (refresh_titles, mut refresh_rx) = unbounded();
         let title_task = cx.spawn_in(window, async move |this, cx| {
             loop {
@@ -790,7 +830,7 @@ impl Workspace {
                 },
             ),
         ];
-        let mut this = Self {
+        let this = Self {
             layout: LayoutNode::Leaf(Pane {
                 id: 0,
                 tabs: Vec::new(),
@@ -809,6 +849,7 @@ impl Workspace {
             tab_menu: None,
             renaming: None,
             titled_size: (0, 0),
+            tab_drag: None,
             palette: None,
             about: None,
             confirm_close: None,
@@ -844,31 +885,8 @@ impl Workspace {
             this.window_resized(window, cx);
         })
         .detach();
-        window::apply_startup_mode(window, cx);
         #[cfg(target_os = "linux")]
         global_menu::export_window(window, cx);
-        if let Some(folder) = folder {
-            this.open_folder(folder, window, cx);
-        } else {
-            // only the first window brings the last session back, a window being built
-            // is not listed yet
-            let alone = cx.windows().is_empty();
-            if !(alone && this.open_session(window, cx)) {
-                match first {
-                    Some(builder) => {
-                        let profile = Settings::get(cx).default_profile().clone();
-                        this.add_builder_tab(this.focused, builder, &profile, true, window, cx);
-                    }
-                    None => this.add_tab(window, cx),
-                }
-            }
-        }
-        // config problems from launch, printed before any window could show them
-        if cx.has_global::<ConfigFiles>() {
-            for problem in std::mem::take(&mut cx.global_mut::<ConfigFiles>().problems) {
-                this.show_error(problem, cx);
-            }
-        }
         this
     }
 
@@ -1932,6 +1950,11 @@ impl Workspace {
                     self.duplicate_tab(pane, ix, window, cx);
                     target = None;
                 }
+                CommandAction::MoveTabToNewWindow => {
+                    self.move_tab_to_new_window(pane, ix, None, window, cx);
+                    // this window may be gone with its last tab
+                    return;
+                }
                 CommandAction::CopyFolder => {
                     let tab = &self.pane(pane).expect("pane of target").tabs[ix];
                     match tab_cwd(tab, cx) {
@@ -2659,7 +2682,7 @@ mod tests {
     use alacritty_terminal::term::TermMode;
     use gpui::{
         Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point,
-        TestAppContext, VisualTestContext, point,
+        TestAppContext, VisualTestContext, WindowHandle, point,
     };
 
     use super::*;
@@ -4011,6 +4034,76 @@ mod tests {
         let at = tab_center(cx, 0);
         right_click(cx, at);
         assert!(cx.debug_bounds("tab-menu-unpin").is_some());
+    }
+
+    /// workspaces of every open window, in the order gpui lists them
+    fn workspaces(cx: &mut VisualTestContext) -> Vec<WindowHandle<Workspace>> {
+        cx.cx.update(|cx| {
+            cx.windows()
+                .into_iter()
+                .filter_map(|handle| handle.downcast::<Workspace>())
+                .collect()
+        })
+    }
+
+    /// terminals of the focused pane of a window's workspace
+    fn terminals_of(handle: WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Vec<EntityId> {
+        cx.cx.update(|cx| {
+            handle
+                .read_with(cx, |ws, cx| {
+                    ws.focused_pane()
+                        .tabs
+                        .iter()
+                        .map(|tab| tab.view.read(cx).terminal().entity_id())
+                        .collect()
+                })
+                .unwrap_or_default()
+        })
+    }
+
+    #[gpui::test]
+    fn tabs_move_between_windows_with_their_shells(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 2);
+        let moved = terminal(&ws, cx, 1);
+        ws.update(cx, |ws, _| {
+            let tab = &mut ws.pane_mut(ws.focused).unwrap().tabs[1];
+            tab.custom_title = Some("server".into());
+        });
+        run_actions(&ws, cx, r#"{"activate_tab": 2}, "move_tab_to_new_window""#);
+        let windows = workspaces(cx);
+        assert_eq!(windows.len(), 2);
+        let first_id = cx.update(|window, _| window.window_handle().window_id());
+        let first = windows.iter().copied().find(|w| w.window_id() == first_id);
+        let first = first.expect("first window is gone");
+        let second = windows.into_iter().find(|w| *w != first).unwrap();
+        // the same terminal, so the shell and its history came along
+        assert_eq!(terminals_of(first, cx).len(), 1);
+        assert_eq!(terminals_of(second, cx), [moved.entity_id()]);
+        let title = cx.cx.update(|cx| {
+            second
+                .read_with(cx, |ws, _| ws.focused_pane().tabs[0].custom_title.clone())
+                .unwrap()
+        });
+        assert_eq!(title.as_deref(), Some("server"));
+        let pid = moved.read_with(cx, |t, _| t.shell_pid);
+        assert!(
+            crate::terminal::process_info(pid).is_some(),
+            "shell died on the move"
+        );
+
+        // moved back, the window left empty closes and nothing quits
+        cx.cx.update(|cx| {
+            second
+                .update(cx, |ws, window, cx| {
+                    ws.move_tab_to_window(ws.focused, 0, first, window, cx)
+                })
+                .unwrap()
+        });
+        cx.run_until_parked();
+        assert_eq!(workspaces(cx), [first]);
+        assert_eq!(terminals_of(first, cx)[1], moved.entity_id());
+        assert_eq!(current(&ws, cx), 1);
+        assert!(!ws.update(cx, |ws, _| ws.quitting));
     }
 
     #[gpui::test]

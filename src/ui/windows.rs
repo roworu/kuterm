@@ -6,13 +6,17 @@ use std::{
     sync::{Arc, LazyLock},
 };
 
-use gpui::{App, AppContext, TitlebarOptions, WindowBounds, WindowHandle, WindowOptions, px, size};
+use gpui::{
+    App, AppContext, Bounds, Pixels, TitlebarOptions, WindowBounds, WindowHandle, WindowOptions,
+    px, size,
+};
 
 use crate::{
     remote::{Reply, Request},
     settings::Settings,
     ui::workspace::{
-        Workspace, background_appearance, startup_bounds, window_decorations, with_workspace,
+        MovedTab, Workspace, background_appearance, startup_bounds, window_decorations,
+        with_workspace,
     },
 };
 
@@ -36,8 +40,37 @@ pub fn open_workspace_window(
         .is_none()
         .then(|| Workspace::spawn_first_tab(bounds.size, cx))
         .flatten();
+    match cx.open_window(window_options(bounds, cx), |window, cx| {
+        cx.new(|cx| Workspace::with_start(folder, first, window, cx))
+    }) {
+        Ok(handle) => Some(handle),
+        Err(error) => {
+            eprintln!("failed to open window: {error:#}");
+            None
+        }
+    }
+}
+
+/// open a window at `bounds` holding a tab moved out of another one
+pub fn open_moved_tab_window(
+    moved: MovedTab,
+    bounds: Bounds<Pixels>,
+    cx: &mut App,
+) -> Option<WindowHandle<Workspace>> {
+    match cx.open_window(window_options(bounds, cx), |window, cx| {
+        cx.new(|cx| Workspace::with_moved_tab(moved, window, cx))
+    }) {
+        Ok(handle) => Some(handle),
+        Err(error) => {
+            eprintln!("failed to open window: {error:#}");
+            None
+        }
+    }
+}
+
+fn window_options(bounds: Bounds<Pixels>, cx: &App) -> WindowOptions {
     let settings = Settings::get(cx);
-    let options = WindowOptions {
+    WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
         window_background: background_appearance(settings),
         window_decorations: Some(window_decorations(settings)),
@@ -49,15 +82,6 @@ pub fn open_workspace_window(
         app_id: Some("kuterm".into()),
         icon: Some(ICON.clone()),
         ..Default::default()
-    };
-    match cx.open_window(options, |window, cx| {
-        cx.new(|cx| Workspace::with_start(folder, first, window, cx))
-    }) {
-        Ok(handle) => Some(handle),
-        Err(error) => {
-            eprintln!("failed to open window: {error:#}");
-            None
-        }
     }
 }
 
