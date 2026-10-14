@@ -24,9 +24,9 @@ pub use config::{Config, ConfigFiles};
 pub use keybindings::Keybindings;
 pub use options::{
     ClipboardAccess, ConfirmQuit, CursorBlink, CursorShape, CursorUnfocused, Decorations,
-    FontSlant, LineHeight, LinkModifier, NewTabButton, PatternAction, ProgramNotifications,
-    RemoteControl, RestoreSession, ScrollEasing, ScrollbarEnable, ScrollbarPlacement, SearchCase,
-    Shell, StartupMode, TabTitleAlign, TabTitleBlock, ThemeMode,
+    FontSlant, LineHeight, LinkModifier, MenuBarMode, NewTabButton, PatternAction,
+    ProgramNotifications, RemoteControl, RestoreSession, ScrollEasing, ScrollbarEnable,
+    ScrollbarPlacement, SearchCase, Shell, StartupMode, TabTitleAlign, TabTitleBlock, ThemeMode,
 };
 pub use pins::Pins;
 pub use tab_icons::TabIcons;
@@ -70,6 +70,15 @@ pub struct Settings {
     pub restore_session: RestoreSession,
     pub remote_control: RemoteControl,
     pub graphics: GraphicsSettings,
+    pub status_bar: StatusBarSettings,
+}
+
+/// thin bar at the bottom of the window, built from title blocks
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct StatusBarSettings {
+    pub enable: bool,
+    pub left: Vec<TabTitleBlock>,
+    pub right: Vec<TabTitleBlock>,
 }
 
 /// images programs show with kitty's graphics protocol
@@ -225,6 +234,9 @@ pub struct WindowSettings {
     /// blur what is behind a see through background
     pub blur: bool,
     pub decorations: Decorations,
+    pub menu_bar: MenuBarMode,
+    /// export the menus over dbus for global menu applets, linux only
+    pub global_menu: bool,
     /// grid size the window opens with
     pub columns: u32,
     pub rows: u32,
@@ -1155,6 +1167,37 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn status_bar_takes_title_and_sampled_blocks() {
+        let settings = Settings::parse(
+            r#"{"status_bar": {"enable": true, "left": ["folder", "ports", "cpu", "memory"],
+                "right": [{"text": "all"}, "total_cpu", "total_memory", "all_ports"]}}"#,
+        )
+        .unwrap();
+        let bar = settings.status_bar;
+        assert!(bar.enable);
+        assert_eq!(
+            bar.left,
+            [
+                TabTitleBlock::Folder,
+                TabTitleBlock::Ports,
+                TabTitleBlock::Cpu,
+                TabTitleBlock::Memory
+            ]
+        );
+        assert_eq!(
+            bar.right,
+            [
+                TabTitleBlock::Text("all".into()),
+                TabTitleBlock::TotalCpu,
+                TabTitleBlock::TotalMemory,
+                TabTitleBlock::AllPorts
+            ]
+        );
+        let settings = Settings::parse(r#"{"status_bar": {"enable": false}}"#).unwrap();
+        assert!(!settings.status_bar.enable);
+    }
+
+    #[test]
     fn bundled_settings_have_one_default_profile() {
         let settings = Settings::default();
         assert_eq!(settings.profiles.len(), 1);
@@ -1770,21 +1813,33 @@ mod window_settings {
         let w = window(
             r#"{"padding": {"x": 12, "y": 0}, "padding_balance": true, "opacity": 0.5,
                 "blur": true, "decorations": "client", "columns": 120, "rows": 40,
-                "startup": "maximized", "remember_size": true}"#,
+                "startup": "maximized", "remember_size": true, "global_menu": false}"#,
         );
         assert_eq!(w.padding, WindowPadding { x: 12., y: 0. });
-        assert!(w.padding_balance && w.blur && w.remember_size);
+        assert!(w.padding_balance && w.blur && w.remember_size && !w.global_menu);
         assert_eq!(w.opacity, 0.5);
         assert_eq!(w.decorations, Decorations::Client);
         assert_eq!((w.columns, w.rows), (120, 40));
         assert_eq!(w.startup, StartupMode::Maximized);
         for (name, mode) in [
-            ("full", Decorations::Full),
+            ("server", Decorations::Server),
+            // the old name still reads
+            ("full", Decorations::Server),
             ("none", Decorations::None),
             ("client", Decorations::Client),
         ] {
             assert_eq!(
                 window(&format!(r#"{{"decorations": "{name}"}}"#)).decorations,
+                mode
+            );
+        }
+        for (name, mode) in [
+            ("auto", MenuBarMode::Auto),
+            ("always", MenuBarMode::Always),
+            ("never", MenuBarMode::Never),
+        ] {
+            assert_eq!(
+                window(&format!(r#"{{"menu_bar": "{name}"}}"#)).menu_bar,
                 mode
             );
         }

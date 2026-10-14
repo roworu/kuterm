@@ -572,20 +572,7 @@ impl TerminalView {
     /// run what a link or hint is for: open, copy, paste or a command
     pub fn run_link(&mut self, link: &Link, cx: &mut Context<Self>) {
         match &link.action {
-            PatternAction::Open => match Settings::get(cx).links.open_with.clone() {
-                Some(program) => {
-                    let target = link.target.clone();
-                    cx.background_spawn(async move {
-                        if let Err(error) =
-                            std::process::Command::new(&program).arg(target).status()
-                        {
-                            eprintln!("failed to run {program:?}: {error}");
-                        }
-                    })
-                    .detach();
-                }
-                None => cx.open_url(&link.target),
-            },
+            PatternAction::Open => open_link(link.target.clone(), cx),
             PatternAction::Copy => {
                 cx.write_to_clipboard(ClipboardItem::new_string(link.target.clone()));
                 cx.emit(ClipboardEvent::Copied(link.target.clone()));
@@ -769,6 +756,21 @@ impl TerminalView {
         text.push(' ');
         self.input_happened(cx);
         self.terminal.update(cx, |term, _| term.paste(&text));
+    }
+}
+
+/// open `target` with `links.open_with`, or the system opener
+pub fn open_link(target: String, cx: &App) {
+    match Settings::get(cx).links.open_with.clone() {
+        Some(program) => {
+            cx.background_spawn(async move {
+                if let Err(error) = std::process::Command::new(&program).arg(target).status() {
+                    eprintln!("failed to run {program:?}: {error}");
+                }
+            })
+            .detach();
+        }
+        None => cx.open_url(&target),
     }
 }
 

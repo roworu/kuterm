@@ -2986,9 +2986,12 @@ dependencies = [
  "memchr",
  "notify",
  "polling",
+ "raw-window-handle",
  "serde",
  "serde_json_lenient",
  "skrifa 0.48.0",
+ "x11rb",
+ "zbus",
 ]
 
 [[package]]

@@ -17,7 +17,9 @@ PLAIN = {"tab_title": [{"text": "title"}]}
 
 def bar_app(app_factory, **settings) -> App:
     # dividers are found by single pixels at the window middle, a thin one may miss them
-    base = {"theme": {"mode": "dark"}, "window_title": ["number"], "panes": {"divider_width": 4}}
+    # a frame of its own, so the top row is only ever the tab bar
+    base = {"theme": {"mode": "dark"}, "window_title": ["number"], "panes": {"divider_width": 4},
+            "window": {"decorations": "server"}}
     app = app_factory({**base, **settings}, themes={"dark": THEME})
     # keep the pointer away from the bar, hover changes its colors
     app.mouse(450, 500)

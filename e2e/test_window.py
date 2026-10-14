@@ -3,9 +3,10 @@
 import json
 import math
 
+import numpy as np
 import pytest
 
-from harness import App, bundled_theme, close_to, sh, session_env
+from harness import App, bundled_theme, close_to, ink, sh, session_env
 
 FEATURE = "window"
 
@@ -93,20 +94,49 @@ def test_startup_maximized(app_factory):
 
 @pytest.mark.parametrize("decorations", ["none", "client"])
 def test_frameless_window_keeps_the_tab_bar(app_factory, decorations):
-    """without a frame the tab bar stays shown with one tab, so the window can be moved"""
+    """without a frame the top row stays shown with one tab, so the window can be moved: the tab
+    bar for "none", an empty title bar with the buttons for "client"."""
     app = app_factory({"theme": {"mode": "dark"}, "hide_bar_for_one_tab": True,
                        "window": {"decorations": decorations}})
     app.snap(f"decorations {decorations}")
     assert app.pty_size() == app.expected_pty(900, 600, top=app.bar_height())
 
 
-def test_client_close_button_quits(app_factory):
-    """the close button drawn with "client" decorations quits like the window manager's"""
-    app = app_factory({"theme": {"mode": "dark"}, "window": {"decorations": "client"}})
+@pytest.mark.parametrize("menu_bar", ["never", "always"])
+def test_client_close_button_quits(app_factory, menu_bar):
+    """the close button drawn with "client" decorations quits like the window manager's, it sits
+    on the top row, which is the menu bar when it is shown"""
+    app = app_factory({"theme": {"mode": "dark"},
+                       "window": {"decorations": "client", "menu_bar": menu_bar}})
     app.pty_size()
-    # the close button is the last one at the right end of the tab bar
+    app.snap(f"client decorations, menu bar {menu_bar}")
+    # the close button is the last one at the right end of the top row, as high as the tab bar
     app.click(round((900 - 18) * app.scale), app.bar_height() // 2)
     assert app.exit_code() == 0
+
+
+def window_buttons(app: App) -> list:
+    """(x, y) centers of the client drawn buttons, left to right: fullscreen, minimize, maximize
+    and close"""
+    h = app.bar_height()
+    columns = np.flatnonzero(ink(app.shot()[2 : h - 2], DARK["tab_bar_background"]).any(axis=0))
+    # each button pads its glyph wider than the gaps inside one glyph
+    groups = np.split(columns, np.flatnonzero(np.diff(columns) > 8 * app.scale) + 1)
+    return [((int(g[0]) + int(g[-1])) // 2, h // 2) for g in groups[-4:]]
+
+
+def test_client_fullscreen_button(app_factory):
+    """the fullscreen button of "client" decorations goes fullscreen and back"""
+    app = app_factory({"theme": {"mode": "dark"}, "window": {"decorations": "client"}})
+    app.pty_size()
+    app.mouse(450, 300)
+    app.snap("client decorations with their buttons")
+    app.click(*window_buttons(app)[-4])
+    app.wait(app.fullscreen, msg="fullscreen")
+    app.mouse(450, 300)
+    # the buttons moved with the right edge
+    app.click(*app.wait(lambda: window_buttons(app)[-4], msg="buttons"))
+    app.wait(lambda: not app.fullscreen(), msg="windowed again")
 
 
 @pytest.mark.wayland_only

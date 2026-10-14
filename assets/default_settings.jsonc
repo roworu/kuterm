@@ -69,6 +69,13 @@
   //                                              running program reports with osc 9;4,
   //                                              like dnf or flatpak, spinning while it gives
   //                                              no percent, empty when it reports none
+  //   "ports"                                  - tcp ports the programs of the tab listen
+  //                                              on, like ":5173". the link modifier and
+  //                                              a click opens http://localhost:<port>
+  //   "cpu"                                    - cpu use of the programs of the tab, like
+  //                                              "34%", 100% is one busy core
+  //   "memory"                                 - memory they use, like "1.2 GB"
+  //   "total_cpu", "total_memory", "all_ports" - the same for all tabs together
   // titles refresh every second. an "exec" command still running after 2 seconds is
   // abandoned and shows nothing, so keep them fast. blocks with nothing to show, like a
   // failing "exec", are left empty.
@@ -102,6 +109,17 @@
   // used by the "title" block when the running program set no title, and as window title
   // when "window_title" builds an empty one
   "default_title": "kuterm",
+
+  // thin bar at the bottom of the window, quiet until hovered. both sides are built for the
+  // active tab from the same blocks as "tab_title", each block apart from the next, blocks
+  // with nothing to show are left out. a click on a port opens http://localhost:<port>, a
+  // click on "total_cpu" or "total_memory" lists them per tab in the command palette.
+  // cpu, memory and ports are only measured while something shows them
+  "status_bar": {
+    "enable": false,
+    "left": ["prompt", "folder", "cpu", "memory", "ports"],
+    "right": [{ "text": "all tabs" }, "total_cpu", "total_memory", "all_ports"],
+  },
 
   // the command palette: a list of commands filtered as you type, opened with the
   // "command_palette" key (ctrl-shift-p by default). its commands are set in "commands" below
@@ -428,11 +446,24 @@
     // supports it, like kde and macos
     "blur": false,
     // window frame, linux only:
-    //   "full"   - title bar and borders from the window manager
+    //   "server" - title bar and borders drawn by your desktop (kde, gnome, xfwm, ...), with
+    //              its own buttons and look
     //   "none"   - no frame, drag the empty part of the tab bar to move the window
-    //   "client" - like "none", with minimize, maximize and close buttons in the tab bar
-    // the tab bar stays shown with one tab when it is not "full"
-    "decorations": "full",
+    //   "client" - like "none", with kuterm's own fullscreen, minimize, maximize and close
+    //              buttons at the right end of the top bar
+    // with one tab and "hide_bar_for_one_tab", "client" shows an empty title bar with its
+    // buttons, "none" keeps the tab bar unless the menu bar is shown
+    "decorations": "client",
+    // menus drawn as a bar at the top of the window, macos always uses its system menu bar:
+    //   "auto"   - shown on windows, hidden on linux
+    //   "always" - shown
+    //   "never"  - hidden, the command palette has every action
+    // it is shown with one tab too, "hide_bar_for_one_tab" only hides the tab bar. without a
+    // "server" frame, its empty part moves the window
+    "menu_bar": "auto",
+    // linux only: offer the menus over dbus, so global menu applets like plasma's show them
+    // in the panel. works on x11, read when kuterm starts
+    "global_menu": true,
     // terminal size in cells the window opens with, columns from 10 to 1000, rows from 2 to 500
     "columns": 100,
     "rows": 30,
