@@ -1,10 +1,17 @@
 name: Test
 
 on:
+  # other branches are tested by their pull request, pushing them too would run everything twice
   push:
+    branches: [ "main" ]
     paths-ignore: [ "**.md", "LICENSE" ]
   pull_request:
     paths-ignore: [ "**.md", "LICENSE" ]
+
+# a new commit makes runs for the old one useless
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -56,6 +63,51 @@ jobs:
       with:
         name: test-output
         path: test-output.txt
+
+    - name: Upload binary
+      uses: actions/upload-artifact@v7
+      with:
+        name: kuterm-debug
+        path: target/debug/kuterm
+
+  # the built binary driven on a virtual x display and on a headless wayland compositor.
+  # pull requests only, release branches go through one before release builds run
+  e2e:
+
+    if: github.event_name == 'pull_request'
+    needs: build
+    runs-on: ubuntu-26.04
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [x11, wayland]
+
+    steps:
+
+    - uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+
+    - uses: actions/download-artifact@v8
+      with:
+        name: kuterm-debug
+        path: dist
+
+    - name: Install podman
+      run: command -v podman > /dev/null || (sudo apt-get update && sudo apt-get install -y --no-install-recommends podman)
+
+    # artifacts lose the executable bit
+    - name: Run e2e tests
+      run: |
+        chmod +x dist/kuterm
+        KUTERM_BIN=dist/kuterm sh e2e/run.sh --backend ${{ matrix.backend }}
+
+    # every tested feature with its settings and screenshots, uploaded on failure too
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: e2e-report-${{ matrix.backend }}
+        path: e2e/artifacts/report-${{ matrix.backend }}.html
 
   # release builds for these too, so platform specific code must compile on pull requests.
   # no -D warnings, unix only features leave dead code on windows

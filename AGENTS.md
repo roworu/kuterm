@@ -24,7 +24,7 @@ podman run --rm -v "$PWD":/src:Z \
   kuterm-dev cargo test <test_name>
 ```
 
-e2e tests drive the real binary and check pixels (`e2e/`, pytest), on xvfb with openbox (x11, default) or on headless sway (wayland). they run for both backends as the last step of the release workflow and write `e2e/artifacts/report-<backend>.html` with screenshots of every tested feature:
+e2e tests drive the real binary and check pixels (`e2e/`, pytest), on xvfb with openbox (x11, default) or on headless sway (wayland). they run for both backends on pull requests in the test workflow and write `e2e/artifacts/report-<backend>.html` with screenshots of every tested feature:
 
 ```bash
 # all of them, or pass pytest args like -k palette

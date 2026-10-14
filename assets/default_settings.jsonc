@@ -455,7 +455,7 @@
     //   "client" - like "none", with kuterm's own fullscreen, minimize, maximize and close
     //              buttons at the right end of the top bar
     // with one tab and "hide_bar_for_one_tab", "client" shows an empty title bar with its
-    // buttons, "none" keeps the tab bar unless the menu bar is shown
+    // buttons, "none" keeps the tab bar unless the menu bar is shown. read when kuterm starts
     "decorations": "client",
     // menus drawn as a bar at the top of the window, macos always uses its system menu bar:
     //   "auto"   - shown on windows, hidden on linux

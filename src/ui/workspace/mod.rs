@@ -1797,6 +1797,9 @@ impl Workspace {
         };
         let mut settings = config.settings;
         settings.use_installed_fonts(&cx.text_system().all_font_names());
+        // switching the frame of an open window leaves wayland compositors with a stale
+        // window geometry, so it only changes on restart
+        settings.window.decorations = Settings::get(cx).window.decorations;
         cx.set_cursor_hide_mode(settings.terminal.cursor_hide_mode());
         for tab in self.layout.panes().into_iter().flat_map(|pane| &pane.tabs) {
             let terminal = tab.view.read(cx).terminal().clone();
@@ -4355,6 +4358,30 @@ mod tests {
     }
 
     #[gpui::test]
+    fn reload_config_keeps_the_startup_decorations(cx: &mut TestAppContext) {
+        let dir = crate::settings::tests::temp_dir("workspace_reload_decorations");
+        let config = dir.join("kuterm");
+        std::fs::create_dir_all(&config).unwrap();
+        crate::settings::tests::with_config_home(&dir, || {
+            let settings = window_settings(r#"{"decorations": "server"}"#);
+            let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+            std::fs::write(
+                config.join("settings.jsonc"),
+                r#"{"tab_width": 101, "window": {"decorations": "client"}}"#,
+            )
+            .unwrap();
+            ws.update_in(cx, |ws, window, cx| ws.reload_config(window, cx));
+            cx.run_until_parked();
+            let width = cx.update(|_, cx| Settings::get(cx).tab_width);
+            assert_eq!(width, 101, "the rest of the file is applied");
+            let decorations = cx.update(|_, cx| Settings::get(cx).window.decorations);
+            assert_eq!(decorations, crate::settings::Decorations::Server);
+            assert!(cx.debug_bounds("window-close").is_none());
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[gpui::test]
     fn reload_config_action_reloads(cx: &mut TestAppContext) {
         let dir = crate::settings::tests::temp_dir("workspace_reload_action");
         let config = dir.join("kuterm");
@@ -4652,6 +4679,20 @@ mod tests {
         cx.executor().advance_clock(Duration::from_secs(1));
         cx.run_until_parked();
         assert!(notifications(&ws, cx).is_empty());
+    }
+
+    #[gpui::test]
+    fn notifications_stay_above_the_status_bar(cx: &mut TestAppContext) {
+        let settings = Settings::parse(r#"{"status_bar": {"enable": true}}"#).unwrap();
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        run_actions(&ws, cx, r#"{"notify": "hello"}"#);
+        let note = cx.debug_bounds("notification-0").expect("no notification");
+        let bar = cx.debug_bounds("status-bar").expect("no status bar");
+        assert!(
+            note.bottom() <= bar.top(),
+            "notification at {note:?} covers the status bar at {bar:?}"
+        );
     }
 
     #[gpui::test]
@@ -5387,6 +5428,26 @@ mod tests {
         let tab = cx.debug_bounds("tab-title-0").expect("no tab bar");
         assert!(area.left() >= tab.right(), "drag area overlaps the tab");
         assert!(cx.debug_bounds("window-close").is_none());
+    }
+
+    #[gpui::test]
+    fn palette_opens_below_the_menu_and_tab_bars(cx: &mut TestAppContext) {
+        let settings =
+            Settings::parse(r#"{"hide_bar_for_one_tab": false, "window": {"menu_bar": "always"}}"#)
+                .unwrap();
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        ws.update_in(cx, |ws, window, cx| {
+            ws.toggle_command_palette(&ToggleCommandPalette, window, cx)
+        });
+        cx.run_until_parked();
+        // the empty part of the tab bar is as high as the bar
+        let tab = cx.debug_bounds("drag-area").expect("no tab bar");
+        let palette = cx.debug_bounds("command-palette").expect("no palette");
+        assert!(
+            palette.top() - tab.bottom() >= tab.size.height / 2.,
+            "palette at {palette:?} touches the tab bar at {tab:?}"
+        );
     }
 
     #[gpui::test]

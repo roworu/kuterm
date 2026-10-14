@@ -4,7 +4,7 @@ use std::{rc::Rc, time::Duration};
 
 use gpui::{AnyElement, Context, Entity, Task, Window, deferred, div, prelude::*, rems};
 
-use super::Workspace;
+use super::{Workspace, tab_bar::STATUS_BAR_HEIGHT};
 use crate::{
     settings::{ProgramNotifications, Settings},
     terminal::foreground_process,
@@ -407,7 +407,12 @@ impl Workspace {
             deferred(
                 div()
                     .absolute()
-                    .bottom_0()
+                    // above the status bar, which shows its busiest blocks on the right
+                    .bottom(rems(if Settings::get(cx).status_bar.enable {
+                        STATUS_BAR_HEIGHT
+                    } else {
+                        0.
+                    }))
                     .right_0()
                     .p_3()
                     .flex()
