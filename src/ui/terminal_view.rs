@@ -46,12 +46,14 @@ actions!(
     ]
 );
 
-/// clipboard change made from the view, so the workspace can notify about it
-pub enum ClipboardEvent {
+/// something the view did that the workspace shows or asks about
+pub enum ViewEvent {
     Copied(String),
     Pasted,
     /// text that looks unsafe to paste, the workspace asks first
     ConfirmPaste(String),
+    /// hint picked in hints mode, a command asking for `{hint}` runs on it
+    HintPicked(String),
 }
 
 /// input the view wrote to its terminal, so panes typed into together get the same
@@ -130,6 +132,8 @@ pub struct TerminalView {
     last_mouse: Option<(Point<Pixels>, Modifiers)>,
     /// labels shown in hints mode, none outside of it
     hints: Option<Hints>,
+    /// match of the hint picked since hints mode last started, for commands asking `{hint}`
+    picked_hint: Option<String>,
     /// completion popup for the shell's command line
     completions: completions::CompletionMenu,
     _subscriptions: Vec<Subscription>,
@@ -174,6 +178,7 @@ impl TerminalView {
             hovered_link: None,
             last_mouse: None,
             hints: None,
+            picked_hint: None,
             completions: Default::default(),
             _subscriptions: subscriptions,
         }
@@ -320,8 +325,15 @@ impl TerminalView {
             patterns.0.update(&Settings::get(cx).hints.patterns);
             terminal.update(cx, |terminal, _| terminal.visible_matches(&mut patterns.0))
         });
+        // a pick from an older hints session is not what a command starting hints mode wants
+        self.picked_hint = None;
         self.hints = Hints::new(links, &Settings::get(cx).hints.alphabet);
         cx.notify();
+    }
+
+    /// match of the hint picked since hints mode last started
+    pub fn picked_hint(&self) -> Option<&str> {
+        self.picked_hint.as_deref()
     }
 
     /// first `file:line` the hint patterns find in the output of the last command of `terminal`
@@ -425,6 +437,8 @@ impl TerminalView {
                 HintKey::Pending => {}
                 HintKey::Picked(link) => {
                     self.hints = None;
+                    self.picked_hint = Some(link.target.clone());
+                    cx.emit(ViewEvent::HintPicked(link.target.clone()));
                     self.run_link(&link, cx);
                 }
                 HintKey::Cancel => self.hints = None,
@@ -449,7 +463,7 @@ impl TerminalView {
                 ViKey::Copy(text) => {
                     let text = trim_copied(text, cx);
                     cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
-                    cx.emit(ClipboardEvent::Copied(text));
+                    cx.emit(ViewEvent::Copied(text));
                 }
                 ViKey::Search => self.open_search(window, cx),
             }
@@ -693,7 +707,7 @@ impl TerminalView {
             PatternAction::Open => open_link(link.target.clone(), cx),
             PatternAction::Copy => {
                 cx.write_to_clipboard(ClipboardItem::new_string(link.target.clone()));
-                cx.emit(ClipboardEvent::Copied(link.target.clone()));
+                cx.emit(ViewEvent::Copied(link.target.clone()));
             }
             PatternAction::Paste => {
                 self.input_happened(cx);
@@ -851,7 +865,7 @@ impl TerminalView {
     fn copy_selection(&mut self, cx: &mut Context<Self>) {
         if let Some(text) = copied_text(self.terminal.read(cx), cx) {
             cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
-            cx.emit(ClipboardEvent::Copied(text));
+            cx.emit(ViewEvent::Copied(text));
         }
     }
 
@@ -868,7 +882,7 @@ impl TerminalView {
             settings.paste_protection && self.terminal.read(cx).paste_is_unsafe(&text);
         let hides = settings.paste_check_invisible && !paste_check::flagged(&text).is_empty();
         if unsafe_keys || hides {
-            cx.emit(ClipboardEvent::ConfirmPaste(text));
+            cx.emit(ViewEvent::ConfirmPaste(text));
             return;
         }
         self.force_paste(&text, cx);
@@ -878,7 +892,7 @@ impl TerminalView {
     pub fn force_paste(&mut self, text: &str, cx: &mut Context<Self>) {
         self.input_happened(cx);
         self.terminal.update(cx, |term, _| term.paste(text));
-        cx.emit(ClipboardEvent::Pasted);
+        cx.emit(ViewEvent::Pasted);
         cx.emit(TypedInput::Paste(text.to_string()));
     }
 
@@ -949,7 +963,7 @@ fn shell_quote(path: &Path) -> String {
     }
 }
 
-impl EventEmitter<ClipboardEvent> for TerminalView {}
+impl EventEmitter<ViewEvent> for TerminalView {}
 impl EventEmitter<TypedInput> for TerminalView {}
 
 impl Focusable for TerminalView {

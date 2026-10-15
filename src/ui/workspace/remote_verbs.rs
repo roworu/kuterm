@@ -9,7 +9,7 @@ use gpui::{App, Context, EntityId, Window};
 use super::{RunAction, Workspace, notifications::NotificationButton};
 use crate::{
     remote::{BlockInfo, Reply, Request},
-    settings::{CommandAction, Commands},
+    settings::{CommandAction, Commands, Values},
     terminal::Terminal,
     ui::terminal_view::TerminalView,
 };
@@ -200,22 +200,10 @@ impl Workspace {
                     Err(error) => Reply::failed(error),
                 }
             }
-            Request::RunCommand { name, .. } => {
-                let command = Commands::get(cx)
-                    .commands
-                    .iter()
-                    .find(|command| {
-                        command.label().eq_ignore_ascii_case(&name)
-                            || command.name.eq_ignore_ascii_case(&name)
-                    })
-                    .cloned();
-                match command {
-                    Some(command) => {
-                        self.activate_tab(pane, ix, window, cx);
-                        self.run_command(&command, window, cx);
-                        Reply::done()
-                    }
-                    None => Reply::failed(format!("no command named {name:?}")),
+            Request::RunCommand { name, inputs, .. } => {
+                match self.run_remote_command(&name, &inputs, pane, ix, window, cx) {
+                    Ok(()) => Reply::done(),
+                    Err(error) => Reply::failed(error),
                 }
             }
             Request::Query { block, all, .. } => {
@@ -238,6 +226,40 @@ impl Workspace {
             _ => Reply::failed("not a pane request"),
         };
         reply.send(answer).ok();
+    }
+
+    /// run the command of `name` in the tab at (`pane`, `ix`) with `inputs`, failing when the
+    /// command is unknown or wants a value the caller left out, since nothing can ask for it
+    fn run_remote_command(
+        &mut self,
+        name: &str,
+        inputs: &Values,
+        pane: usize,
+        ix: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let Some(command) = Commands::get(cx).find(name).cloned() else {
+            return Err(format!("no command named {name:?}"));
+        };
+        let missing: Vec<String> = command
+            .inputs
+            .iter()
+            .filter(|(name, input)| !input.matrix && !inputs.contains_key(*name))
+            .map(|(name, _)| format!("--input {name}=<value>"))
+            .collect();
+        if !missing.is_empty() {
+            return Err(format!("command {name:?} needs {}", missing.join(" ")));
+        }
+        if let Some(unknown) = inputs
+            .keys()
+            .find(|name| !command.inputs.contains_key(*name))
+        {
+            return Err(format!("command {name:?} has no input {unknown:?}"));
+        }
+        self.activate_tab(pane, ix, window, cx);
+        self.start_command(command, inputs.clone(), window, cx);
+        Ok(())
     }
 
     /// type `command` and enter into tab `ix` of `pane` once the user allows it here, or

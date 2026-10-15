@@ -6,7 +6,7 @@ use gpui::{AppContext, Context, Entity, Window};
 
 use super::{Workspace, notifications::system_notification};
 use crate::{
-    settings::{Command, Settings},
+    settings::{Command, Inputs, Settings},
     ui::{command_palette::CommandPalette, terminal_view::TerminalView},
 };
 
@@ -135,6 +135,7 @@ impl Workspace {
                     name: format!("{state}  {}", self.tab_title(pane.id, ix, cx)),
                     category: Some(number),
                     pinned: false,
+                    inputs: Inputs::new(),
                     actions: Vec::new(),
                 };
                 // waiting tabs first, the longest waiting on top

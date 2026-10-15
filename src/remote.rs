@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::settings::Values;
+
 /// what a client asks for
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
@@ -59,11 +61,13 @@ pub enum Request {
         #[serde(default)]
         color: Option<String>,
     },
-    /// run a command palette command by name on a pane
+    /// run a command palette command by name on a pane, with values for its inputs
     RunCommand {
         #[serde(default)]
         pane: Option<String>,
         name: String,
+        #[serde(default)]
+        inputs: Values,
     },
     /// the commands a pane ran: the last finished one, or one counted like kout does
     Query {
@@ -218,7 +222,9 @@ commands:
   split <right|left|up|down>          split a pane
   set-tab-title <title>               give a tab a title, empty takes it back
   set-tab-color [#rrggbb]             draw a tab in a color, none takes it back
-  run-command <name>                  run a command palette command, like \"clear history\"
+  run-command <name> [--input k=v...] run a command palette command, like \"clear history\".
+                                      --input fills one of its inputs, a command needing
+                                      more than its inputs give fails
   query [--last-output] [--block <n>] [--all] [--json]
                                       the commands a pane ran: command, exit, folder, times
                                       and output. --block 3 is the third, --block -2 the one
@@ -246,6 +252,7 @@ pub fn parse_msg(args: &[String]) -> Result<(Request, bool), String> {
     let mut scrollback = false;
     let mut block = None;
     let mut all = false;
+    let mut inputs = Values::new();
     let mut words = Vec::new();
     let mut rest = rest.iter();
     while let Some(arg) = rest.next() {
@@ -266,6 +273,13 @@ pub fn parse_msg(args: &[String]) -> Result<(Request, bool), String> {
             "--scrollback" => scrollback = true,
             "--all" => all = true,
             "--last-output" => block = Some(-1),
+            "--input" => {
+                let pair = value()?;
+                let Some((name, value)) = pair.split_once('=') else {
+                    return Err(format!("--input takes name=value, not {pair:?}"));
+                };
+                inputs.insert(name.to_string(), value.to_string());
+            }
             "--block" => {
                 let number = value()?;
                 block = Some(
@@ -298,7 +312,11 @@ pub fn parse_msg(args: &[String]) -> Result<(Request, bool), String> {
             pane,
             color: (!text.is_empty()).then_some(text),
         },
-        "run-command" if !text.is_empty() => Request::RunCommand { pane, name: text },
+        "run-command" if !text.is_empty() => Request::RunCommand {
+            pane,
+            name: text,
+            inputs,
+        },
         "run-command" => return Err("run-command needs the name of a command".into()),
         "query" => Request::Query { pane, block, all },
         "subscribe" => Request::Subscribe { events: words },
@@ -590,6 +608,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{Request, parse_msg};
+    use crate::settings::Values;
 
     fn args(text: &str) -> Vec<String> {
         text.split_whitespace().map(String::from).collect()
@@ -661,6 +680,27 @@ mod tests {
                 Request::RunCommand {
                     pane: pane(),
                     name: "clear history".into(),
+                    inputs: Values::new(),
+                },
+            ),
+            (
+                "run-command checkout branch --input branch=main",
+                Request::RunCommand {
+                    pane: None,
+                    name: "checkout branch".into(),
+                    inputs: Values::from([("branch".to_string(), "main".to_string())]),
+                },
+            ),
+            (
+                // only the first "=" splits, the rest belongs to the value
+                "run-command x --input msg=a=b --input n=1",
+                Request::RunCommand {
+                    pane: None,
+                    name: "x".into(),
+                    inputs: Values::from([
+                        ("msg".to_string(), "a=b".to_string()),
+                        ("n".to_string(), "1".to_string()),
+                    ]),
                 },
             ),
             (
@@ -690,6 +730,7 @@ mod tests {
         }
         assert!(parse_msg(&args("split sideways")).is_err());
         assert!(parse_msg(&args("run-command")).is_err());
+        assert!(parse_msg(&args("run-command x --input novalue")).is_err());
         assert!(parse_msg(&args("query --block x")).is_err());
         assert_eq!(
             parse_msg(&args("list-tabs --json")).unwrap(),

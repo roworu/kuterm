@@ -7,7 +7,7 @@ use gpui::{AnyWindowHandle, AppContext, Context, Entity, EntityId, Window};
 
 use super::Workspace;
 use crate::{
-    settings::{Command, CommandAction, SearchCase},
+    settings::{Command, CommandAction, Inputs, SearchCase},
     terminal::{FoundLine, SearchQuery, Terminal, search_pattern},
     ui::command_palette::{CommandPalette, FinderQuery},
 };
@@ -43,7 +43,9 @@ impl Workspace {
             |this, _, command: &Command, window, cx| {
                 this.close_overlay(window, cx);
                 // rows carry their index in the found list as their only action
-                if let Some(CommandAction::ActivateTab(ix)) = command.actions.first() {
+                if let Some(CommandAction::ActivateTab(ix)) =
+                    command.actions.first().map(|step| &step.action)
+                {
                     this.reveal_found(*ix, window, cx);
                 }
             },
@@ -122,7 +124,8 @@ impl Workspace {
                             name: line.text.clone(),
                             category: Some(title.clone()),
                             pinned: false,
-                            actions: vec![CommandAction::ActivateTab(ix)],
+                            inputs: Inputs::new(),
+                            actions: vec![CommandAction::ActivateTab(ix).into()],
                         };
                         (command, Some(line.highlight.clone()))
                     })

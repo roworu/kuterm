@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde::de::Error;
 use serde_json_lenient::Value;
 
-use super::{CommandAction, config};
+use super::{CommandAction, Commands, config};
 use crate::ui::{
     terminal_view::{
         Complete, CompletionAccept, CompletionDismiss, CompletionNext, CompletionPrev, Copy, Paste,
@@ -15,7 +15,7 @@ use crate::ui::{
     },
     workspace::{
         ActivateTab, CloseTab, Hide, HideOthers, Minimize, NewTab, NextTab, Quit, RunAction,
-        ToggleCommandPalette, ToggleFullscreen,
+        RunNamedCommand, ToggleCommandPalette, ToggleFullscreen,
     },
 };
 
@@ -40,6 +40,8 @@ pub struct KeymapEntry {
 pub enum KeymapAction {
     /// an action of the "keybindings" section, or "unbind"
     Named(String),
+    /// the palette command of this name, like { "run": "checkout branch" }
+    Run { run: String },
     /// a command palette action like { "send_text": "..." }
     Command(CommandAction),
 }
@@ -218,6 +220,9 @@ impl Keybindings {
             Some(list) => Vec::<KeymapEntry>::deserialize(list)
                 .map_err(|error| Error::custom(format!("keymap: {error}")))?,
         };
+        // "run" names a command of the settings being parsed, checked here so a typo shows up
+        // like any other broken binding
+        let commands = Commands::from_full(full).ok();
         for entry in &keymap {
             if entry.keys.trim().is_empty() {
                 return Err(Error::custom("keymap: empty keys"));
@@ -226,11 +231,20 @@ impl Keybindings {
                 Keystroke::parse(key)
                     .map_err(|error| Error::custom(format!("keymap {:?}: {error}", entry.keys)))?;
             }
-            if let KeymapAction::Named(name) = &entry.action
-                && name != "unbind"
-                && binding(name, &entry.keys, None).is_none()
-            {
-                return Err(Error::custom(format!("keymap: unknown action {name:?}")));
+            match &entry.action {
+                KeymapAction::Named(name)
+                    if name != "unbind" && binding(name, &entry.keys, None).is_none() =>
+                {
+                    return Err(Error::custom(format!("keymap: unknown action {name:?}")));
+                }
+                KeymapAction::Run { run }
+                    if !commands
+                        .as_ref()
+                        .is_some_and(|commands| commands.find(run).is_some()) =>
+                {
+                    return Err(Error::custom(format!("keymap: no command named {run:?}")));
+                }
+                _ => {}
             }
         }
         Ok(Self(bindings, keymap))
@@ -250,6 +264,11 @@ impl Keybindings {
                     Some(KeyBinding::new(&entry.keys, NoAction, when))
                 }
                 KeymapAction::Named(name) => binding(name, &entry.keys, when),
+                KeymapAction::Run { run } => Some(KeyBinding::new(
+                    &entry.keys,
+                    RunNamedCommand(run.clone()),
+                    when,
+                )),
                 KeymapAction::Command(action) => Some(KeyBinding::new(
                     &entry.keys,
                     RunAction(action.clone()),
@@ -424,6 +443,56 @@ mod tests {
         assert_eq!(bindings.len(), named + 3);
         // the keymap goes last, so its bindings win
         assert!(bindings[named + 2].action().as_any().is::<NoAction>());
+    }
+
+    #[test]
+    fn keymap_run_binds_a_named_command() {
+        let full = config::combine(
+            serde_json_lenient::from_str(
+                r#"{
+                "commands": [{"name": "checkout branch", "actions": ["about"]}],
+                "keymap": [{"keys": "ctrl-alt-b", "action": {"run": "checkout branch"}}],
+            }"#,
+            )
+            .unwrap(),
+        );
+        let keys = Keybindings::from_full(&full).unwrap();
+        assert_eq!(
+            keys.1[0].action,
+            KeymapAction::Run {
+                run: "checkout branch".into()
+            }
+        );
+        // the binding goes last, so it wins over the named ones
+        let last = keys.bindings().pop().unwrap();
+        let action = last
+            .action()
+            .as_any()
+            .downcast_ref::<RunNamedCommand>()
+            .unwrap();
+        assert_eq!(action.0, "checkout branch");
+        let strokes: Vec<Keystroke> = last
+            .keystrokes()
+            .iter()
+            .map(|k| k.inner().clone())
+            .collect();
+        assert_eq!(strokes, vec![Keystroke::parse("ctrl-alt-b").unwrap()]);
+
+        // bundled commands can be run by their label too
+        let full = config::combine(serde_json_lenient::from_str(r#"{"keymap": []}"#).unwrap());
+        Keybindings::from_full(&full).unwrap();
+    }
+
+    #[test]
+    fn keymap_run_rejects_an_unknown_command() {
+        let full = config::combine(
+            serde_json_lenient::from_str(
+                r#"{"keymap": [{"keys": "ctrl-alt-b", "action": {"run": "checkout brunch"}}]}"#,
+            )
+            .unwrap(),
+        );
+        let error = Keybindings::from_full(&full).unwrap_err();
+        assert!(error.to_string().contains("no command named"), "{error}");
     }
 
     #[test]

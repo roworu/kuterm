@@ -503,7 +503,7 @@ fn exec(command: &str, cwd: Option<&Path>) -> Option<String> {
 }
 
 /// whole output of a shell command, none when it failed to start or ran too long
-fn run(command: &str, cwd: Option<&Path>) -> Option<String> {
+pub(super) fn run(command: &str, cwd: Option<&Path>) -> Option<String> {
     let mut cmd = Command::new("sh");
     cmd.args(["-c", command])
         .stdin(Stdio::null())

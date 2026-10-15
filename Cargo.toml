@@ -36,12 +36,16 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 futures = "0.3"
 # big completion specs are bundled gzipped, already in the tree through gpui
 flate2 = "1"
+# command inputs keep the order they are written in, already in the tree through serde_json
+indexmap = { version = "2", features = ["serde"] }
 # finds escapes in pty output, already in the tree through alacritty
 memchr = "2"
 # reloads config files when they change, without polling them
 notify = "8"
 serde = { version = "1", features = ["derive"] }
-serde_json_lenient = "0.2"
+serde_json_lenient = { version = "0.2", features = ["preserve_order"] }
+# command values are quoted for the shell with this, already in the tree through gpui
+shlex = "1"
 skrifa = "0.48"
 
 [target.'cfg(unix)'.dependencies]

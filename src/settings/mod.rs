@@ -18,7 +18,9 @@ use gpui::{App, CursorHideMode, Global, Hsla};
 use serde::Deserialize;
 use serde_json_lenient::Value;
 
-pub use commands::{Command, CommandAction, Commands};
+pub use commands::{
+    Command, CommandAction, CommandStep, Commands, Inputs, Side, Target, Values, fill,
+};
 #[cfg(test)]
 pub(crate) use config::combine as config_combine;
 pub(crate) use config::defaults as bundled_settings;

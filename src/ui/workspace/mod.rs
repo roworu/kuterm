@@ -3,6 +3,7 @@
 mod app_menu;
 mod attention;
 mod broadcast;
+mod command_inputs;
 mod config_watch;
 mod end_truncated;
 mod find_all;
@@ -54,8 +55,9 @@ use crate::{
     cli::Cli,
     events_bus::{BusEvent, EventBus},
     settings::{
-        Command, CommandAction, Commands, Config, ConfigFiles, ConfirmQuit, Profile,
-        RestoreSession, Settings, Shell, StatusBarState, TabIconSettings, TabIcons, TabTitleBlock,
+        Command, CommandAction, CommandStep, Commands, Config, ConfigFiles, ConfirmQuit, Inputs,
+        Profile, RestoreSession, Settings, Shell, Side, StatusBarState, TabIconSettings, TabIcons,
+        TabTitleBlock, Target, Values,
     },
     terminal::{
         Event, ProcessSampler, Terminal, TerminalBounds, TerminalBuilder, TreeSample,
@@ -65,11 +67,11 @@ use crate::{
     ui::{
         command_palette::{
             About, CloseConfirmed, CloseTarget, CommandPalette, ConfirmClose, ConfirmPaste,
-            PasteConfirmed,
+            InputPrompt, PasteConfirmed,
         },
         tab_overview::{OverviewPicked, OverviewTab, TabOverview},
         terminal_element::ShowHidden,
-        terminal_view::{ClipboardEvent, TerminalView, TypedInput, copied_text, open_link},
+        terminal_view::{TerminalView, TypedInput, ViewEvent, copied_text, open_link},
         text_input::TextInput,
     },
 };
@@ -101,6 +103,11 @@ pub struct ActivateTab(pub usize);
 #[derive(Clone, PartialEq, Action)]
 #[action(namespace = workspace, no_json)]
 pub struct RunAction(pub CommandAction);
+
+/// run the command of this name, keymap entries asking for inputs like the palette does
+#[derive(Clone, PartialEq, Action)]
+#[action(namespace = workspace, no_json)]
+pub struct RunNamedCommand(pub String);
 
 // programs, folders and command output change without events, so titles are polled
 const TITLE_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
@@ -224,6 +231,17 @@ enum DropSide {
     Right,
     Top,
     Bottom,
+}
+
+/// where one step of a command acts
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum StepTarget {
+    /// one tab of one pane
+    Tab(usize, usize),
+    /// the active tab of every pane of the window
+    AllPanes,
+    /// a window of its own
+    NewWindow,
 }
 
 /// binary tree of panes, the leaves hold the tabs
@@ -601,6 +619,12 @@ pub struct Workspace {
     confirm_close: Option<Entity<ConfirmClose>>,
     /// open paste dialog, none while it is closed
     confirm_paste: Option<Entity<ConfirmPaste>>,
+    /// open field asking for one value of a command, none while it is closed
+    command_input: Option<Entity<InputPrompt>>,
+    /// command picked whose inputs are still being asked for
+    pending: Option<command_inputs::PendingCommand>,
+    /// splits of the running matrix command, its values and results
+    matrix: Option<command_inputs::Matrix>,
     /// menus at the top of the window, drawn only when `window.menu_bar` shows them
     menu_bar: Entity<MenuBar>,
     _menu_bar_subscriptions: [Subscription; 2],
@@ -935,6 +959,9 @@ impl Workspace {
             about: None,
             confirm_close: None,
             confirm_paste: None,
+            command_input: None,
+            pending: None,
+            matrix: None,
             menu_bar,
             _menu_bar_subscriptions,
             _overlay_subscriptions: Vec::new(),
@@ -1172,6 +1199,7 @@ impl Workspace {
                         seconds: duration.as_secs_f64(),
                     });
                     this.attention_ended(&view, cx);
+                    this.matrix_finished(&view, *exit, cx);
                     this.command_finished(&view, *duration, *exit, window, cx)
                 }
                 Event::CommandStarted { block } => {
@@ -1216,12 +1244,13 @@ impl Workspace {
         let clipboard_subscription = cx.subscribe_in(
             &view,
             window,
-            |this, view, event: &ClipboardEvent, window, cx| match event {
-                ClipboardEvent::Copied(text) => this.notify_copied(text, cx),
-                ClipboardEvent::Pasted => this.notify_pasted(cx),
-                ClipboardEvent::ConfirmPaste(text) => {
+            |this, view, event: &ViewEvent, window, cx| match event {
+                ViewEvent::Copied(text) => this.notify_copied(text, cx),
+                ViewEvent::Pasted => this.notify_pasted(cx),
+                ViewEvent::ConfirmPaste(text) => {
                     this.open_confirm_paste(view.clone(), text.clone(), window, cx)
                 }
+                ViewEvent::HintPicked(text) => this.hint_picked(view, text.clone(), window, cx),
             },
         );
 
@@ -2067,17 +2096,49 @@ impl Workspace {
 
     /// run command actions in order against the active tab, or the last background tab
     fn run_command(&mut self, command: &Command, window: &mut Window, cx: &mut Context<Self>) {
+        self.run_command_at(command, &Values::new(), None, window, cx);
+    }
+
+    /// run command actions with their `{name}` placeholders filled from `values`, starting at
+    /// (`start`) or the active tab of the focused pane
+    fn run_command_at(
+        &mut self,
+        command: &Command,
+        values: &Values,
+        start: Option<(usize, usize)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         // tab later actions act on, the active tab of the focused pane when none
-        let mut target: Option<(usize, usize)> = None;
-        for action in &command.actions {
+        let mut target: Option<(usize, usize)> = start;
+        for step in &command.actions {
             // closing the last tab quits, nothing is left to act on
             if self.layout.first_pane_id().is_none() {
                 return;
             }
             // a closed background tab falls back to the active tab of the focused pane
-            let (pane, ix) = target
-                .filter(|(pane, ix)| self.pane(*pane).is_some_and(|pane| *ix < pane.tabs.len()))
-                .unwrap_or_else(|| (self.focused, self.focused_pane().active));
+            let current = target
+                .filter(|(pane, ix)| self.pane(*pane).is_some_and(|pane| *ix < pane.tabs.len()));
+            let Some(at) = self.step_target(step, current, window, cx) else {
+                return;
+            };
+            let (pane, ix) = match at {
+                StepTarget::Tab(pane, ix) => (pane, ix),
+                // these two do not act on one tab, the step runs on its own
+                StepTarget::AllPanes => {
+                    self.run_in_every_pane(&step.action, values, cx);
+                    target = current;
+                    continue;
+                }
+                StepTarget::NewWindow => {
+                    self.run_in_new_window(&step.action, values, cx);
+                    target = current;
+                    continue;
+                }
+            };
+            // a step waiting for a picked hint stops the command, the pick resumes it
+            let action = self.fill_step(&step.action, values, pane, ix, cx);
+            let action = &action;
             match action {
                 CommandAction::About => self.open_about(&OpenAbout, window, cx),
                 CommandAction::ReloadConfig => self.reload_config(window, cx),
@@ -2324,6 +2385,172 @@ impl Workspace {
         cx.notify();
     }
 
+    /// the tab `step` acts on: its own target when it names one, else the command's current tab
+    fn step_target(
+        &mut self,
+        step: &CommandStep,
+        current: Option<(usize, usize)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<StepTarget> {
+        match &step.target {
+            None => {
+                let (pane, ix) = current.unwrap_or_else(|| {
+                    let pane = self.focused;
+                    (pane, self.focused_pane().active)
+                });
+                Some(StepTarget::Tab(pane, ix))
+            }
+            Some(Target::AllPanes) => Some(StepTarget::AllPanes),
+            Some(Target::NewWindow) => Some(StepTarget::NewWindow),
+            Some(Target::NewSplit(side)) => {
+                let (pane, tab) = self.split_new_tab(self.focused, *side, window, cx);
+                Some(StepTarget::Tab(pane, tab))
+            }
+            Some(Target::Pane(spec)) => {
+                let found = [PaneMatch::Name, PaneMatch::Title, PaneMatch::Id]
+                    .into_iter()
+                    .find_map(|by| self.find_pane(spec, by, cx))
+                    .and_then(|id| self.find_id(id))
+                    .map(|(pane, _)| (pane, self.pane(pane).expect("pane found").active));
+                match found {
+                    Some(at) => Some(StepTarget::Tab(at.0, at.1)),
+                    None => {
+                        self.show_notification(format!("no pane {spec:?}"), None, cx);
+                        None
+                    }
+                }
+            }
+        }
+    }
+
+    /// split `pane_id` at `side` and show a fresh shell in the new pane, focused
+    fn split_new_tab(
+        &mut self,
+        pane_id: usize,
+        side: Side,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> (usize, usize) {
+        let side = match side {
+            Side::Left => DropSide::Left,
+            Side::Right => DropSide::Right,
+            Side::Up => DropSide::Top,
+            Side::Down => DropSide::Bottom,
+        };
+        let new_pane = Pane {
+            id: self.next_pane_id,
+            tabs: Vec::new(),
+            active: 0,
+            tab_scroll: ScrollHandle::new(),
+        };
+        let id = new_pane.id;
+        self.next_pane_id += 1;
+        self.zoomed = None;
+        self.layout.split_leaf(pane_id, side, new_pane);
+        let profile = Settings::get(cx).default_profile().clone();
+        self.add_profile_tab(id, &profile, true, window, cx);
+        self.focus_pane(id, window, cx);
+        (id, 0)
+    }
+
+    /// write a text step into the active tab of every pane, like broadcast input does
+    fn run_in_every_pane(
+        &mut self,
+        action: &CommandAction,
+        values: &Values,
+        cx: &mut Context<Self>,
+    ) {
+        let typed = match action {
+            CommandAction::Type(_) => true,
+            CommandAction::SendText(_) => false,
+            _ => {
+                self.show_notification(
+                    "\"all_panes_in_tab\" only writes \"type\" and \"send_text\" steps",
+                    None,
+                    cx,
+                );
+                return;
+            }
+        };
+        for pane in self.layout.pane_ids() {
+            let Some(ix) = self.pane(pane).map(|pane| pane.active) else {
+                continue;
+            };
+            let text = match self.fill_step(action, values, pane, ix, cx) {
+                CommandAction::Type(text) | CommandAction::SendText(text) => text,
+                _ => unreachable!("checked above"),
+            };
+            if typed {
+                self.input_to(pane, ix, text.into_bytes(), cx);
+            } else {
+                let bytes = text.into_bytes();
+                self.terminal_at(pane, ix, cx)
+                    .update(cx, |terminal, _| terminal.input(bytes));
+            }
+        }
+    }
+
+    /// run a step in a window of its own
+    fn run_in_new_window(
+        &mut self,
+        action: &CommandAction,
+        values: &Values,
+        cx: &mut Context<Self>,
+    ) {
+        let command = Command {
+            name: String::new(),
+            category: None,
+            pinned: false,
+            inputs: Inputs::new(),
+            actions: vec![CommandStep::new(action.clone())],
+        };
+        let Some(handle) = crate::ui::windows::open_workspace_window(None, cx) else {
+            self.show_notification("could not open a window", None, cx);
+            return;
+        };
+        handle
+            .update(cx, |workspace, window, cx| {
+                workspace.run_command_at(&command, values, None, window, cx);
+            })
+            .ok();
+    }
+
+    /// a copy of `action` with its `{name}` placeholders filled in for the tab at (`pane`, `ix`),
+    /// picking the built in values from that tab
+    fn fill_step(
+        &self,
+        action: &CommandAction,
+        values: &Values,
+        pane: usize,
+        ix: usize,
+        cx: &App,
+    ) -> CommandAction {
+        let Some(text) = action.text() else {
+            return action.clone();
+        };
+        let tab = &self.pane(pane).expect("pane of target").tabs[ix];
+        let hint = self
+            .view_at(pane, ix)
+            .read(cx)
+            .picked_hint()
+            .map(str::to_string);
+        let filled = crate::settings::fill(text, |name| {
+            if let Some(value) = values.get(name) {
+                return Some(value.clone());
+            }
+            match name {
+                "selection" => copied_text(self.terminal_at(pane, ix, cx).read(cx), cx),
+                "last_output" => self.terminal_at(pane, ix, cx).read(cx).last_output_text(),
+                "cwd" => tab_cwd(tab, cx).map(|cwd| cwd.display().to_string()),
+                "clipboard" => cx.read_from_clipboard().and_then(|item| item.text()),
+                "hint" => hint.clone(),
+                _ => None,
+            }
+        });
+        action.with_text(filled)
+    }
+
     // closes whatever floats over the terminal first, only one overlay is open at a time
     fn open_overlay<V: ManagedView>(
         &mut self,
@@ -2347,6 +2574,7 @@ impl Workspace {
         self.about = None;
         self.confirm_close = None;
         self.confirm_paste = None;
+        self.command_input = None;
         self._overlay_subscriptions.clear();
         self.focus_active_tab(window, cx);
         cx.notify();
@@ -2406,7 +2634,7 @@ impl Workspace {
                     return;
                 }
                 this.record_recent(command.label());
-                this.run_command(command, window, cx);
+                this.pick_command(command.clone(), window, cx);
             },
         ));
         self.palette = Some(palette);
@@ -2420,7 +2648,8 @@ impl Workspace {
                 name: self.tab_title(pane, ix, cx),
                 category: Some((ix + 1).to_string()),
                 pinned: false,
-                actions: vec![CommandAction::ActivateTab(ix + 1)],
+                inputs: Inputs::new(),
+                actions: vec![CommandAction::ActivateTab(ix + 1).into()],
             })
             .collect();
         let palette = cx.new(|cx| CommandPalette::tab_picker(tabs, cx));
@@ -2455,6 +2684,7 @@ impl Workspace {
                         name: format!("go to tab serving :{port}"),
                         category: Some("tabs".into()),
                         pinned: false,
+                        inputs: Inputs::new(),
                         actions: Vec::new(),
                     };
                     commands.push((command, tab.view.entity_id()));
@@ -2548,6 +2778,7 @@ impl Workspace {
                     name: format!("{text}  {}", self.tab_title(pane.id, ix, cx)),
                     category: Some(number),
                     pinned: false,
+                    inputs: Inputs::new(),
                     actions: Vec::new(),
                 };
                 rows.push((amount, command, tab.view.entity_id()));
@@ -2800,9 +3031,28 @@ impl Workspace {
             name: String::new(),
             category: None,
             pinned: false,
-            actions: vec![action.0.clone()],
+            inputs: Inputs::new(),
+            actions: vec![action.0.clone().into()],
         };
         self.run_command(&command, window, cx);
+    }
+
+    /// run the command a key is bound to, looked up by name so reloads apply
+    fn run_named_command(
+        &mut self,
+        action: &RunNamedCommand,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match Commands::get(cx).find(&action.0) {
+            Some(command) => {
+                let command = command.clone();
+                self.record_recent(command.label());
+                self.pick_command(command, window, cx);
+            }
+            // the name is checked when the config loads, so this is an old key binding
+            None => self.show_error(format!("no command named {:?}", action.0), cx),
+        }
     }
 
     // none step goes back to the size from settings
@@ -6787,6 +7037,29 @@ mod tests {
         pump(cx);
         let got = finish(&ws, cx, reading).concat();
         assert!(got.starts_with("73656e74"), "{got}");
+    }
+
+    #[gpui::test]
+    fn keymap_run_runs_the_command(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 1);
+        let full = crate::settings::config_combine(
+            serde_json_lenient::from_str(
+                r#"{"commands": [{"name": "bound", "actions": [{"type": "echo bound"}]}],
+                    "keymap": [{"keys": "ctrl-shift-j", "action": {"run": "bound"}}]}"#,
+            )
+            .unwrap(),
+        );
+        let commands = Commands::from_full(&full).unwrap();
+        let keymap = Keybindings::from_full(&full).unwrap();
+        cx.update(|_, cx| {
+            cx.set_global(commands);
+            cx.bind_keys(keymap.bindings());
+        });
+        let reading = reader(&ws, cx, false, "keymap_run");
+        cx.simulate_keystrokes("ctrl-shift-j");
+        pump(cx);
+        let got = finish(&ws, cx, reading).concat();
+        assert!(got.starts_with("6563686f"), "{got}");
     }
 
     #[gpui::test]

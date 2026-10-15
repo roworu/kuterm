@@ -954,11 +954,13 @@ impl Workspace {
             &self.about,
             &self.confirm_close,
             &self.confirm_paste,
+            &self.command_input,
         ) {
-            (Some(palette), _, _, _) => palette.clone().into_any_element(),
-            (_, Some(about), _, _) => about.clone().into_any_element(),
-            (_, _, Some(confirm), _) => confirm.clone().into_any_element(),
-            (_, _, _, Some(paste)) => paste.clone().into_any_element(),
+            (Some(palette), _, _, _, _) => palette.clone().into_any_element(),
+            (_, Some(about), _, _, _) => about.clone().into_any_element(),
+            (_, _, Some(confirm), _, _) => confirm.clone().into_any_element(),
+            (_, _, _, Some(paste), _) => paste.clone().into_any_element(),
+            (_, _, _, _, Some(input)) => input.clone().into_any_element(),
             _ => return None,
         };
         Some(
@@ -1049,6 +1051,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::minimize))
             .on_action(cx.listener(Self::zoom))
             .on_action(cx.listener(Self::run_action))
+            .on_action(cx.listener(Self::run_named_command))
             .when(menu_bar, |workspace| {
                 workspace
                     .capture_key_down(cx.listener(|this, _, _, cx| {

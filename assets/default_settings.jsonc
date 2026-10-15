@@ -942,15 +942,22 @@
   //             "unbind" - the keys do nothing in kuterm and reach the terminal program
   //             a command palette action, like { "send_text": "\u001b[2J" } that sends
   //             text to the program right away, or { "new_tab_with_profile": "dev" }
+  //             { "run": "checkout branch" } - run the command of that name from "commands"
+  //             below, asking for its inputs first like the palette does. a name that is
+  //             not there is an error when this file is read, the palette shows the key
+  //             next to the command
   //   "when":   "terminal", "search" (the search bar), "palette", "vi_mode", "alt_screen"
   //             (full screen programs like vim) or "completion" (while the completion popup
   //             shows). left out works everywhere
-  // keys pressed one after another, like "ctrl-a c", wait 1 second for the next one.
+  // "keys" in a keymap entry is written like the "keybindings" above: "ctrl-shift-j", not
+  // "ctrl+shift+j". keys pressed one after another, like "ctrl-a c", wait 1 second for the
+  // next one.
   // example:
   //   [
   //     { "keys": "ctrl-a c", "action": "new_tab" },
   //     { "keys": "ctrl-shift-k", "action": { "send_text": "\u001b[2J" } },
   //     { "keys": "ctrl-shift-t", "action": "unbind", "when": "alt_screen" },
+  //     { "keys": "ctrl-alt-b", "action": { "run": "checkout branch" } },
   //   ]
   "keymap": [],
 
@@ -1044,6 +1051,28 @@
   //   { "notify_when_done": "built" }    - show a notification once the program running in the
   //                                        tab finishes, clicking it switches to that tab
   //
+  // an action can name the "target" it works on instead of the command's current tab, by
+  // writing it as { "target": ..., "action": ... }:
+  //   "new_split_right"  - split the focused pane and work in the new tab, also _left, _up,
+  //                        _down
+  //   "pane:tests"       - the pane named "tests" with rename_pane, or named by the title of
+  //                        its tab or its 1 based number
+  //   "all_panes_in_tab" - every pane of the window, works with "type" and "send_text"
+  //   "new_window"       - a window of its own
+  //
+  // a command can ask for values before it runs, with an "inputs" object. the inputs are asked
+  // for one after another in the order written here, escape cancels the command.
+  // every value fills {name} in the action texts, quoted for the shell; {name:raw} fills it in
+  // as it is. a command can also use values that need no input of their own:
+  // {selection}, {last_output}, {cwd}, {clipboard}, and {hint}, which starts hints mode and
+  // uses the match picked there.
+  //   { "text": "branch" }             - a field to type the value into, the string is its hint
+  //   { "pick": ["a", "b"] }           - pick one of these in the palette
+  //   { "pick_from": "git branch" }    - run this in the active tab's folder and pick one of
+  //                                      the lines it prints
+  //   { "pick": [...], "matrix": true } - run the whole command once per picked value, each in
+  //                                      a split of a grid of its own, then say how many passed
+  //
   // actions can be mixed freely to build bigger commands, see the examples below.
   "commands": [
     { "name": "about", "category": "app", "actions": ["about"] },
@@ -1126,6 +1155,22 @@
         { "type": "sleep 3 && echo woke up\n" },
         { "notify_when_done": "sleep finished" },
       ],
+    },
+    // custom command example: pick a branch out of the ones the active tab's folder has and
+    // check it out there. bind it to a key with { "keys": "ctrl-alt-b", "action": { "run":
+    // "checkout branch" } } in "keymap" above, the palette then shows that key next to it
+    {
+      "name": "checkout branch",
+      "category": "examples",
+      "inputs": { "branch": { "pick_from": "git branch --format=%(refname:short)" } },
+      "actions": [{ "type": "git checkout {branch}\n" }],
+    },
+    // custom command example: run the tests on three python versions at once, one split each
+    {
+      "name": "test python versions",
+      "category": "examples",
+      "inputs": { "python": { "pick": ["3.11", "3.12", "3.13"], "matrix": true } },
+      "actions": [{ "type": "python{python} -m pytest\n" }],
     },
   ],
 

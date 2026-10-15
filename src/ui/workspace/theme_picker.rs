@@ -5,7 +5,7 @@ use gpui::{AppContext, Context, DismissEvent, Window};
 
 use super::Workspace;
 use crate::{
-    settings::{Command, Settings, edit},
+    settings::{Command, Inputs, Settings, edit},
     theme::{GALLERY, Theme},
     ui::command_palette::{CommandPalette, Highlighted},
 };
@@ -38,6 +38,7 @@ impl Workspace {
                 name,
                 category: None,
                 pinned: false,
+                inputs: Inputs::new(),
                 actions: Vec::new(),
             })
             .collect();

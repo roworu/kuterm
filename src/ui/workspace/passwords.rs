@@ -6,7 +6,7 @@ use gpui::{AppContext, Context, Entity, Window};
 
 use super::Workspace;
 use crate::{
-    settings::{Command, Settings, with_name},
+    settings::{Command, Inputs, Settings, with_name},
     terminal::{Terminal, tty_echoes},
     ui::command_palette::CommandPalette,
 };
@@ -88,6 +88,7 @@ impl Workspace {
                 name,
                 category: None,
                 pinned: false,
+                inputs: Inputs::new(),
                 actions: Vec::new(),
             })
             .collect();

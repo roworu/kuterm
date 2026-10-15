@@ -5,15 +5,18 @@ use std::ops::Range;
 
 use gpui::{
     App, Bounds, Context, DismissEvent, Entity, EntityId, EventEmitter, FocusHandle, Focusable,
-    KeyDownEvent, Pixels, ScrollHandle, Subscription, Window, canvas, div, fill, point, prelude::*,
-    px, rems, size,
+    KeyDownEvent, Pixels, ScrollHandle, SharedString, Subscription, Window, canvas, div, fill,
+    point, prelude::*, px, rems, size,
 };
 
 use crate::{
     settings::{Command, Pins},
     terminal::paste_check,
     theme::Theme,
-    ui::text_input::{Changed, TextInput},
+    ui::{
+        text_input::{Changed, TextInput},
+        workspace::RunNamedCommand,
+    },
 };
 
 // thin rounded thumb, styled like the terminal scrollbar
@@ -58,6 +61,22 @@ fn scrollbar_thumb(
         point(x, top),
         size(px(SCROLLBAR_WIDTH), px(thumb)),
     ))
+}
+
+/// keys bound to the command of this name with a keymap "run" entry, as gpui shows them
+fn bound_key(name: &str, cx: &App) -> Option<String> {
+    let keymap = cx.key_bindings();
+    let keymap = keymap.borrow();
+    let action = RunNamedCommand(name.to_string());
+    let binding = keymap.bindings_for_action(&action).last()?;
+    Some(
+        binding
+            .keystrokes()
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(" "),
+    )
 }
 
 /// floating box near the top of the window, shared by the palette and the about page
@@ -119,7 +138,11 @@ impl CommandPalette {
     }
 
     /// palette listing `items` in the given order, with no pins
-    pub fn picker(items: Vec<Command>, placeholder: &'static str, cx: &mut Context<Self>) -> Self {
+    pub fn picker(
+        items: Vec<Command>,
+        placeholder: impl Into<SharedString>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         Self::build(items, Vec::new(), placeholder, true, cx)
     }
 
@@ -145,7 +168,7 @@ impl CommandPalette {
     fn build(
         commands: Vec<Command>,
         recent: Vec<String>,
-        placeholder: &'static str,
+        placeholder: impl Into<SharedString>,
         is_tab_picker: bool,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -336,6 +359,9 @@ impl Render for CommandPalette {
                         Some(range) => highlighted(&command.name, range, theme).into_any_element(),
                         None => command.name.clone().into_any_element(),
                     })
+                    .when_some(bound_key(&command.name, cx), |item, key| {
+                        item.child(div().text_color(theme.text_muted).child(key))
+                    })
                     .when(!self.is_tab_picker, |item| {
                         item.child(
                             div()
@@ -460,6 +486,78 @@ fn highlighted(text: &str, range: Range<usize>, theme: &Theme) -> impl IntoEleme
                 .child(part(range.start, range.end)),
         )
         .child(part(range.end, length))
+}
+
+/// value typed for one input of a command
+pub struct InputFilled(pub String);
+
+/// asks for one value of a command, a text field with the input's hint
+pub struct InputPrompt {
+    /// input name, shown above the field
+    name: String,
+    hint: String,
+    input: Entity<TextInput>,
+}
+
+impl EventEmitter<DismissEvent> for InputPrompt {}
+impl EventEmitter<InputFilled> for InputPrompt {}
+
+impl InputPrompt {
+    /// prompt for the input `name`, showing `hint` while the field is empty
+    pub fn new(name: &str, hint: &str, cx: &mut Context<Self>) -> Self {
+        Self {
+            name: name.to_string(),
+            hint: hint.to_string(),
+            input: cx.new(|cx| TextInput::new(hint, cx)),
+        }
+    }
+
+    /// enter fills the input, escape cancels the whole command
+    fn key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
+        match event.keystroke.key.as_str() {
+            "enter" => cx.emit(InputFilled(self.input.read(cx).content().to_string())),
+            "escape" => cx.emit(DismissEvent),
+            _ => return,
+        }
+        cx.stop_propagation();
+    }
+}
+
+impl Focusable for InputPrompt {
+    fn focus_handle(&self, cx: &App) -> FocusHandle {
+        self.input.focus_handle(cx)
+    }
+}
+
+impl Render for InputPrompt {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = Theme::get(cx);
+        panel(theme)
+            .id("command-input")
+            .debug_selector(|| "command-input".into())
+            .key_context("CommandInput")
+            .on_key_down(cx.listener(Self::key_down))
+            .occlude()
+            .on_mouse_down_out(cx.listener(|_, _, _, cx| cx.emit(DismissEvent)))
+            .p_4()
+            .gap_2()
+            .child(div().text_color(theme.text_muted).child(self.name.clone()))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .px_2()
+                    .py_1()
+                    .rounded_sm()
+                    .border_1()
+                    .border_color(theme.border)
+                    .child(div().flex_1().min_w_0().child(self.input.clone())),
+            )
+            .child(div().text_color(theme.text_muted).child(format!(
+                "enter runs the command, escape cancels. {}",
+                self.hint
+            )))
+    }
 }
 
 /// page with the version and links, closed by any key or a click outside

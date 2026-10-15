@@ -83,15 +83,16 @@ impl Pins {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::settings::CommandAction;
     use crate::settings::tests::{temp_dir, with_config_home};
+    use crate::settings::{CommandAction, Inputs};
 
     fn command(pinned: bool) -> Command {
         Command {
             name: "reload".into(),
             category: Some("config".into()),
             pinned,
-            actions: vec![CommandAction::ReloadConfig],
+            inputs: Inputs::new(),
+            actions: vec![CommandAction::ReloadConfig.into()],
         }
     }
 
