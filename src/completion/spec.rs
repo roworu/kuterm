@@ -17,7 +17,7 @@ macro_rules! spec {
 }
 
 /// specs kuterm brings, by the command they are for. sh tools/completions/generate.sh makes
-/// most of them, see docs/COMPLETION_SPECS.md
+/// most of them, see docs/COMPLETIONS.md
 const BUNDLED: &[(&str, &str)] = &[
     spec!("apk"),
     spec!("apt"),

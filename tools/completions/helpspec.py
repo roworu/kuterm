@@ -1,7 +1,7 @@
 """turn the --help of an installed program into a fig style completion spec.
 
 run inside a container that has the programs installed, never on the host: a recipe runs the
-programs it describes. see docs/COMPLETION_SPECS.md. python standard library only"""
+programs it describes. see docs/COMPLETIONS.md. python standard library only"""
 
 import os
 import re
