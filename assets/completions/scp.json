@@ -1,0 +1,93 @@
+{
+ "name": "scp",
+ "description": "Copy files over ssh, remote ones as [user@]host:path",
+ "options": [
+  {
+   "name": "-r",
+   "description": "Copy directories recursively",
+   "priority": 75
+  },
+  {
+   "name": "-P",
+   "description": "Port to connect to",
+   "args": {
+    "name": "port"
+   },
+   "priority": 70
+  },
+  {
+   "name": "-i",
+   "description": "Identity (private key) file",
+   "args": {
+    "name": "identity_file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "-p",
+   "description": "Keep times and modes"
+  },
+  {
+   "name": "-C",
+   "description": "Compress"
+  },
+  {
+   "name": "-q",
+   "description": "Quiet, no progress meter"
+  },
+  {
+   "name": "-v",
+   "description": "Verbose"
+  },
+  {
+   "name": "-J",
+   "description": "Connect through these jump hosts",
+   "args": {
+    "name": "destination"
+   }
+  },
+  {
+   "name": "-o",
+   "description": "Set an ssh_config option",
+   "args": {
+    "name": "option"
+   }
+  },
+  {
+   "name": "-F",
+   "description": "Use this ssh config file",
+   "args": {
+    "name": "configfile",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "-l",
+   "description": "Limit bandwidth in Kbit/s",
+   "args": {
+    "name": "limit"
+   }
+  },
+  {
+   "name": "-3",
+   "description": "Copy between two remote hosts through this one"
+  },
+  {
+   "name": "-O",
+   "description": "Use the legacy scp protocol"
+  },
+  {
+   "name": "-4",
+   "description": "IPv4 only"
+  },
+  {
+   "name": "-6",
+   "description": "IPv6 only"
+  }
+ ],
+ "args": {
+  "name": "source and target",
+  "template": "filepaths",
+  "isVariadic": true
+ }
+}

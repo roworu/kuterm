@@ -623,7 +623,29 @@ fn spawn_profile(
             .entry("KUTERM_SOCKET".into())
             .or_insert_with(|| socket.0.to_string_lossy().into_owned());
     }
-    TerminalBuilder::new(&settings.terminal, &profile, bounds, window_id)
+    // only kuterm's own zsh script talks to it
+    #[cfg(unix)]
+    let bridge = if settings.autocomplete.enable && settings.shell_integration.inject {
+        crate::completion::Bridge::new()
+            .inspect_err(|error| eprintln!("autocomplete is off in this tab: {error}"))
+            .ok()
+    } else {
+        None
+    };
+    #[cfg(unix)]
+    if let Some(bridge) = &bridge {
+        let path = bridge.path().to_string_lossy().into_owned();
+        profile
+            .env
+            .insert(crate::completion::SOCKET_ENV.into(), path);
+    }
+    #[cfg_attr(not(unix), allow(unused_mut))]
+    let mut builder = TerminalBuilder::new(&settings.terminal, &profile, bounds, window_id)?;
+    #[cfg(unix)]
+    if let Some(bridge) = bridge {
+        builder.terminal.set_completion_bridge(bridge);
+    }
+    Ok(builder)
 }
 
 impl Workspace {
@@ -1054,6 +1076,8 @@ impl Workspace {
                 Event::Notify { title, body } => {
                     this.program_notification(&view, title, body, window, cx)
                 }
+                // the view shows completions
+                Event::Shell(_) => {}
             }
         });
         let clipboard_subscription = cx.subscribe_in(

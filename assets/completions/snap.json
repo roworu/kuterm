@@ -1,0 +1,1353 @@
+{
+ "name": "snap",
+ "description": "Install and manage snaps",
+ "subcommands": [
+  {
+   "name": "find",
+   "description": "Find packages to install",
+   "priority": 76,
+   "options": [
+    {
+     "name": "--private",
+     "description": "Search private snaps"
+    },
+    {
+     "name": "--narrow",
+     "description": "Only search for snaps in “stable”"
+    },
+    {
+     "name": "--section",
+     "description": "Restrict the search to a given section"
+    },
+    {
+     "name": "--color",
+     "description": "Use a little bit of color to highlight",
+     "args": {
+      "name": "auto"
+     }
+    },
+    {
+     "name": "--unicode",
+     "description": "Use a little bit of Unicode to improve",
+     "args": {
+      "name": "auto"
+     }
+    }
+   ],
+   "args": {
+    "name": "pattern"
+   }
+  },
+  {
+   "name": "info",
+   "description": "Show detailed information about snaps",
+   "priority": 75,
+   "options": [
+    {
+     "name": "--color",
+     "description": "Use a little bit of color to highlight",
+     "args": {
+      "name": "auto"
+     }
+    },
+    {
+     "name": "--unicode",
+     "description": "Use a little bit of Unicode to improve",
+     "args": {
+      "name": "auto"
+     }
+    },
+    {
+     "name": "--abs-time",
+     "description": "Display absolute times (in RFC 3339"
+    },
+    {
+     "name": "--verbose",
+     "description": "Include more details on the snap"
+    }
+   ],
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "install",
+   "description": "Install snaps on the system",
+   "priority": 76,
+   "options": [
+    {
+     "name": "--prefer",
+     "description": "Conflicting aliases of other snaps whose automatic aliases will be disabled and"
+    },
+    {
+     "name": "--color",
+     "description": "Use a little bit of color to",
+     "args": {
+      "name": "auto"
+     }
+    },
+    {
+     "name": "--unicode",
+     "description": "Use a little bit of Unicode to",
+     "args": {
+      "name": "auto"
+     }
+    },
+    {
+     "name": "--no-wait",
+     "description": "Do not wait for the operation to"
+    },
+    {
+     "name": "--channel",
+     "description": "Use this channel instead of stable"
+    },
+    {
+     "name": "--edge",
+     "description": "Install from the edge channel"
+    },
+    {
+     "name": "--beta",
+     "description": "Install from the beta channel"
+    },
+    {
+     "name": "--candidate",
+     "description": "Install from the candidate channel"
+    },
+    {
+     "name": "--stable",
+     "description": "Install from the stable channel"
+    },
+    {
+     "name": "--devmode",
+     "description": "Enable development mode, relaxing"
+    },
+    {
+     "name": "--jailmode",
+     "description": "Put snap in enforced confinement mode"
+    },
+    {
+     "name": "--classic",
+     "description": "Confirm installation of a snap that"
+    },
+    {
+     "name": "--revision",
+     "description": "Install the given revision of a snap"
+    },
+    {
+     "name": "--dangerous",
+     "description": "Install the given snap file even if"
+    },
+    {
+     "name": "--unaliased",
+     "description": "Install the given snap without"
+    },
+    {
+     "name": "--name",
+     "description": "Install the snap file under the"
+    },
+    {
+     "name": "--cohort",
+     "description": "Install the snap in the given cohort"
+    },
+    {
+     "name": "--ignore-validation",
+     "description": "Ignore validation by other snaps"
+    },
+    {
+     "name": "--transaction",
+     "description": "Have one transaction per-snap or one",
+     "args": {
+      "name": "all-snaps"
+     }
+    },
+    {
+     "name": "--quota-group",
+     "description": "Add the snap to a quota group on"
+    }
+   ],
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "remove",
+   "description": "Remove snaps from the system",
+   "priority": 76,
+   "options": [
+    {
+     "name": "--no-wait",
+     "description": "Do not wait for the operation to finish but just print the"
+    },
+    {
+     "name": "--revision",
+     "description": "Remove only the given revision"
+    },
+    {
+     "name": "--purge",
+     "description": "Remove the snap without saving a snapshot of its data"
+    },
+    {
+     "name": "--terminate",
+     "description": "Terminate running processes associated with a snap before"
+    }
+   ],
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "list",
+   "description": "List installed snaps",
+   "priority": 76,
+   "options": [
+    {
+     "name": "--all",
+     "description": "Show all revisions"
+    },
+    {
+     "name": "--color",
+     "description": "Use a little bit of color to highlight",
+     "args": {
+      "name": "auto"
+     }
+    },
+    {
+     "name": "--unicode",
+     "description": "Use a little bit of Unicode to improve",
+     "args": {
+      "name": "auto"
+     }
+    }
+   ]
+  },
+  {
+   "name": "components",
+   "description": "List available and installed components for installed snaps"
+  },
+  {
+   "name": "component",
+   "description": "Show detailed information about snap components",
+   "options": [
+    {
+     "name": "--color",
+     "args": {
+      "name": "auto"
+     }
+    },
+    {
+     "name": "--unicode",
+     "args": {
+      "name": "auto"
+     }
+    },
+    {
+     "name": "--no-wait"
+    }
+   ]
+  },
+  {
+   "name": "refresh",
+   "description": "Refresh snaps in the system",
+   "priority": 75,
+   "options": [
+    {
+     "name": "--color",
+     "description": "Use a little bit of color to",
+     "args": {
+      "name": "auto"
+     }
+    },
+    {
+     "name": "--unicode",
+     "description": "Use a little bit of Unicode to",
+     "args": {
+      "name": "auto"
+     }
+    },
+    {
+     "name": "--abs-time",
+     "description": "Display absolute times (in RFC 3339"
+    },
+    {
+     "name": "--no-wait",
+     "description": "Do not wait for the operation to"
+    },
+    {
+     "name": "--channel",
+     "description": "Use this channel instead of stable"
+    },
+    {
+     "name": "--edge",
+     "description": "Install from the edge channel"
+    },
+    {
+     "name": "--beta",
+     "description": "Install from the beta channel"
+    },
+    {
+     "name": "--candidate",
+     "description": "Install from the candidate channel"
+    },
+    {
+     "name": "--stable",
+     "description": "Install from the stable channel"
+    },
+    {
+     "name": "--devmode",
+     "description": "Enable development mode, relaxing"
+    },
+    {
+     "name": "--jailmode",
+     "description": "Put snap in enforced confinement mode"
+    },
+    {
+     "name": "--classic",
+     "description": "Confirm installation of a snap that"
+    },
+    {
+     "name": "--amend",
+     "description": "Allow refresh attempt on snap"
+    },
+    {
+     "name": "--revision",
+     "description": "Refresh to the given revision"
+    },
+    {
+     "name": "--cohort",
+     "description": "Refresh the snap into the given"
+    },
+    {
+     "name": "--leave-cohort",
+     "description": "Refresh the snap out of its cohort"
+    },
+    {
+     "name": "--list",
+     "description": "Show the new versions of snaps that"
+    },
+    {
+     "name": "--time",
+     "description": "Show auto refresh information but do"
+    },
+    {
+     "name": "--ignore-validation",
+     "description": "Ignore validation by other snaps"
+    },
+    {
+     "name": "--tracking",
+     "description": "Show channel tracking information"
+    },
+    {
+     "name": "--transaction",
+     "description": "Have one transaction per-snap or one",
+     "args": {
+      "name": "all-snaps"
+     }
+    },
+    {
+     "name": "--hold",
+     "description": "Hold refreshes for a specified"
+    },
+    {
+     "name": "--unhold",
+     "description": "Remove refresh hold"
+    }
+   ],
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "revert",
+   "description": "Reverts the given snap to the previous state",
+   "options": [
+    {
+     "name": "--no-wait",
+     "description": "Do not wait for the operation to finish but just print the"
+    },
+    {
+     "name": "--devmode",
+     "description": "Enable development mode, relaxing confinement for strict"
+    },
+    {
+     "name": "--jailmode",
+     "description": "Put snap in enforced confinement mode"
+    },
+    {
+     "name": "--classic",
+     "description": "Confirm installation of a snap that uses classic confinement"
+    },
+    {
+     "name": "--revision",
+     "description": "Revert to the given revision"
+    }
+   ],
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "switch",
+   "description": "Switches snap to a different channel",
+   "options": [
+    {
+     "name": "--no-wait",
+     "description": "Do not wait for the operation to finish but just print"
+    },
+    {
+     "name": "--channel",
+     "description": "Use this channel instead of stable"
+    },
+    {
+     "name": "--edge",
+     "description": "Install from the edge channel"
+    },
+    {
+     "name": "--beta",
+     "description": "Install from the beta channel"
+    },
+    {
+     "name": "--candidate",
+     "description": "Install from the candidate channel"
+    },
+    {
+     "name": "--stable",
+     "description": "Install from the stable channel"
+    },
+    {
+     "name": "--cohort",
+     "description": "Switch the snap into the given cohort"
+    },
+    {
+     "name": "--leave-cohort",
+     "description": "Switch the snap out of its cohort"
+    }
+   ]
+  },
+  {
+   "name": "disable",
+   "description": "Disable a snap in the system",
+   "options": [
+    {
+     "name": "--no-wait",
+     "description": "Do not wait for the operation to finish but just print the"
+    }
+   ],
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "enable",
+   "description": "Enable a snap in the system",
+   "options": [
+    {
+     "name": "--no-wait",
+     "description": "Do not wait for the operation to finish but just print the"
+    }
+   ],
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "create-cohort",
+   "description": "Create cohort keys for a set of snaps"
+  },
+  {
+   "name": "changes",
+   "description": "List system changes",
+   "options": [
+    {
+     "name": "--abs-time",
+     "description": "Display absolute times (in RFC 3339 format)"
+    }
+   ]
+  },
+  {
+   "name": "tasks",
+   "description": "List a change's tasks",
+   "options": [
+    {
+     "name": "--abs-time",
+     "description": "Display absolute times (in RFC 3339 format)"
+    },
+    {
+     "name": "--last",
+     "description": "Select last change of given type (install, refresh"
+    }
+   ]
+  },
+  {
+   "name": "abort",
+   "description": "Abort a pending change",
+   "options": [
+    {
+     "name": "--last",
+     "description": "Select last change of given type (install, refresh"
+    }
+   ]
+  },
+  {
+   "name": "watch",
+   "description": "Watch a change in progress",
+   "options": [
+    {
+     "name": "--last",
+     "description": "Select last change of given type (install, refresh"
+    }
+   ]
+  },
+  {
+   "name": "services",
+   "description": "Query the status of services",
+   "options": [
+    {
+     "name": [
+      "-g",
+      "--global"
+     ],
+     "description": "Show the global enable status for user services instead"
+    },
+    {
+     "name": [
+      "-u",
+      "--user"
+     ],
+     "description": "Show the current status of the user services instead of"
+    }
+   ]
+  },
+  {
+   "name": "start",
+   "description": "Start services",
+   "options": [
+    {
+     "name": "--no-wait",
+     "description": "Do not wait for the operation to finish but just print the"
+    },
+    {
+     "name": "--system",
+     "description": "The operation should only affect system services"
+    },
+    {
+     "name": "--user",
+     "description": "The operation should only affect user services for the"
+    },
+    {
+     "name": "--users",
+     "description": "If provided and set to 'all', the operation should affect"
+    },
+    {
+     "name": "--enable",
+     "description": "As well as starting the service now, arrange for it to be"
+    }
+   ]
+  },
+  {
+   "name": "stop",
+   "description": "Stop services",
+   "options": [
+    {
+     "name": "--no-wait",
+     "description": "Do not wait for the operation to finish but just print the"
+    },
+    {
+     "name": "--system",
+     "description": "The operation should only affect system services"
+    },
+    {
+     "name": "--user",
+     "description": "The operation should only affect user services for the"
+    },
+    {
+     "name": "--users",
+     "description": "If provided and set to 'all', the operation should affect"
+    },
+    {
+     "name": "--disable",
+     "description": "As well as stopping the service now, arrange for it to no"
+    }
+   ]
+  },
+  {
+   "name": "restart",
+   "description": "Restart services",
+   "options": [
+    {
+     "name": "--no-wait",
+     "description": "Do not wait for the operation to finish but just print the"
+    },
+    {
+     "name": "--system",
+     "description": "The operation should only affect system services"
+    },
+    {
+     "name": "--user",
+     "description": "The operation should only affect user services for the"
+    },
+    {
+     "name": "--users",
+     "description": "If provided and set to 'all', the operation should affect"
+    },
+    {
+     "name": "--reload",
+     "description": "If the service has a reload command, use it instead of"
+    }
+   ]
+  },
+  {
+   "name": "logs",
+   "description": "Retrieve logs for services",
+   "options": [
+    {
+     "name": "--abs-time",
+     "description": "Display absolute times (in RFC 3339 format)"
+    },
+    {
+     "name": "-n",
+     "description": "Show only the given number of lines, or 'all'"
+    },
+    {
+     "name": "-f",
+     "description": "Wait for new lines and print them as they come in"
+    }
+   ]
+  },
+  {
+   "name": "connections",
+   "description": "List interface connections",
+   "options": [
+    {
+     "name": "--all",
+     "description": "Show connected and unconnected plugs and slots"
+    }
+   ]
+  },
+  {
+   "name": "interface",
+   "description": "Show details of snap interfaces",
+   "options": [
+    {
+     "name": "--attrs",
+     "description": "Show interface attributes"
+    },
+    {
+     "name": "--all",
+     "description": "Include unused interfaces"
+    }
+   ]
+  },
+  {
+   "name": "connect",
+   "description": "Connect a plug to a slot",
+   "options": [
+    {
+     "name": "--no-wait",
+     "description": "Do not wait for the operation to finish but just print"
+    }
+   ]
+  },
+  {
+   "name": "disconnect",
+   "description": "Disconnect a plug from a slot",
+   "options": [
+    {
+     "name": "--no-wait",
+     "description": "Do not wait for the operation to finish but just print"
+    },
+    {
+     "name": "--forget",
+     "description": "Forget remembered state about the given connection"
+    }
+   ]
+  },
+  {
+   "name": "get",
+   "description": "Print configuration options",
+   "options": [
+    {
+     "name": "-t",
+     "description": "Strict typing with nulls and quoted"
+    },
+    {
+     "name": "-d",
+     "description": "Always return document, even with"
+    },
+    {
+     "name": "-l",
+     "description": "Always return list, even with single"
+    },
+    {
+     "name": "--default",
+     "description": "A strictly typed default value to be"
+    },
+    {
+     "name": "--with",
+     "description": "Parameter constraints for filtering",
+     "args": {
+      "name": "param"
+     }
+    },
+    {
+     "name": "--wait-for",
+     "description": "Maximum duration to wait for confdb"
+    }
+   ]
+  },
+  {
+   "name": "set",
+   "description": "Change configuration options",
+   "options": [
+    {
+     "name": "--no-wait",
+     "description": "Do not wait for the operation to finish but just"
+    },
+    {
+     "name": "-t",
+     "description": "Parse the value strictly as JSON document"
+    },
+    {
+     "name": "-s",
+     "description": "Parse the value as a string"
+    },
+    {
+     "name": "--wait-for",
+     "description": "Maximum duration to wait for confdb access (e.g"
+    }
+   ]
+  },
+  {
+   "name": "unset",
+   "description": "Remove configuration options",
+   "options": [
+    {
+     "name": "--no-wait",
+     "description": "Do not wait for the operation to finish but just print"
+    },
+    {
+     "name": "--wait-for",
+     "description": "Maximum duration to wait for confdb access (e.g"
+    }
+   ]
+  },
+  {
+   "name": "wait",
+   "description": "Wait for configuration"
+  },
+  {
+   "name": "alias",
+   "description": "Set up a manual alias",
+   "options": [
+    {
+     "name": "--no-wait",
+     "description": "Do not wait for the operation to finish but just print"
+    }
+   ]
+  },
+  {
+   "name": "aliases",
+   "description": "List aliases in the system"
+  },
+  {
+   "name": "unalias",
+   "description": "Remove a manual alias, or the aliases for an entire snap",
+   "options": [
+    {
+     "name": "--no-wait",
+     "description": "Do not wait for the operation to finish but just"
+    }
+   ]
+  },
+  {
+   "name": "prefer",
+   "description": "Enable aliases from a snap, disabling any conflicting aliases",
+   "options": [
+    {
+     "name": "--no-wait",
+     "description": "Do not wait for the operation to finish but just print the"
+    }
+   ]
+  },
+  {
+   "name": "login",
+   "description": "Authenticate to snapd and the store"
+  },
+  {
+   "name": "logout",
+   "description": "Log out of snapd and the store"
+  },
+  {
+   "name": "whoami",
+   "description": "Show the email the user is logged in with"
+  },
+  {
+   "name": "saved",
+   "description": "List currently stored snapshots",
+   "options": [
+    {
+     "name": "--abs-time",
+     "description": "Display absolute times (in RFC 3339 format)"
+    },
+    {
+     "name": "--id",
+     "description": "Show only a specific snapshot"
+    }
+   ]
+  },
+  {
+   "name": "save",
+   "description": "Save a snapshot of the current data",
+   "options": [
+    {
+     "name": "--no-wait",
+     "description": "Do not wait for the operation to finish but just print the"
+    },
+    {
+     "name": "--abs-time",
+     "description": "Display absolute times (in RFC 3339 format)"
+    },
+    {
+     "name": "--users",
+     "description": "Snapshot data of only specific users (comma-separated)"
+    }
+   ]
+  },
+  {
+   "name": "check-snapshot",
+   "description": "Check a snapshot",
+   "options": [
+    {
+     "name": "--no-wait",
+     "description": "Do not wait for the operation to finish but just print the"
+    },
+    {
+     "name": "--users",
+     "description": "Check data of only specific users (comma-separated)"
+    }
+   ]
+  },
+  {
+   "name": "restore",
+   "description": "Restore a snapshot",
+   "options": [
+    {
+     "name": "--no-wait",
+     "description": "Do not wait for the operation to finish but just print the"
+    },
+    {
+     "name": "--users",
+     "description": "Restore data of only specific users (comma-separated)"
+    }
+   ]
+  },
+  {
+   "name": "forget",
+   "description": "Delete a snapshot",
+   "options": [
+    {
+     "name": "--no-wait",
+     "description": "Do not wait for the operation to finish but just print the"
+    }
+   ]
+  },
+  {
+   "name": "export-snapshot",
+   "description": "Export a snapshot"
+  },
+  {
+   "name": "import-snapshot",
+   "description": "Import a snapshot",
+   "options": [
+    {
+     "name": "--abs-time"
+    }
+   ]
+  },
+  {
+   "name": "report-issue",
+   "description": "Show contact information and optionally navigate to relevant issue tracker"
+  },
+  {
+   "name": "model",
+   "description": "Get the active model for this device",
+   "options": [
+    {
+     "name": "--abs-time",
+     "description": "Display absolute times (in RFC 3339"
+    },
+    {
+     "name": "--color",
+     "description": "Use a little bit of color to highlight",
+     "args": {
+      "name": "auto"
+     }
+    },
+    {
+     "name": "--unicode",
+     "description": "Use a little bit of Unicode to improve",
+     "args": {
+      "name": "auto"
+     }
+    },
+    {
+     "name": "--serial",
+     "description": "Print the serial assertion instead of the"
+    },
+    {
+     "name": "--verbose",
+     "description": "Print all specific assertion fields"
+    },
+    {
+     "name": "--assertion",
+     "description": "Print the raw assertion"
+    }
+   ]
+  },
+  {
+   "name": "remodel",
+   "description": "Remodel this device",
+   "options": [
+    {
+     "name": "--no-wait",
+     "description": "Do not wait for the operation to finish but just"
+    },
+    {
+     "name": "--snap",
+     "description": "Use one or more locally available snaps"
+    },
+    {
+     "name": "--assertion",
+     "description": "Use one or more locally available assertion files"
+    },
+    {
+     "name": "--offline",
+     "description": "Use only pre-installed and locally provided snaps"
+    }
+   ]
+  },
+  {
+   "name": "reboot",
+   "description": "Reboot into selected system and mode",
+   "options": [
+    {
+     "name": "--run",
+     "description": "Boot into run mode"
+    },
+    {
+     "name": "--install",
+     "description": "Boot into install mode"
+    },
+    {
+     "name": "--recover",
+     "description": "Boot into recover mode"
+    },
+    {
+     "name": "--factory-reset",
+     "description": "Boot into factory-reset mode"
+    }
+   ]
+  },
+  {
+   "name": "recovery",
+   "description": "List available recovery systems",
+   "options": [
+    {
+     "name": "--color",
+     "description": "Use a little bit of color to highlight",
+     "args": {
+      "name": "auto"
+     }
+    },
+    {
+     "name": "--unicode",
+     "description": "Use a little bit of Unicode to improve",
+     "args": {
+      "name": "auto"
+     }
+    },
+    {
+     "name": "--show-keys",
+     "description": "Show recovery keys (if available) to"
+    }
+   ]
+  },
+  {
+   "name": "warnings",
+   "description": "List warnings",
+   "options": [
+    {
+     "name": "--abs-time",
+     "description": "Display absolute times (in RFC 3339"
+    },
+    {
+     "name": "--unicode",
+     "description": "Use a little bit of Unicode to improve",
+     "args": {
+      "name": "auto"
+     }
+    },
+    {
+     "name": "--all",
+     "description": "Show all warnings"
+    },
+    {
+     "name": "--verbose",
+     "description": "Show more information"
+    }
+   ]
+  },
+  {
+   "name": "okay",
+   "description": "Acknowledge warnings"
+  },
+  {
+   "name": "known",
+   "description": "Show known assertions of the provided type",
+   "options": [
+    {
+     "name": "--remote",
+     "description": "Query the store for the assertion, via snapd if"
+    },
+    {
+     "name": "--direct",
+     "description": "Query the store for the assertion, without"
+    }
+   ]
+  },
+  {
+   "name": "ack",
+   "description": "Add an assertion to the system"
+  },
+  {
+   "name": "version",
+   "description": "Show version details",
+   "options": [
+    {
+     "name": "--verbose",
+     "description": "Show verbose output"
+    }
+   ]
+  },
+  {
+   "name": "debug",
+   "description": "Run debug commands"
+  },
+  {
+   "name": "download",
+   "description": "Download the given snap",
+   "options": [
+    {
+     "name": "--channel",
+     "description": "Use this channel instead of stable"
+    },
+    {
+     "name": "--edge",
+     "description": "Install from the edge channel"
+    },
+    {
+     "name": "--beta",
+     "description": "Install from the beta channel"
+    },
+    {
+     "name": "--candidate",
+     "description": "Install from the candidate channel"
+    },
+    {
+     "name": "--stable",
+     "description": "Install from the stable channel"
+    },
+    {
+     "name": "--revision",
+     "description": "Download the given revision of a snap"
+    },
+    {
+     "name": "--basename",
+     "description": "Use this basename for the snap, component, and"
+    },
+    {
+     "name": "--target-directory",
+     "description": "Download to this directory (defaults to the"
+    },
+    {
+     "name": "--only-components",
+     "description": "Only download the given components, not the"
+    },
+    {
+     "name": "--cohort",
+     "description": "Download from the given cohort"
+    }
+   ]
+  },
+  {
+   "name": "pack",
+   "description": "Pack the given directory as a snap",
+   "options": [
+    {
+     "name": "--check-skeleton",
+     "description": "Validate snap-dir metadata only"
+    },
+    {
+     "name": "--filename",
+     "description": "Output to this filename (default"
+    },
+    {
+     "name": "--compression",
+     "description": "Compression to use (e.g"
+    }
+   ]
+  },
+  {
+   "name": "run",
+   "description": "Run the given snap command",
+   "options": [
+    {
+     "name": "--shell",
+     "description": "Run a shell instead"
+    },
+    {
+     "name": "--debug-log",
+     "description": "Enable debug"
+    },
+    {
+     "name": "--strace",
+     "description": "Run the command"
+    },
+    {
+     "name": "--gdbserver",
+     "description": "Run the command"
+    },
+    {
+     "name": "--trace-exec",
+     "description": "Display exec calls"
+    }
+   ]
+  },
+  {
+   "name": "try",
+   "description": "Test an unpacked snap in the system",
+   "options": [
+    {
+     "name": "--no-wait",
+     "description": "Do not wait for the operation to finish but just print"
+    },
+    {
+     "name": "--devmode",
+     "description": "Enable development mode, relaxing confinement for strict"
+    },
+    {
+     "name": "--jailmode",
+     "description": "Put snap in enforced confinement mode"
+    },
+    {
+     "name": "--classic",
+     "description": "Confirm installation of a snap that uses classic"
+    }
+   ]
+  },
+  {
+   "name": "sign",
+   "description": "Sign an assertion",
+   "options": [
+    {
+     "name": "-k",
+     "description": "Name of the key to use, otherwise use the default"
+    },
+    {
+     "name": "--chain",
+     "description": "Append the account and account-key assertions"
+    },
+    {
+     "name": "--update-timestamp",
+     "description": "Update the output \"timestamp\" header to the"
+    }
+   ]
+  },
+  {
+   "name": "prepare-image",
+   "description": "Prepare a device image",
+   "options": [
+    {
+     "name": "--classic",
+     "description": "Enable classic mode to prepare a"
+    },
+    {
+     "name": "--preseed",
+     "description": "Preseed (UC20+ only)"
+    },
+    {
+     "name": "--preseed-sign-key",
+     "description": "Name of the key to use to sign"
+    },
+    {
+     "name": "--apparmor-features-dir",
+     "description": "Optional path to apparmor kernel"
+    },
+    {
+     "name": "--sysfs-overlay",
+     "description": "Optional sysfs overlay to be used"
+    },
+    {
+     "name": "--arch",
+     "description": "Specify an architecture for snaps for"
+    },
+    {
+     "name": "--channel",
+     "description": "The channel to use"
+    },
+    {
+     "name": "--snap",
+     "description": "Include the given snap from the store",
+     "args": {
+      "name": "snap"
+     }
+    },
+    {
+     "name": "--comp",
+     "description": "Include the given component from the",
+     "args": {
+      "name": "snap"
+     }
+    },
+    {
+     "name": "--revisions",
+     "description": "Specify a seeds.manifest file"
+    },
+    {
+     "name": "--write-revisions",
+     "description": "Writes a manifest file containing"
+    },
+    {
+     "name": "--validation",
+     "description": "Control whether validations should be",
+     "args": {
+      "name": "ignore"
+     }
+    },
+    {
+     "name": "--allow-snapd-kernel-mismatch",
+     "description": "Whether a mismatch between versions"
+    },
+    {
+     "name": "--assert",
+     "description": "Include the assertion from the local",
+     "args": {
+      "name": "filename",
+      "template": "filepaths"
+     }
+    }
+   ]
+  },
+  {
+   "name": "export-key",
+   "description": "Export cryptographic public key",
+   "options": [
+    {
+     "name": "--account",
+     "description": "Format public key material as a request for an"
+    }
+   ]
+  },
+  {
+   "name": "set-quota",
+   "description": "Create or update a quota group",
+   "options": [
+    {
+     "name": "--no-wait",
+     "description": "Do not wait for the operation to finish but just"
+    },
+    {
+     "name": "--memory",
+     "description": "Memory quota as <number><unit> (e.g"
+    },
+    {
+     "name": "--cpu",
+     "description": "CPU quota as <percentage>% or"
+    },
+    {
+     "name": "--cpu-set",
+     "description": "CPU set quota as comma-separated list of CPU core"
+    },
+    {
+     "name": "--threads",
+     "description": "Threads quota as a positive integer (e.g"
+    },
+    {
+     "name": "--journal-size",
+     "description": "Journal size quota as <number><unit> (e.g"
+    },
+    {
+     "name": "--journal-rate-limit",
+     "description": "Journal rate limit as <message count>/<message"
+    },
+    {
+     "name": "--parent",
+     "description": "Parent quota group"
+    }
+   ]
+  },
+  {
+   "name": "remove-quota",
+   "description": "Remove quota group",
+   "options": [
+    {
+     "name": "--no-wait"
+    }
+   ]
+  },
+  {
+   "name": "quotas",
+   "description": "Show quota groups"
+  },
+  {
+   "name": "quota",
+   "description": "Show quota group for a set of snaps"
+  },
+  {
+   "name": "validate",
+   "description": "List or apply validation sets",
+   "options": [
+    {
+     "name": "--monitor",
+     "description": "Monitor the given validations set"
+    },
+    {
+     "name": "--enforce",
+     "description": "Enforce the given validation set"
+    },
+    {
+     "name": "--forget",
+     "description": "Forget the given validation set"
+    },
+    {
+     "name": "--refresh",
+     "description": "Refresh or install snaps to satisfy"
+    },
+    {
+     "name": "--color",
+     "description": "Use a little bit of color to highlight",
+     "args": {
+      "name": "auto"
+     }
+    },
+    {
+     "name": "--unicode",
+     "description": "Use a little bit of Unicode to improve",
+     "args": {
+      "name": "auto"
+     }
+    },
+    {
+     "name": "--no-wait",
+     "description": "Do not wait for the operation to finish"
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,139 @@
+{
+ "name": "free",
+ "description": "Display the amount of free and used memory",
+ "options": [
+  {
+   "name": [
+    "-b",
+    "--bytes"
+   ],
+   "description": "Show output in bytes"
+  },
+  {
+   "name": "--kilo",
+   "description": "Show output in kilobytes"
+  },
+  {
+   "name": "--mega",
+   "description": "Show output in megabytes"
+  },
+  {
+   "name": "--giga",
+   "description": "Show output in gigabytes"
+  },
+  {
+   "name": "--tera",
+   "description": "Show output in terabytes"
+  },
+  {
+   "name": "--peta",
+   "description": "Show output in petabytes"
+  },
+  {
+   "name": [
+    "-k",
+    "--kibi"
+   ],
+   "description": "Show output in kibibytes"
+  },
+  {
+   "name": [
+    "-m",
+    "--mebi"
+   ],
+   "description": "Show output in mebibytes"
+  },
+  {
+   "name": [
+    "-g",
+    "--gibi"
+   ],
+   "description": "Show output in gibibytes"
+  },
+  {
+   "name": "--tebi",
+   "description": "Show output in tebibytes"
+  },
+  {
+   "name": "--pebi",
+   "description": "Show output in pebibytes"
+  },
+  {
+   "name": [
+    "-h",
+    "--human"
+   ],
+   "description": "Show human-readable output"
+  },
+  {
+   "name": "--si",
+   "description": "Use powers of 1000 not 1024"
+  },
+  {
+   "name": [
+    "-l",
+    "--lohi"
+   ],
+   "description": "Show detailed low and high memory statistics"
+  },
+  {
+   "name": [
+    "-L",
+    "--line"
+   ],
+   "description": "Show output on a single line"
+  },
+  {
+   "name": [
+    "-t",
+    "--total"
+   ],
+   "description": "Show total for RAM + swap"
+  },
+  {
+   "name": [
+    "-v",
+    "--committed"
+   ],
+   "description": "Show committed memory and commit limit"
+  },
+  {
+   "name": [
+    "-s",
+    "--seconds"
+   ],
+   "description": "Repeat printing every N seconds",
+   "args": {
+    "name": "n"
+   }
+  },
+  {
+   "name": [
+    "-c",
+    "--count"
+   ],
+   "description": "Repeat printing N times, then exit",
+   "args": {
+    "name": "n"
+   }
+  },
+  {
+   "name": [
+    "-w",
+    "--wide"
+   ],
+   "description": "Wide output"
+  },
+  {
+   "name": "--help",
+   "description": "Display this help and exit"
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Output version information and exit"
+  }
+ ]
+}

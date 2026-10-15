@@ -1,0 +1,99 @@
+{
+ "name": "cut",
+ "description": "Remove sections from each line of files",
+ "options": [
+  {
+   "name": [
+    "-b",
+    "--bytes"
+   ],
+   "description": "Filter byte columns from the input source",
+   "args": {
+    "name": "list"
+   }
+  },
+  {
+   "name": [
+    "-c",
+    "--characters"
+   ],
+   "description": "Alias for character mode",
+   "args": {
+    "name": "list"
+   }
+  },
+  {
+   "name": [
+    "-d",
+    "--delimiter"
+   ],
+   "description": "Specify the delimiter character that separates fields in the input source",
+   "args": {
+    "name": "delim"
+   }
+  },
+  {
+   "name": "-w",
+   "description": "Use any number of whitespace (Space, Tab) to separate fields in the input source"
+  },
+  {
+   "name": [
+    "-f",
+    "--fields"
+   ],
+   "description": "Filter field columns from the input source",
+   "args": {
+    "name": "list"
+   }
+  },
+  {
+   "name": "--complement",
+   "description": "Invert the filter - instead of displaying only the filtered columns, display all"
+  },
+  {
+   "name": [
+    "-s",
+    "--only-delimited"
+   ],
+   "description": "In field mode, only print lines which contain the delimiter"
+  },
+  {
+   "name": [
+    "-z",
+    "--zero-terminated"
+   ],
+   "description": "Instead of filtering columns based on line, filter columns based on \\\\0 (NULL"
+  },
+  {
+   "name": "--output-delimiter",
+   "description": "In field mode, replace the delimiter in output lines with this option's argument",
+   "args": {
+    "name": "new_delim"
+   }
+  },
+  {
+   "name": "-n",
+   "description": "Ignored"
+  },
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Print help"
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Print version"
+  }
+ ],
+ "args": {
+  "name": "file",
+  "template": "filepaths",
+  "isVariadic": true,
+  "isOptional": true
+ }
+}

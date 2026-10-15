@@ -63,6 +63,8 @@ CI also runs `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings`
   - new setting: add the struct field, add it with a comment to `assets/default_settings.jsonc`. numeric limits are enforced in `Settings::parse`.
   - new action: add it to `binding()` in `keybindings.rs` and to `assets/default_keybindings.jsonc` and `assets/default_keybindings_macos.jsonc` with a comment.
 
+- `src/completion/`: autocomplete engine, no ui. `complete` turns a command line and cursor into candidates from fig-style json specs (`assets/completions/`), PATH and the filesystem, it never runs anything. `Bridge` is the private unix socket of one tab that kuterm's zsh script (`assets/shell/zsh/.zshenv`) reports its line on and gets picked completions back from (`protocol.rs`). the popup lives in `src/ui/terminal_view/completions.rs`. bundled specs are generated from the real programs inside podman, never on the host: follow `docs/COMPLETION_SPECS.md` to add or refresh one.
+
 - `src/ui/`: `Workspace` (root view, tabs) -> `TerminalView` (focus, keys, scroll, paste) -> `TerminalElement`, a custom gpui `Element` that sizes terminal in `prepaint`, builds background rects and batched text runs (`grid.rs`), and paints cursor (`cursor.rs`).
 
 ## Conventions

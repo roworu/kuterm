@@ -1,0 +1,67 @@
+{
+ "name": "head",
+ "description": "Print the first lines of files",
+ "options": [
+  {
+   "name": [
+    "-c",
+    "--bytes"
+   ],
+   "description": "Print the first NUM bytes of each file",
+   "args": {
+    "name": "value"
+   }
+  },
+  {
+   "name": [
+    "-n",
+    "--lines"
+   ],
+   "description": "Print the first NUM lines instead of the first 10",
+   "args": {
+    "name": "value"
+   }
+  },
+  {
+   "name": [
+    "-q",
+    "--quiet"
+   ],
+   "description": "Never print headers giving file names [aliases: --silent]"
+  },
+  {
+   "name": [
+    "-v",
+    "--verbose"
+   ],
+   "description": "Always print headers giving file names"
+  },
+  {
+   "name": [
+    "-z",
+    "--zero-terminated"
+   ],
+   "description": "Line delimiter is NUL, not newline"
+  },
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Print help"
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Print version"
+  }
+ ],
+ "args": {
+  "name": "file",
+  "template": "filepaths",
+  "isVariadic": true,
+  "isOptional": true
+ }
+}

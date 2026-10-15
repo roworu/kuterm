@@ -84,6 +84,8 @@ pub enum Event {
         title: String,
         body: String,
     },
+    /// a shell of this tab reported its command line, for completions
+    Shell(crate::completion::ShellEvent),
 }
 
 /// clipboard access waiting for the user to allow it
@@ -135,7 +137,11 @@ pub struct Terminal {
     graphics: graphics::SharedGraphics,
     /// cell size for sizing images, shared with the pty thread
     cell_size: Arc<graphics::CellSize>,
+    /// socket the shells of this tab report their command line on, none without autocomplete
+    #[cfg(unix)]
+    completion: Option<crate::completion::Bridge>,
     _event_loop_task: Task<()>,
+    _completion_task: Task<()>,
 }
 
 impl EventEmitter<Event> for Terminal {}
@@ -165,6 +171,23 @@ impl Terminal {
             .theme_settings
             .as_ref()
             .map(|profile| Theme::for_appearance(&themes.with_profile(profile), appearance));
+    }
+
+    /// let the shells of this tab report their command line on `bridge`
+    #[cfg(unix)]
+    pub fn set_completion_bridge(&mut self, bridge: crate::completion::Bridge) {
+        self.completion = Some(bridge);
+    }
+
+    /// send a line to the shell of `conn`, false when it is gone
+    pub fn send_to_shell(&self, conn: u64, line: &str) -> bool {
+        #[cfg(unix)]
+        return self
+            .completion
+            .as_ref()
+            .is_some_and(|bridge| bridge.send(conn, line));
+        #[cfg(not(unix))]
+        return false;
     }
 
     /// apply changed settings, like word separators, to the running terminal

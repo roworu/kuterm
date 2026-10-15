@@ -1,0 +1,63 @@
+{
+ "name": "userdel",
+ "description": "Delete a user account",
+ "options": [
+  {
+   "name": [
+    "-f",
+    "--force"
+   ],
+   "description": "Force some actions that would fail otherwise"
+  },
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Display this help message and exit"
+  },
+  {
+   "name": [
+    "-r",
+    "--remove"
+   ],
+   "description": "Remove home directory and mail spool"
+  },
+  {
+   "name": [
+    "-R",
+    "--root"
+   ],
+   "description": "Directory to chroot into",
+   "args": {
+    "name": "chroot_dir",
+    "template": "folders"
+   }
+  },
+  {
+   "name": [
+    "-P",
+    "--prefix"
+   ],
+   "description": "Prefix directory where are located the /etc/* files",
+   "args": {
+    "name": "prefix_dir",
+    "template": "folders"
+   }
+  },
+  {
+   "name": "--extrausers",
+   "description": "Use the extra users database"
+  },
+  {
+   "name": [
+    "-Z",
+    "--selinux-user"
+   ],
+   "description": "Remove any SELinux user mapping for the user"
+  }
+ ],
+ "args": {
+  "name": "login"
+ }
+}

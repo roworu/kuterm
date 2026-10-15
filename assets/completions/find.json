@@ -1,0 +1,295 @@
+{
+ "name": "find",
+ "description": "Search for files in a directory hierarchy",
+ "args": {
+  "name": "path",
+  "template": "folders",
+  "isVariadic": true,
+  "isOptional": true
+ },
+ "options": [
+  {
+   "name": "-name",
+   "description": "Base name matches the shell pattern",
+   "args": {
+    "name": "pattern"
+   },
+   "priority": 80
+  },
+  {
+   "name": "-iname",
+   "description": "Like -name, ignoring case",
+   "args": {
+    "name": "pattern"
+   },
+   "priority": 70
+  },
+  {
+   "name": "-type",
+   "description": "File is of this type",
+   "args": {
+    "name": "type",
+    "suggestions": [
+     {
+      "name": "f",
+      "description": "Regular file"
+     },
+     {
+      "name": "d",
+      "description": "Directory"
+     },
+     {
+      "name": "l",
+      "description": "Symbolic link"
+     },
+     {
+      "name": "s",
+      "description": "Socket"
+     },
+     {
+      "name": "p",
+      "description": "Named pipe"
+     },
+     {
+      "name": "b",
+      "description": "Block device"
+     },
+     {
+      "name": "c",
+      "description": "Character device"
+     }
+    ]
+   },
+   "priority": 78
+  },
+  {
+   "name": "-path",
+   "description": "Whole path matches the shell pattern",
+   "args": {
+    "name": "pattern"
+   }
+  },
+  {
+   "name": "-ipath",
+   "description": "Like -path, ignoring case",
+   "args": {
+    "name": "pattern"
+   }
+  },
+  {
+   "name": "-regex",
+   "description": "Whole path matches the regular expression",
+   "args": {
+    "name": "pattern"
+   }
+  },
+  {
+   "name": "-maxdepth",
+   "description": "Descend at most this many levels",
+   "args": {
+    "name": "levels"
+   },
+   "priority": 70
+  },
+  {
+   "name": "-mindepth",
+   "description": "Skip the first levels",
+   "args": {
+    "name": "levels"
+   }
+  },
+  {
+   "name": "-size",
+   "description": "File size, like +10M or -1k",
+   "args": {
+    "name": "size"
+   }
+  },
+  {
+   "name": "-mtime",
+   "description": "Modified this many days ago, +N older, -N newer",
+   "args": {
+    "name": "days"
+   }
+  },
+  {
+   "name": "-mmin",
+   "description": "Modified this many minutes ago",
+   "args": {
+    "name": "minutes"
+   }
+  },
+  {
+   "name": "-atime",
+   "description": "Accessed this many days ago",
+   "args": {
+    "name": "days"
+   }
+  },
+  {
+   "name": "-ctime",
+   "description": "Status changed this many days ago",
+   "args": {
+    "name": "days"
+   }
+  },
+  {
+   "name": "-newer",
+   "description": "Modified more recently than the file",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "-empty",
+   "description": "File or directory is empty"
+  },
+  {
+   "name": "-user",
+   "description": "Owned by this user",
+   "args": {
+    "name": "user"
+   }
+  },
+  {
+   "name": "-group",
+   "description": "Owned by this group",
+   "args": {
+    "name": "group"
+   }
+  },
+  {
+   "name": "-perm",
+   "description": "Permission bits match the mode",
+   "args": {
+    "name": "mode"
+   }
+  },
+  {
+   "name": "-executable",
+   "description": "Executable by the current user"
+  },
+  {
+   "name": "-readable",
+   "description": "Readable by the current user"
+  },
+  {
+   "name": "-writable",
+   "description": "Writable by the current user"
+  },
+  {
+   "name": "-links",
+   "description": "Has this many hard links",
+   "args": {
+    "name": "n"
+   }
+  },
+  {
+   "name": "-inum",
+   "description": "Has this inode number",
+   "args": {
+    "name": "n"
+   }
+  },
+  {
+   "name": "-follow",
+   "description": "Follow symbolic links (same as -L)"
+  },
+  {
+   "name": [
+    "-xdev",
+    "-mount"
+   ],
+   "description": "Don't descend into other filesystems"
+  },
+  {
+   "name": "-depth",
+   "description": "Process a directory's contents before itself"
+  },
+  {
+   "name": "-prune",
+   "description": "Don't descend into the matched directory"
+  },
+  {
+   "name": "-print",
+   "description": "Print the path, the default action"
+  },
+  {
+   "name": "-print0",
+   "description": "Print the path followed by a null byte"
+  },
+  {
+   "name": "-printf",
+   "description": "Print with a format",
+   "args": {
+    "name": "format"
+   }
+  },
+  {
+   "name": "-ls",
+   "description": "List in ls -dils format"
+  },
+  {
+   "name": "-delete",
+   "description": "Delete the matched files",
+   "priority": 60
+  },
+  {
+   "name": "-exec",
+   "description": "Run a command, {} is the path, end with ; or +",
+   "args": {
+    "name": "command"
+   },
+   "priority": 70
+  },
+  {
+   "name": "-execdir",
+   "description": "Like -exec, from the file's directory",
+   "args": {
+    "name": "command"
+   }
+  },
+  {
+   "name": "-ok",
+   "description": "Like -exec, asking first",
+   "args": {
+    "name": "command"
+   }
+  },
+  {
+   "name": "-quit",
+   "description": "Exit after the first match"
+  },
+  {
+   "name": "-not",
+   "description": "Negate the next expression"
+  },
+  {
+   "name": [
+    "-and",
+    "-a"
+   ],
+   "description": "Both expressions, the default"
+  },
+  {
+   "name": [
+    "-or",
+    "-o"
+   ],
+   "description": "Either expression"
+  },
+  {
+   "name": "-L",
+   "description": "Follow symbolic links"
+  },
+  {
+   "name": "-H",
+   "description": "Follow symbolic links given on the command line"
+  },
+  {
+   "name": "-P",
+   "description": "Never follow symbolic links, the default"
+  }
+ ]
+}

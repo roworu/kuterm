@@ -1,0 +1,379 @@
+{
+ "name": "ls",
+ "description": "List directory contents",
+ "options": [
+  {
+   "name": "--help",
+   "description": "Print help information"
+  },
+  {
+   "name": "--format",
+   "description": "Set the display format",
+   "args": {
+    "name": "format"
+   }
+  },
+  {
+   "name": "-C",
+   "description": "Display the files in columns"
+  },
+  {
+   "name": [
+    "-l",
+    "--long"
+   ],
+   "description": "Display detailed information"
+  },
+  {
+   "name": "-x",
+   "description": "List entries in rows instead of in columns"
+  },
+  {
+   "name": [
+    "-T",
+    "--tabsize"
+   ],
+   "description": "Assume tab stops at each COLS instead of 8 [env: TABSIZE=]",
+   "args": {
+    "name": "cols"
+   }
+  },
+  {
+   "name": "-m",
+   "description": "List entries separated by commas"
+  },
+  {
+   "name": "--zero",
+   "description": "List entries separated by ASCII NUL characters"
+  },
+  {
+   "name": [
+    "-D",
+    "--dired"
+   ],
+   "description": "Generate output designed for Emacs' dired (Directory Editor) mode"
+  },
+  {
+   "name": "--hyperlink",
+   "description": "Hyperlink file names WHEN [default: never] [possible values: always, auto, neve…",
+   "args": {
+    "name": "when",
+    "isOptional": true
+   }
+  },
+  {
+   "name": "-1",
+   "description": "List one file per line"
+  },
+  {
+   "name": "-o",
+   "description": "Long format without group information"
+  },
+  {
+   "name": "-g",
+   "description": "Long format without owner information"
+  },
+  {
+   "name": [
+    "-n",
+    "--numeric-uid-gid"
+   ]
+  },
+  {
+   "name": "--quoting-style",
+   "description": "Set quoting style",
+   "args": {
+    "name": "quoting-style"
+   }
+  },
+  {
+   "name": [
+    "-N",
+    "--literal"
+   ],
+   "description": "Use literal quoting style"
+  },
+  {
+   "name": [
+    "-b",
+    "--escape"
+   ],
+   "description": "Use escape quoting style"
+  },
+  {
+   "name": [
+    "-Q",
+    "--quote-name"
+   ],
+   "description": "Use C quoting style"
+  },
+  {
+   "name": [
+    "-q",
+    "--hide-control-chars"
+   ],
+   "description": "Replace control characters with '?' if they are not escaped"
+  },
+  {
+   "name": "--show-control-chars",
+   "description": "Show control characters 'as is' if they are not escaped"
+  },
+  {
+   "name": "--time",
+   "description": "Show time in `<field>`",
+   "args": {
+    "name": "field"
+   }
+  },
+  {
+   "name": "-c",
+   "description": "If the long listing format (e.g., -l, -o) is being used, print the"
+  },
+  {
+   "name": "-u",
+   "description": "If the long listing format (e.g., -l, -o) is being used, print the"
+  },
+  {
+   "name": "--hide",
+   "description": "Do not list implied entries matching shell PATTERN (overridden by -a or -A)",
+   "args": {
+    "name": "pattern"
+   }
+  },
+  {
+   "name": [
+    "-I",
+    "--ignore"
+   ],
+   "description": "Do not list implied entries matching shell PATTERN",
+   "args": {
+    "name": "pattern"
+   }
+  },
+  {
+   "name": [
+    "-B",
+    "--ignore-backups"
+   ],
+   "description": "Ignore entries which end with ~"
+  },
+  {
+   "name": "--sort",
+   "description": "Sort by `<field>`: name, none (-U), time (-t), size (-S), extension (-X) or wid…",
+   "args": {
+    "name": "field"
+   }
+  },
+  {
+   "name": "-S",
+   "description": "Sort by file size, largest first"
+  },
+  {
+   "name": "-t",
+   "description": "Sort by modification time (the 'mtime' in the inode), newest first"
+  },
+  {
+   "name": "-v",
+   "description": "Natural sort of (version) numbers in the filenames"
+  },
+  {
+   "name": "-X",
+   "description": "Sort alphabetically by entry extension"
+  },
+  {
+   "name": "-U",
+   "description": "Do not sort"
+  },
+  {
+   "name": [
+    "-L",
+    "--dereference"
+   ],
+   "description": "When showing file information for a symbolic link, show information for the"
+  },
+  {
+   "name": "--dereference-command-line-symlink-to-dir",
+   "description": "Do not follow symlinks except when they link to directories and are"
+  },
+  {
+   "name": [
+    "-H",
+    "--dereference-command-line"
+   ],
+   "description": "Do not follow symlinks except when given as command line arguments"
+  },
+  {
+   "name": [
+    "-G",
+    "--no-group"
+   ],
+   "description": "Do not show group in long format"
+  },
+  {
+   "name": "--author",
+   "description": "Show author in long format"
+  },
+  {
+   "name": [
+    "-a",
+    "--all"
+   ],
+   "description": "Do not ignore hidden files (files with names that start with '.')"
+  },
+  {
+   "name": [
+    "-A",
+    "--almost-all"
+   ],
+   "description": "In a directory, do not ignore all file names that start with '.'"
+  },
+  {
+   "name": "-f",
+   "description": "List all files in directory order, unsorted"
+  },
+  {
+   "name": [
+    "-d",
+    "--directory"
+   ],
+   "description": "Only list the names of directories, rather than listing directory contents"
+  },
+  {
+   "name": [
+    "-h",
+    "--human-readable"
+   ],
+   "description": "Print human readable file sizes (e.g"
+  },
+  {
+   "name": [
+    "-k",
+    "--kibibytes"
+   ],
+   "description": "Default to 1024-byte blocks for file system usage"
+  },
+  {
+   "name": "--si",
+   "description": "Print human readable file sizes using powers of 1000 instead of 1024"
+  },
+  {
+   "name": "--block-size",
+   "description": "Scale sizes by BLOCK_SIZE when printing them",
+   "args": {
+    "name": "block_size"
+   }
+  },
+  {
+   "name": [
+    "-i",
+    "--inode"
+   ],
+   "description": "Print the index number of each file"
+  },
+  {
+   "name": [
+    "-r",
+    "--reverse"
+   ],
+   "description": "Reverse whatever the sorting method is e.g., list files in reverse"
+  },
+  {
+   "name": [
+    "-R",
+    "--recursive"
+   ],
+   "description": "List the contents of all directories recursively"
+  },
+  {
+   "name": [
+    "-w",
+    "--width"
+   ],
+   "description": "Assume that the terminal is COLS columns wide",
+   "args": {
+    "name": "cols"
+   }
+  },
+  {
+   "name": [
+    "-s",
+    "--size"
+   ],
+   "description": "Print the allocated size of each file, in blocks"
+  },
+  {
+   "name": "--color",
+   "description": "Color output based on file type",
+   "args": {
+    "name": "when",
+    "isOptional": true,
+    "suggestions": [
+     "always",
+     "auto",
+     "never"
+    ]
+   }
+  },
+  {
+   "name": "--indicator-style",
+   "description": "Append indicator with style WORD to entry names",
+   "args": {
+    "name": "indicator-style"
+   }
+  },
+  {
+   "name": [
+    "-F",
+    "--classify"
+   ],
+   "description": "Append a character to each file name indicating the file type",
+   "args": {
+    "name": "when",
+    "isOptional": true
+   }
+  },
+  {
+   "name": "--file-type",
+   "description": "Same as --classify, but do not append '*'"
+  },
+  {
+   "name": "-p",
+   "description": "Append / indicator to directories"
+  },
+  {
+   "name": "--time-style",
+   "description": "Time/date format with -l",
+   "args": {
+    "name": "time_style"
+   }
+  },
+  {
+   "name": "--full-time",
+   "description": "Like -l --time-style=full-iso"
+  },
+  {
+   "name": [
+    "-Z",
+    "--context"
+   ],
+   "description": "Print any security context of each file"
+  },
+  {
+   "name": "--group-directories-first",
+   "description": "Group directories before files"
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Print version"
+  }
+ ],
+ "args": {
+  "name": "file",
+  "template": "filepaths",
+  "isVariadic": true,
+  "isOptional": true
+ }
+}

@@ -1,0 +1,3179 @@
+{
+ "name": "zypper",
+ "description": "openSUSE package manager",
+ "subcommands": [
+  {
+   "name": "help",
+   "description": "Print zypper help"
+  },
+  {
+   "name": [
+    "shell",
+    "sh"
+   ],
+   "description": "Accept multiple commands at once"
+  },
+  {
+   "name": [
+    "repos",
+    "lr"
+   ],
+   "description": "List all defined repositories",
+   "options": [
+    {
+     "name": [
+      "-e",
+      "--export"
+     ],
+     "description": "Export all defined repositories as a single local .repo file",
+     "args": {
+      "name": "file",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": [
+      "-a",
+      "--alias"
+     ],
+     "description": "Show also repository alias"
+    },
+    {
+     "name": [
+      "-n",
+      "--name"
+     ],
+     "description": "Show also repository name"
+    },
+    {
+     "name": [
+      "-r",
+      "--refresh"
+     ],
+     "description": "Show also the autorefresh flag"
+    },
+    {
+     "name": [
+      "-k",
+      "--keep-packages"
+     ],
+     "description": "Show also the keep-packages flag"
+    },
+    {
+     "name": [
+      "-u",
+      "--uri"
+     ],
+     "description": "Show also base URI of repositories"
+    },
+    {
+     "name": [
+      "-p",
+      "--priority"
+     ],
+     "description": "Show also repository priority"
+    },
+    {
+     "name": [
+      "-d",
+      "--details"
+     ],
+     "description": "Show more information like URI, priority, type"
+    },
+    {
+     "name": [
+      "-s",
+      "--service"
+     ],
+     "description": "Show also alias of parent service"
+    },
+    {
+     "name": [
+      "-E",
+      "--show-enabled-only"
+     ],
+     "description": "Show enabled repos only"
+    },
+    {
+     "name": [
+      "-U",
+      "--sort-by-uri"
+     ],
+     "description": "Sort the list by URI"
+    },
+    {
+     "name": [
+      "-N",
+      "--sort-by-name"
+     ],
+     "description": "Sort the list by name"
+    },
+    {
+     "name": [
+      "-P",
+      "--sort-by-priority"
+     ],
+     "description": "Sort the list by repository priority"
+    },
+    {
+     "name": [
+      "-A",
+      "--sort-by-alias"
+     ],
+     "description": "Show also alias of parent service"
+    }
+   ]
+  },
+  {
+   "name": [
+    "addrepo",
+    "ar"
+   ],
+   "description": "Add a new repository",
+   "options": [
+    {
+     "name": [
+      "-r",
+      "--repo"
+     ],
+     "description": "Just another means to specify a .repo file to read",
+     "args": {
+      "name": "file",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": [
+      "-c",
+      "--check"
+     ],
+     "description": "Probe URI"
+    },
+    {
+     "name": [
+      "-C",
+      "--no-check"
+     ],
+     "description": "Don't probe URI, probe later during refresh"
+    },
+    {
+     "name": [
+      "-p",
+      "--priority"
+     ],
+     "description": "Set priority of the repository",
+     "args": {
+      "name": "priority"
+     }
+    },
+    {
+     "name": [
+      "-k",
+      "--keep-packages"
+     ],
+     "description": "Enable RPM files caching"
+    },
+    {
+     "name": [
+      "-K",
+      "--no-keep-packages"
+     ],
+     "description": "Disable RPM files caching"
+    },
+    {
+     "name": [
+      "-g",
+      "--gpgcheck"
+     ],
+     "description": "Enable GPG check for this repository"
+    },
+    {
+     "name": "--gpgcheck-strict",
+     "description": "Enable strict GPG check for this repository"
+    },
+    {
+     "name": "--gpgcheck-allow-unsigned",
+     "description": "Short hand for '--gpgcheck-allow-unsigned-repo"
+    },
+    {
+     "name": "--gpgcheck-allow-unsigned-repo",
+     "description": "Enable GPG check but allow the repository metadata to be unsigned"
+    },
+    {
+     "name": "--gpgcheck-allow-unsigned-package",
+     "description": "Enable GPG check but allow installing unsigned packages from this"
+    },
+    {
+     "name": [
+      "-G",
+      "--no-gpgcheck"
+     ],
+     "description": "Disable GPG check for this repository"
+    },
+    {
+     "name": "--default-gpgcheck",
+     "description": "Use the global GPG check setting defined in /etc/zypp/zypp.conf"
+    },
+    {
+     "name": [
+      "-n",
+      "--name"
+     ],
+     "description": "Set a descriptive name for the repository",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": [
+      "-e",
+      "--enable"
+     ],
+     "description": "Enable a disabled repository"
+    },
+    {
+     "name": [
+      "-d",
+      "--disable"
+     ],
+     "description": "Disable the repository (but don't remove it)"
+    },
+    {
+     "name": [
+      "-f",
+      "--refresh"
+     ],
+     "description": "Enable auto-refresh of the repository"
+    },
+    {
+     "name": [
+      "-F",
+      "--no-refresh"
+     ],
+     "description": "Disable auto-refresh of the repository"
+    },
+    {
+     "name": [
+      "-t",
+      "--type"
+     ],
+     "description": "The repository type is always autodetected"
+    }
+   ]
+  },
+  {
+   "name": [
+    "removerepo",
+    "rr"
+   ],
+   "description": "Remove specified repository",
+   "options": [
+    {
+     "name": "--loose-auth",
+     "description": "Ignore user authentication data in the URI"
+    },
+    {
+     "name": "--loose-query",
+     "description": "Ignore query string in the URI"
+    },
+    {
+     "name": [
+      "-a",
+      "--all"
+     ],
+     "description": "Apply changes to all repositories"
+    },
+    {
+     "name": [
+      "-l",
+      "--local"
+     ],
+     "description": "Apply changes to all local repositories"
+    },
+    {
+     "name": [
+      "-t",
+      "--remote"
+     ],
+     "description": "Apply changes to all remote repositories"
+    },
+    {
+     "name": [
+      "-m",
+      "--medium-type"
+     ],
+     "description": "Apply changes to repositories of specified type",
+     "args": {
+      "name": "type"
+     }
+    }
+   ]
+  },
+  {
+   "name": [
+    "renamerepo",
+    "nr"
+   ],
+   "description": "Rename specified repository"
+  },
+  {
+   "name": [
+    "modifyrepo",
+    "mr"
+   ],
+   "description": "Modify specified repository",
+   "options": [
+    {
+     "name": [
+      "--local",
+      "--medium-type"
+     ]
+    },
+    {
+     "name": [
+      "-n",
+      "--name"
+     ],
+     "description": "Set a descriptive name for the repository",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": [
+      "-e",
+      "--enable"
+     ],
+     "description": "Enable a disabled repository"
+    },
+    {
+     "name": [
+      "-d",
+      "--disable"
+     ],
+     "description": "Disable the repository (but don't remove it)"
+    },
+    {
+     "name": [
+      "-f",
+      "--refresh"
+     ],
+     "description": "Enable auto-refresh of the repository"
+    },
+    {
+     "name": [
+      "-F",
+      "--no-refresh"
+     ],
+     "description": "Disable auto-refresh of the repository"
+    },
+    {
+     "name": [
+      "-p",
+      "--priority"
+     ],
+     "description": "Set priority of the repository",
+     "args": {
+      "name": "priority"
+     }
+    },
+    {
+     "name": [
+      "-k",
+      "--keep-packages"
+     ],
+     "description": "Enable RPM files caching"
+    },
+    {
+     "name": [
+      "-K",
+      "--no-keep-packages"
+     ],
+     "description": "Disable RPM files caching"
+    },
+    {
+     "name": [
+      "-g",
+      "--gpgcheck"
+     ],
+     "description": "Enable GPG check for this repository"
+    },
+    {
+     "name": "--gpgcheck-strict",
+     "description": "Enable strict GPG check for this repository"
+    },
+    {
+     "name": "--gpgcheck-allow-unsigned",
+     "description": "Short hand for '--gpgcheck-allow-unsigned-repo"
+    },
+    {
+     "name": "--gpgcheck-allow-unsigned-repo",
+     "description": "Enable GPG check but allow the repository metadata to be unsigned"
+    },
+    {
+     "name": "--gpgcheck-allow-unsigned-package",
+     "description": "Enable GPG check but allow installing unsigned packages from this"
+    },
+    {
+     "name": [
+      "-G",
+      "--no-gpgcheck"
+     ],
+     "description": "Disable GPG check for this repository"
+    },
+    {
+     "name": "--default-gpgcheck",
+     "description": "Use the global GPG check setting defined in /etc/zypp/zypp.conf"
+    },
+    {
+     "name": [
+      "-a",
+      "--all"
+     ],
+     "description": "Apply changes to all repositories"
+    },
+    {
+     "name": "-l",
+     "description": "Apply changes to all local repositories"
+    },
+    {
+     "name": [
+      "-t",
+      "--remote"
+     ],
+     "description": "Apply changes to all remote repositories"
+    },
+    {
+     "name": "-m",
+     "description": "Apply changes to repositories of specified type",
+     "args": {
+      "name": "type"
+     }
+    },
+    {
+     "name": "-r",
+     "description": "The same as -f"
+    },
+    {
+     "name": "-R",
+     "description": "The same as -F"
+    }
+   ]
+  },
+  {
+   "name": [
+    "refresh",
+    "ref"
+   ],
+   "description": "Refresh all repositories",
+   "priority": 75,
+   "options": [
+    {
+     "name": [
+      "-f",
+      "--force"
+     ],
+     "description": "Force a complete refresh"
+    },
+    {
+     "name": [
+      "-b",
+      "--force-build"
+     ],
+     "description": "Force rebuild of the database"
+    },
+    {
+     "name": [
+      "-d",
+      "--force-download"
+     ],
+     "description": "Force download of raw metadata"
+    },
+    {
+     "name": [
+      "-B",
+      "--build-only"
+     ],
+     "description": "Only build the database, don't download metadata"
+    },
+    {
+     "name": [
+      "-D",
+      "--download-only"
+     ],
+     "description": "Only download raw metadata, don't build the database"
+    },
+    {
+     "name": "--include-all-archs",
+     "description": "Multi-Arch repos: Download raw metadata for all offered architectures"
+    },
+    {
+     "name": [
+      "-r",
+      "--repo"
+     ],
+     "description": "Refresh only specified repositories",
+     "args": {
+      "name": "alias"
+     }
+    },
+    {
+     "name": [
+      "-s",
+      "--services"
+     ],
+     "description": "Refresh also services before refreshing repos"
+    }
+   ]
+  },
+  {
+   "name": [
+    "clean",
+    "cc"
+   ],
+   "description": "Clean local caches",
+   "options": [
+    {
+     "name": [
+      "-r",
+      "--repo"
+     ],
+     "description": "Clean only specified repositories",
+     "args": {
+      "name": "alias"
+     }
+    },
+    {
+     "name": [
+      "-m",
+      "--metadata"
+     ],
+     "description": "Clean metadata cache"
+    },
+    {
+     "name": [
+      "-M",
+      "--raw-metadata"
+     ],
+     "description": "Clean raw metadata cache"
+    },
+    {
+     "name": [
+      "-a",
+      "--all"
+     ],
+     "description": "Clean both metadata and package caches"
+    }
+   ]
+  },
+  {
+   "name": [
+    "services",
+    "ls"
+   ],
+   "description": "List all defined services",
+   "options": [
+    {
+     "name": [
+      "-u",
+      "--uri"
+     ],
+     "description": "Show also base URI of repositories"
+    },
+    {
+     "name": [
+      "-p",
+      "--priority"
+     ],
+     "description": "Show also repository priority"
+    },
+    {
+     "name": [
+      "-d",
+      "--details"
+     ],
+     "description": "Show more information like URI, priority, type"
+    },
+    {
+     "name": [
+      "-r",
+      "--with-repos"
+     ],
+     "description": "Show also repositories belonging to the services"
+    },
+    {
+     "name": [
+      "-E",
+      "--show-enabled-only"
+     ],
+     "description": "Show enabled repos only"
+    },
+    {
+     "name": [
+      "-U",
+      "--sort-by-uri"
+     ],
+     "description": "Sort the list by URI"
+    },
+    {
+     "name": [
+      "-N",
+      "--sort-by-name"
+     ],
+     "description": "Sort the list by name"
+    },
+    {
+     "name": [
+      "-P",
+      "--sort-by-priority"
+     ],
+     "description": "Sort the list by repository priority"
+    }
+   ]
+  },
+  {
+   "name": [
+    "addservice",
+    "as"
+   ],
+   "description": "Add a new service",
+   "options": [
+    {
+     "name": [
+      "-n",
+      "--name"
+     ],
+     "description": "Set a descriptive name for the service",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": [
+      "-e",
+      "--enable"
+     ],
+     "description": "Enable a disabled service"
+    },
+    {
+     "name": [
+      "-d",
+      "--disable"
+     ],
+     "description": "Disable the service (but don't remove it)"
+    },
+    {
+     "name": [
+      "-f",
+      "--refresh"
+     ],
+     "description": "Enable auto-refresh of the service"
+    },
+    {
+     "name": [
+      "-F",
+      "--no-refresh"
+     ],
+     "description": "Disable auto-refresh of the service"
+    },
+    {
+     "name": [
+      "-t",
+      "--type"
+     ],
+     "description": "The type of service is always autodetected"
+    }
+   ]
+  },
+  {
+   "name": [
+    "modifyservice",
+    "ms"
+   ],
+   "description": "Modify specified service",
+   "options": [
+    {
+     "name": [
+      "--local",
+      "--medium-type"
+     ]
+    },
+    {
+     "name": [
+      "-n",
+      "--name"
+     ],
+     "description": "Set a descriptive name for the service",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": [
+      "-e",
+      "--enable"
+     ],
+     "description": "Enable a disabled service"
+    },
+    {
+     "name": [
+      "-d",
+      "--disable"
+     ],
+     "description": "Disable the service (but don't remove it)"
+    },
+    {
+     "name": [
+      "-f",
+      "--refresh"
+     ],
+     "description": "Enable auto-refresh of the service"
+    },
+    {
+     "name": [
+      "-F",
+      "--no-refresh"
+     ],
+     "description": "Disable auto-refresh of the service"
+    },
+    {
+     "name": [
+      "-a",
+      "--all"
+     ],
+     "description": "Apply changes to all services"
+    },
+    {
+     "name": "-l",
+     "description": "Apply changes to all local services"
+    },
+    {
+     "name": [
+      "-t",
+      "--remote"
+     ],
+     "description": "Apply changes to all remote services"
+    },
+    {
+     "name": "-m",
+     "description": "Apply changes to services of specified type",
+     "args": {
+      "name": "type"
+     }
+    },
+    {
+     "name": [
+      "-i",
+      "--ar-to-enable"
+     ],
+     "description": "Add a RIS service repository to enable",
+     "args": {
+      "name": "alias"
+     }
+    },
+    {
+     "name": [
+      "-I",
+      "--ar-to-disable"
+     ],
+     "args": {
+      "name": "alias"
+     }
+    },
+    {
+     "name": [
+      "-j",
+      "--rr-to-enable"
+     ],
+     "description": "Remove a RIS service repository to enable",
+     "args": {
+      "name": "alias"
+     }
+    },
+    {
+     "name": [
+      "-J",
+      "--rr-to-disable"
+     ],
+     "args": {
+      "name": "alias"
+     }
+    },
+    {
+     "name": [
+      "-k",
+      "--cl-to-enable"
+     ],
+     "description": "Clear the list of RIS repositories to enable"
+    },
+    {
+     "name": [
+      "-K",
+      "--cl-to-disable"
+     ],
+     "description": "Clear the list of RIS repositories to disable"
+    },
+    {
+     "name": "-r",
+     "description": "The same as -f"
+    },
+    {
+     "name": "-R",
+     "description": "The same as -F"
+    }
+   ]
+  },
+  {
+   "name": [
+    "removeservice",
+    "rs"
+   ],
+   "description": "Remove specified service",
+   "options": [
+    {
+     "name": "--loose-auth",
+     "description": "Ignore user authentication data in the URI"
+    },
+    {
+     "name": "--loose-query",
+     "description": "Ignore query string in the URI"
+    }
+   ]
+  },
+  {
+   "name": [
+    "install",
+    "in"
+   ],
+   "description": "Install packages",
+   "priority": 76,
+   "options": [
+    {
+     "name": [
+      "-t",
+      "--type"
+     ],
+     "description": "Type of package (package, patch, pattern, product)",
+     "args": {
+      "name": "type"
+     }
+    },
+    {
+     "name": [
+      "-n",
+      "--name"
+     ],
+     "description": "Select packages by plain name, not by capability"
+    },
+    {
+     "name": [
+      "-C",
+      "--capability"
+     ],
+     "description": "Select packages solely by capability"
+    },
+    {
+     "name": "--details",
+     "description": "Show the detailed installation summary"
+    },
+    {
+     "name": "--from",
+     "description": "Select packages from the specified repository",
+     "args": {
+      "name": "alias"
+     }
+    },
+    {
+     "name": "--oldpackage",
+     "description": "Allows one to replace a newer item with an older one"
+    },
+    {
+     "name": "--allow-unsigned-rpm",
+     "description": "Silently install unsigned rpm packages given as commandline parameters"
+    },
+    {
+     "name": [
+      "-f",
+      "--force"
+     ],
+     "description": "Install even if the item is already installed (reinstall), downgraded or"
+    },
+    {
+     "name": [
+      "-r",
+      "--repo"
+     ],
+     "description": "Work only with the specified repository",
+     "args": {
+      "name": "alias"
+     }
+    },
+    {
+     "name": [
+      "-y",
+      "--no-confirm"
+     ],
+     "description": "Don't require user interaction"
+    },
+    {
+     "name": [
+      "-D",
+      "--dry-run"
+     ],
+     "description": "Don't change anything, just report what would be done"
+    },
+    {
+     "name": "--replacefiles",
+     "description": "Install the packages even if they replace files from other, already"
+    },
+    {
+     "name": [
+      "-l",
+      "--auto-agree-with-licenses"
+     ],
+     "description": "Automatically say 'yes' to third party license confirmation prompt"
+    },
+    {
+     "name": "--download",
+     "description": "Set the download-install mode",
+     "args": {
+      "name": "mode"
+     }
+    },
+    {
+     "name": [
+      "-d",
+      "--download-only"
+     ],
+     "description": "Only download the packages, do not install"
+    },
+    {
+     "name": "--debug-solver",
+     "description": "Create a solver test case for debugging"
+    },
+    {
+     "name": "--force-resolution",
+     "description": "Force the solver to find a solution (even an aggressive one) rather than"
+    },
+    {
+     "name": [
+      "-R",
+      "--no-force-resolution"
+     ],
+     "description": "Do not force the solver to find a solution, let it ask"
+    },
+    {
+     "name": "--solver-focus",
+     "description": "Set the solvers general attitude when resolving a job",
+     "args": {
+      "name": "mode"
+     }
+    },
+    {
+     "name": "--recommends",
+     "description": "Install also recommended packages in addition to the required ones"
+    },
+    {
+     "name": "--no-recommends",
+     "description": "Do not install recommended packages, only required ones"
+    },
+    {
+     "name": "--allow-downgrade"
+    },
+    {
+     "name": "--no-allow-downgrade",
+     "description": "Whether to allow downgrading installed resolvables"
+    },
+    {
+     "name": "--allow-name-change"
+    },
+    {
+     "name": "--no-allow-name-change",
+     "description": "Whether to allow changing the names of installed resolvables"
+    },
+    {
+     "name": "--allow-arch-change"
+    },
+    {
+     "name": "--no-allow-arch-change",
+     "description": "Whether to allow changing the architecture of installed resolvables"
+    },
+    {
+     "name": "--allow-vendor-change"
+    },
+    {
+     "name": "--no-allow-vendor-change",
+     "description": "Whether to allow changing the vendor of installed resolvables"
+    }
+   ],
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": [
+    "remove",
+    "rm"
+   ],
+   "description": "Remove packages",
+   "priority": 76,
+   "options": [
+    {
+     "name": [
+      "-t",
+      "--type"
+     ],
+     "description": "Type of package (package, patch, pattern, product)",
+     "args": {
+      "name": "type"
+     }
+    },
+    {
+     "name": [
+      "-n",
+      "--name"
+     ],
+     "description": "Select packages by plain name, not by capability"
+    },
+    {
+     "name": [
+      "-C",
+      "--capability"
+     ],
+     "description": "Select packages solely by capability"
+    },
+    {
+     "name": "--details",
+     "description": "Show the detailed installation summary"
+    },
+    {
+     "name": [
+      "-r",
+      "--repo"
+     ],
+     "description": "Work only with the specified repository",
+     "args": {
+      "name": "alias"
+     }
+    },
+    {
+     "name": [
+      "-y",
+      "--no-confirm"
+     ],
+     "description": "Don't require user interaction"
+    },
+    {
+     "name": [
+      "-D",
+      "--dry-run"
+     ],
+     "description": "Don't change anything, just report what would be done"
+    },
+    {
+     "name": [
+      "-u",
+      "--clean-deps"
+     ],
+     "description": "Automatically remove unneeded dependencies"
+    },
+    {
+     "name": [
+      "-U",
+      "--no-clean-deps"
+     ],
+     "description": "No automatic removal of unneeded dependencies"
+    },
+    {
+     "name": "--debug-solver",
+     "description": "Create a solver test case for debugging"
+    },
+    {
+     "name": "--force-resolution",
+     "description": "Force the solver to find a solution (even an aggressive one) rather than"
+    },
+    {
+     "name": [
+      "-R",
+      "--no-force-resolution"
+     ],
+     "description": "Do not force the solver to find a solution, let it ask"
+    },
+    {
+     "name": "--solver-focus",
+     "description": "Set the solvers general attitude when resolving a job",
+     "args": {
+      "name": "mode"
+     }
+    }
+   ],
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": [
+    "removeptf",
+    "rmptf"
+   ],
+   "description": "Remove (not only) PTFs",
+   "options": [
+    {
+     "name": [
+      "-t",
+      "--type"
+     ],
+     "description": "Type of package (package, patch, pattern, product)",
+     "args": {
+      "name": "type"
+     }
+    },
+    {
+     "name": [
+      "-n",
+      "--name"
+     ],
+     "description": "Select packages by plain name, not by capability"
+    },
+    {
+     "name": [
+      "-C",
+      "--capability"
+     ],
+     "description": "Select packages solely by capability"
+    },
+    {
+     "name": "--details",
+     "description": "Show the detailed installation summary"
+    },
+    {
+     "name": "--from",
+     "description": "Select packages from the specified repository",
+     "args": {
+      "name": "alias"
+     }
+    },
+    {
+     "name": "--oldpackage",
+     "description": "Allows one to replace a newer item with an older one"
+    },
+    {
+     "name": "--allow-unsigned-rpm",
+     "description": "Silently install unsigned rpm packages given as commandline parameters"
+    },
+    {
+     "name": [
+      "-f",
+      "--force"
+     ],
+     "description": "Install even if the item is already installed (reinstall), downgraded or"
+    },
+    {
+     "name": [
+      "-r",
+      "--repo"
+     ],
+     "description": "Work only with the specified repository",
+     "args": {
+      "name": "alias"
+     }
+    },
+    {
+     "name": [
+      "-y",
+      "--no-confirm"
+     ],
+     "description": "Don't require user interaction"
+    },
+    {
+     "name": [
+      "-D",
+      "--dry-run"
+     ],
+     "description": "Don't change anything, just report what would be done"
+    },
+    {
+     "name": "--replacefiles",
+     "description": "Install the packages even if they replace files from other, already"
+    },
+    {
+     "name": [
+      "-l",
+      "--auto-agree-with-licenses"
+     ],
+     "description": "Automatically say 'yes' to third party license confirmation prompt"
+    },
+    {
+     "name": "--download",
+     "description": "Set the download-install mode",
+     "args": {
+      "name": "mode"
+     }
+    },
+    {
+     "name": [
+      "-d",
+      "--download-only"
+     ],
+     "description": "Only download the packages, do not install"
+    },
+    {
+     "name": "--debug-solver",
+     "description": "Create a solver test case for debugging"
+    },
+    {
+     "name": "--force-resolution",
+     "description": "Force the solver to find a solution (even an aggressive one) rather than"
+    },
+    {
+     "name": [
+      "-R",
+      "--no-force-resolution"
+     ],
+     "description": "Do not force the solver to find a solution, let it ask"
+    },
+    {
+     "name": "--solver-focus",
+     "description": "Set the solvers general attitude when resolving a job",
+     "args": {
+      "name": "mode"
+     }
+    },
+    {
+     "name": "--recommends",
+     "description": "Install also recommended packages in addition to the required ones"
+    },
+    {
+     "name": "--no-recommends",
+     "description": "Do not install recommended packages, only required ones"
+    },
+    {
+     "name": "--allow-downgrade"
+    },
+    {
+     "name": "--no-allow-downgrade",
+     "description": "Whether to allow downgrading installed resolvables"
+    },
+    {
+     "name": "--allow-name-change"
+    },
+    {
+     "name": "--no-allow-name-change",
+     "description": "Whether to allow changing the names of installed resolvables"
+    },
+    {
+     "name": "--allow-arch-change"
+    },
+    {
+     "name": "--no-allow-arch-change",
+     "description": "Whether to allow changing the architecture of installed resolvables"
+    },
+    {
+     "name": "--allow-vendor-change"
+    },
+    {
+     "name": "--no-allow-vendor-change",
+     "description": "Whether to allow changing the vendor of installed resolvables"
+    }
+   ]
+  },
+  {
+   "name": [
+    "verify",
+    "ve"
+   ],
+   "description": "Verify integrity of package dependencies",
+   "options": [
+    {
+     "name": "--details",
+     "description": "Show the detailed installation summary"
+    },
+    {
+     "name": [
+      "-D",
+      "--dry-run"
+     ],
+     "description": "Don't change anything, just report what would be done"
+    },
+    {
+     "name": "--download",
+     "description": "Set the download-install mode",
+     "args": {
+      "name": "mode"
+     }
+    },
+    {
+     "name": [
+      "-d",
+      "--download-only"
+     ],
+     "description": "Only download the packages, do not install"
+    },
+    {
+     "name": [
+      "-r",
+      "--repo"
+     ],
+     "description": "Work only with the specified repository",
+     "args": {
+      "name": "alias"
+     }
+    },
+    {
+     "name": [
+      "-y",
+      "--no-confirm"
+     ],
+     "description": "Don't require user interaction"
+    },
+    {
+     "name": "--debug-solver",
+     "description": "Create a solver test case for debugging"
+    },
+    {
+     "name": "--force-resolution",
+     "description": "Force the solver to find a solution (even an aggressive one) rather than"
+    },
+    {
+     "name": [
+      "-R",
+      "--no-force-resolution"
+     ],
+     "description": "Do not force the solver to find a solution, let it ask"
+    },
+    {
+     "name": "--solver-focus",
+     "description": "Set the solvers general attitude when resolving a job",
+     "args": {
+      "name": "mode"
+     }
+    },
+    {
+     "name": "--recommends",
+     "description": "Install also recommended packages in addition to the required ones"
+    },
+    {
+     "name": "--no-recommends",
+     "description": "Do not install recommended packages, only required ones"
+    },
+    {
+     "name": "--allow-downgrade"
+    },
+    {
+     "name": "--no-allow-downgrade",
+     "description": "Whether to allow downgrading installed resolvables"
+    },
+    {
+     "name": "--allow-name-change"
+    },
+    {
+     "name": "--no-allow-name-change",
+     "description": "Whether to allow changing the names of installed resolvables"
+    },
+    {
+     "name": "--allow-arch-change"
+    },
+    {
+     "name": "--no-allow-arch-change",
+     "description": "Whether to allow changing the architecture of installed resolvables"
+    },
+    {
+     "name": "--allow-vendor-change"
+    },
+    {
+     "name": "--no-allow-vendor-change",
+     "description": "Whether to allow changing the vendor of installed resolvables"
+    }
+   ]
+  },
+  {
+   "name": [
+    "source-install",
+    "si"
+   ],
+   "description": "Install source packages and their build dependencies",
+   "options": [
+    {
+     "name": "--eval"
+    },
+    {
+     "name": [
+      "-d",
+      "--build-deps-only"
+     ],
+     "description": "Install only build dependencies of specified packages"
+    },
+    {
+     "name": [
+      "-D",
+      "--no-build-deps"
+     ],
+     "description": "Don't install build dependencies"
+    },
+    {
+     "name": [
+      "-r",
+      "--repo"
+     ],
+     "description": "Work only with the specified repository",
+     "args": {
+      "name": "alias"
+     }
+    },
+    {
+     "name": "--download",
+     "description": "Set the download-install mode",
+     "args": {
+      "name": "mode"
+     }
+    },
+    {
+     "name": "--download-only",
+     "description": "Only download the packages, do not install"
+    },
+    {
+     "name": "--debug-solver",
+     "description": "Create a solver test case for debugging"
+    },
+    {
+     "name": "--force-resolution",
+     "description": "Force the solver to find a solution (even an aggressive one) rather than"
+    },
+    {
+     "name": [
+      "-R",
+      "--no-force-resolution"
+     ],
+     "description": "Do not force the solver to find a solution, let it ask"
+    },
+    {
+     "name": "--solver-focus",
+     "description": "Set the solvers general attitude when resolving a job",
+     "args": {
+      "name": "mode"
+     }
+    },
+    {
+     "name": "--recommends",
+     "description": "Install also recommended packages in addition to the required ones"
+    },
+    {
+     "name": "--no-recommends",
+     "description": "Do not install recommended packages, only required ones"
+    },
+    {
+     "name": "--allow-downgrade"
+    },
+    {
+     "name": "--no-allow-downgrade",
+     "description": "Whether to allow downgrading installed resolvables"
+    },
+    {
+     "name": "--allow-name-change"
+    },
+    {
+     "name": "--no-allow-name-change",
+     "description": "Whether to allow changing the names of installed resolvables"
+    },
+    {
+     "name": "--allow-arch-change"
+    },
+    {
+     "name": "--no-allow-arch-change",
+     "description": "Whether to allow changing the architecture of installed resolvables"
+    },
+    {
+     "name": "--allow-vendor-change"
+    },
+    {
+     "name": "--no-allow-vendor-change",
+     "description": "Whether to allow changing the vendor of installed resolvables"
+    }
+   ]
+  },
+  {
+   "name": [
+    "update",
+    "up"
+   ],
+   "description": "Update installed packages with newer versions",
+   "priority": 76,
+   "options": [
+    {
+     "name": [
+      "-t",
+      "--type"
+     ],
+     "description": "Type of package (package, patch, pattern, product)",
+     "args": {
+      "name": "type"
+     }
+    },
+    {
+     "name": "--details",
+     "description": "Show the detailed installation summary"
+    },
+    {
+     "name": "--best-effort",
+     "description": "Do a 'best effort' approach to update"
+    },
+    {
+     "name": "--replacefiles",
+     "description": "Install the packages even if they replace files from other, already"
+    },
+    {
+     "name": [
+      "-r",
+      "--repo"
+     ],
+     "description": "Work only with the specified repository",
+     "args": {
+      "name": "alias"
+     }
+    },
+    {
+     "name": [
+      "-y",
+      "--no-confirm"
+     ],
+     "description": "Don't require user interaction"
+    },
+    {
+     "name": "--with-interactive",
+     "description": "Do not skip interactive updates"
+    },
+    {
+     "name": "--skip-interactive",
+     "description": "Skip interactive updates"
+    },
+    {
+     "name": [
+      "-l",
+      "--auto-agree-with-licenses"
+     ],
+     "description": "Automatically say 'yes' to third party license confirmation prompt"
+    },
+    {
+     "name": [
+      "-D",
+      "--dry-run"
+     ],
+     "description": "Don't change anything, just report what would be done"
+    },
+    {
+     "name": "--download",
+     "description": "Set the download-install mode",
+     "args": {
+      "name": "mode"
+     }
+    },
+    {
+     "name": [
+      "-d",
+      "--download-only"
+     ],
+     "description": "Only download the packages, do not install"
+    },
+    {
+     "name": "--debug-solver",
+     "description": "Create a solver test case for debugging"
+    },
+    {
+     "name": "--force-resolution",
+     "description": "Force the solver to find a solution (even an aggressive one) rather than"
+    },
+    {
+     "name": [
+      "-R",
+      "--no-force-resolution"
+     ],
+     "description": "Do not force the solver to find a solution, let it ask"
+    },
+    {
+     "name": "--solver-focus",
+     "description": "Set the solvers general attitude when resolving a job",
+     "args": {
+      "name": "mode"
+     }
+    },
+    {
+     "name": "--recommends",
+     "description": "Install also recommended packages in addition to the required ones"
+    },
+    {
+     "name": "--no-recommends",
+     "description": "Do not install recommended packages, only required ones"
+    },
+    {
+     "name": "--allow-downgrade"
+    },
+    {
+     "name": "--no-allow-downgrade",
+     "description": "Whether to allow downgrading installed resolvables"
+    },
+    {
+     "name": "--allow-name-change"
+    },
+    {
+     "name": "--no-allow-name-change",
+     "description": "Whether to allow changing the names of installed resolvables"
+    },
+    {
+     "name": "--allow-arch-change"
+    },
+    {
+     "name": "--no-allow-arch-change",
+     "description": "Whether to allow changing the architecture of installed resolvables"
+    },
+    {
+     "name": "--allow-vendor-change"
+    },
+    {
+     "name": "--no-allow-vendor-change",
+     "description": "Whether to allow changing the vendor of installed resolvables"
+    }
+   ],
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": [
+    "list-updates",
+    "lu"
+   ],
+   "description": "List available updates",
+   "options": [
+    {
+     "name": [
+      "-t",
+      "--type"
+     ],
+     "description": "Type of package (package, patch, pattern, product)",
+     "args": {
+      "name": "type"
+     }
+    },
+    {
+     "name": "--best-effort",
+     "description": "Do a 'best effort' approach to update"
+    },
+    {
+     "name": [
+      "-a",
+      "--all"
+     ],
+     "description": "List all packages for which newer versions are available, regardless"
+    },
+    {
+     "name": "--filter-version-change",
+     "description": "Filter updates by version change significance",
+     "args": {
+      "name": "level"
+     }
+    },
+    {
+     "name": [
+      "-r",
+      "--repo"
+     ],
+     "description": "Work only with the specified repository",
+     "args": {
+      "name": "alias"
+     }
+    },
+    {
+     "name": "--allow-downgrade"
+    },
+    {
+     "name": "--no-allow-downgrade",
+     "description": "Whether to allow downgrading installed resolvables"
+    },
+    {
+     "name": "--allow-name-change"
+    },
+    {
+     "name": "--no-allow-name-change",
+     "description": "Whether to allow changing the names of installed resolvables"
+    },
+    {
+     "name": "--allow-arch-change"
+    },
+    {
+     "name": "--no-allow-arch-change",
+     "description": "Whether to allow changing the architecture of installed resolvables"
+    },
+    {
+     "name": "--allow-vendor-change"
+    },
+    {
+     "name": "--no-allow-vendor-change",
+     "description": "Whether to allow changing the vendor of installed resolvables"
+    }
+   ]
+  },
+  {
+   "name": "patch",
+   "description": "Install needed patches",
+   "options": [
+    {
+     "name": "--updatestack-only",
+     "description": "Consider only patches which affect the package management itself"
+    },
+    {
+     "name": "--skip-not-applicable-patches",
+     "description": "Skip needed patches which do not apply without conflict"
+    },
+    {
+     "name": "--with-update",
+     "description": "Additionally try to update all packages not covered by patches"
+    },
+    {
+     "name": "--details",
+     "description": "Show the detailed installation summary"
+    },
+    {
+     "name": "--replacefiles",
+     "description": "Install the packages even if they replace files from other, already"
+    },
+    {
+     "name": [
+      "-r",
+      "--repo"
+     ],
+     "description": "Work only with the specified repository",
+     "args": {
+      "name": "alias"
+     }
+    },
+    {
+     "name": [
+      "-g",
+      "--category"
+     ],
+     "description": "Select patches with the specified category",
+     "args": {
+      "name": "category"
+     }
+    },
+    {
+     "name": "--severity",
+     "description": "Select patches with the specified severity",
+     "args": {
+      "name": "severity"
+     }
+    },
+    {
+     "name": "--date",
+     "description": "Select patches issued up to, but not including, the specified date",
+     "args": {
+      "name": "yyyy-mm-dd"
+     }
+    },
+    {
+     "name": [
+      "-b",
+      "--bugzilla"
+     ],
+     "description": "Select applicable patches for the specified Bugzilla issues",
+     "args": {
+      "name": "value"
+     }
+    },
+    {
+     "name": "--cve",
+     "description": "Select applicable patches for the specified CVE issues",
+     "args": {
+      "name": "value"
+     }
+    },
+    {
+     "name": [
+      "-y",
+      "--no-confirm"
+     ],
+     "description": "Don't require user interaction"
+    },
+    {
+     "name": "--with-optional"
+    },
+    {
+     "name": "--without-optional",
+     "description": "Whether applicable optional patches should be treated as needed or be"
+    },
+    {
+     "name": "--with-interactive",
+     "description": "Do not skip interactive updates"
+    },
+    {
+     "name": "--skip-interactive",
+     "description": "Skip interactive updates"
+    },
+    {
+     "name": [
+      "-l",
+      "--auto-agree-with-licenses"
+     ],
+     "description": "Automatically say 'yes' to third party license confirmation prompt"
+    },
+    {
+     "name": [
+      "-D",
+      "--dry-run"
+     ],
+     "description": "Don't change anything, just report what would be done"
+    },
+    {
+     "name": "--download",
+     "description": "Set the download-install mode",
+     "args": {
+      "name": "mode"
+     }
+    },
+    {
+     "name": [
+      "-d",
+      "--download-only"
+     ],
+     "description": "Only download the packages, do not install"
+    },
+    {
+     "name": "--debug-solver",
+     "description": "Create a solver test case for debugging"
+    },
+    {
+     "name": "--force-resolution",
+     "description": "Force the solver to find a solution (even an aggressive one) rather than"
+    },
+    {
+     "name": [
+      "-R",
+      "--no-force-resolution"
+     ],
+     "description": "Do not force the solver to find a solution, let it ask"
+    },
+    {
+     "name": "--solver-focus",
+     "description": "Set the solvers general attitude when resolving a job",
+     "args": {
+      "name": "mode"
+     }
+    },
+    {
+     "name": "--recommends",
+     "description": "Install also recommended packages in addition to the required ones"
+    },
+    {
+     "name": "--no-recommends",
+     "description": "Do not install recommended packages, only required ones"
+    },
+    {
+     "name": "--allow-downgrade"
+    },
+    {
+     "name": "--no-allow-downgrade",
+     "description": "Whether to allow downgrading installed resolvables"
+    },
+    {
+     "name": "--allow-name-change"
+    },
+    {
+     "name": "--no-allow-name-change",
+     "description": "Whether to allow changing the names of installed resolvables"
+    },
+    {
+     "name": "--allow-arch-change"
+    },
+    {
+     "name": "--no-allow-arch-change",
+     "description": "Whether to allow changing the architecture of installed resolvables"
+    },
+    {
+     "name": "--allow-vendor-change"
+    },
+    {
+     "name": "--no-allow-vendor-change",
+     "description": "Whether to allow changing the vendor of installed resolvables"
+    }
+   ]
+  },
+  {
+   "name": [
+    "list-patches",
+    "lp"
+   ],
+   "description": "List available patches",
+   "options": [
+    {
+     "name": [
+      "-a",
+      "--all"
+     ],
+     "description": "List all patches, not only applicable ones"
+    },
+    {
+     "name": [
+      "-r",
+      "--repo"
+     ],
+     "description": "Work only with the specified repository",
+     "args": {
+      "name": "alias"
+     }
+    },
+    {
+     "name": [
+      "-g",
+      "--category"
+     ],
+     "description": "Select patches with the specified category",
+     "args": {
+      "name": "category"
+     }
+    },
+    {
+     "name": "--severity",
+     "description": "Select patches with the specified severity",
+     "args": {
+      "name": "severity"
+     }
+    },
+    {
+     "name": "--date",
+     "description": "Select patches issued up to, but not including, the specified date",
+     "args": {
+      "name": "yyyy-mm-dd"
+     }
+    },
+    {
+     "name": [
+      "-b",
+      "--bugzilla"
+     ],
+     "description": "Select applicable patches for the specified Bugzilla issues",
+     "args": {
+      "name": "value",
+      "isOptional": true
+     }
+    },
+    {
+     "name": "--cve",
+     "description": "Select applicable patches for the specified CVE issues",
+     "args": {
+      "name": "value",
+      "isOptional": true
+     }
+    },
+    {
+     "name": "--issue",
+     "description": "Select issues matching the specified string",
+     "args": {
+      "name": "string",
+      "isOptional": true
+     }
+    },
+    {
+     "name": "--with-optional"
+    },
+    {
+     "name": "--without-optional",
+     "description": "Whether applicable optional patches should be treated as needed or be"
+    }
+   ]
+  },
+  {
+   "name": [
+    "dist-upgrade",
+    "dup"
+   ],
+   "description": "Perform a distribution upgrade",
+   "priority": 75,
+   "options": [
+    {
+     "name": "--from",
+     "description": "Restrict upgrade to specified repository",
+     "args": {
+      "name": "alias"
+     }
+    },
+    {
+     "name": "--remove-orphaned",
+     "description": "Remove unneeded orphaned packages"
+    },
+    {
+     "name": "--details",
+     "description": "Show the detailed installation summary"
+    },
+    {
+     "name": "--replacefiles",
+     "description": "Install the packages even if they replace files from other, already"
+    },
+    {
+     "name": [
+      "-r",
+      "--repo"
+     ],
+     "description": "Work only with the specified repository",
+     "args": {
+      "name": "alias"
+     }
+    },
+    {
+     "name": [
+      "-l",
+      "--auto-agree-with-licenses"
+     ],
+     "description": "Automatically say 'yes' to third party license confirmation prompt"
+    },
+    {
+     "name": [
+      "-D",
+      "--dry-run"
+     ],
+     "description": "Don't change anything, just report what would be done"
+    },
+    {
+     "name": [
+      "-y",
+      "--no-confirm"
+     ],
+     "description": "Don't require user interaction"
+    },
+    {
+     "name": "--download",
+     "description": "Set the download-install mode",
+     "args": {
+      "name": "mode"
+     }
+    },
+    {
+     "name": [
+      "-d",
+      "--download-only"
+     ],
+     "description": "Only download the packages, do not install"
+    },
+    {
+     "name": "--debug-solver",
+     "description": "Create a solver test case for debugging"
+    },
+    {
+     "name": "--force-resolution",
+     "description": "Force the solver to find a solution (even an aggressive one) rather than"
+    },
+    {
+     "name": [
+      "-R",
+      "--no-force-resolution"
+     ],
+     "description": "Do not force the solver to find a solution, let it ask"
+    },
+    {
+     "name": "--solver-focus",
+     "description": "Set the solvers general attitude when resolving a job",
+     "args": {
+      "name": "mode"
+     }
+    },
+    {
+     "name": "--recommends",
+     "description": "Install also recommended packages in addition to the required ones"
+    },
+    {
+     "name": "--no-recommends",
+     "description": "Do not install recommended packages, only required ones"
+    },
+    {
+     "name": "--allow-downgrade"
+    },
+    {
+     "name": "--no-allow-downgrade",
+     "description": "Whether to allow downgrading installed resolvables"
+    },
+    {
+     "name": "--allow-name-change"
+    },
+    {
+     "name": "--no-allow-name-change",
+     "description": "Whether to allow changing the names of installed resolvables"
+    },
+    {
+     "name": "--allow-arch-change"
+    },
+    {
+     "name": "--no-allow-arch-change",
+     "description": "Whether to allow changing the architecture of installed resolvables"
+    },
+    {
+     "name": "--allow-vendor-change"
+    },
+    {
+     "name": "--no-allow-vendor-change",
+     "description": "Whether to allow changing the vendor of installed resolvables"
+    }
+   ]
+  },
+  {
+   "name": [
+    "patch-check",
+    "pchk"
+   ],
+   "description": "Check for patches",
+   "options": [
+    {
+     "name": "--updatestack-only",
+     "description": "Consider only patches which affect the package management itself"
+    },
+    {
+     "name": [
+      "-r",
+      "--repo"
+     ],
+     "description": "Work only with the specified repository",
+     "args": {
+      "name": "alias"
+     }
+    },
+    {
+     "name": "--with-optional"
+    },
+    {
+     "name": "--without-optional",
+     "description": "Whether applicable optional patches should be treated as needed or be"
+    }
+   ]
+  },
+  {
+   "name": [
+    "search",
+    "se"
+   ],
+   "description": "Search for packages matching a pattern",
+   "priority": 76,
+   "options": [
+    {
+     "name": "--match-substrings",
+     "description": "Search for a match to partial words (default)"
+    },
+    {
+     "name": "--match-words",
+     "description": "Search for a match to whole words only"
+    },
+    {
+     "name": [
+      "-x",
+      "--match-exact"
+     ],
+     "description": "Searches for an exact match of the search strings"
+    },
+    {
+     "name": "--provides",
+     "description": "Search for packages which provide the search strings"
+    },
+    {
+     "name": "--requires",
+     "description": "Search for packages which require the search strings"
+    },
+    {
+     "name": "--recommends",
+     "description": "Search for packages which recommend the search strings"
+    },
+    {
+     "name": "--supplements",
+     "description": "Search for packages which supplement the search strings"
+    },
+    {
+     "name": "--conflicts",
+     "description": "Search packages conflicting with search strings"
+    },
+    {
+     "name": "--obsoletes",
+     "description": "Search for packages which obsolete the search strings"
+    },
+    {
+     "name": "--suggests",
+     "description": "Search for packages which suggest the search strings"
+    },
+    {
+     "name": "--enhances",
+     "description": "Search for packages which enhance the search strings"
+    },
+    {
+     "name": "--provides-pkg",
+     "description": "Search for all packages that provide any of the provides of the"
+    },
+    {
+     "name": "--requires-pkg",
+     "description": "Search for all packages that require any of the provides of the"
+    },
+    {
+     "name": "--recommends-pkg",
+     "description": "Search for all packages that recommend any of the provides of the"
+    },
+    {
+     "name": "--supplements-pkg",
+     "description": "Search for all packages that supplement any of the provides of the"
+    },
+    {
+     "name": "--conflicts-pkg",
+     "description": "Search for all packages that conflict with any of the package(s) matched"
+    },
+    {
+     "name": "--obsoletes-pkg",
+     "description": "Search for all packages that obsolete any of the package(s) matched by"
+    },
+    {
+     "name": "--suggests-pkg",
+     "description": "Search for all packages that suggest any of the provides of the"
+    },
+    {
+     "name": "--enhances-pkg",
+     "description": "Search for all packages that enhance any of the provides of the"
+    },
+    {
+     "name": [
+      "-t",
+      "--type"
+     ],
+     "description": "Search only for packages of the specified type",
+     "args": {
+      "name": "type"
+     }
+    },
+    {
+     "name": [
+      "-n",
+      "--name"
+     ],
+     "description": "Useful together with dependency options, otherwise searching in package"
+    },
+    {
+     "name": [
+      "-f",
+      "--file-list"
+     ],
+     "description": "Search for a match in the file list of packages"
+    },
+    {
+     "name": [
+      "-d",
+      "--search-descriptions"
+     ],
+     "description": "Search also in package summaries and descriptions"
+    },
+    {
+     "name": [
+      "-C",
+      "--case-sensitive"
+     ],
+     "description": "Perform case-sensitive search"
+    },
+    {
+     "name": [
+      "-s",
+      "--details"
+     ],
+     "description": "Show each available version in each repository on a separate line"
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Like --details, with additional information where the search has matched"
+    },
+    {
+     "name": [
+      "-i",
+      "--installed-only"
+     ],
+     "description": "Show only installed packages"
+    },
+    {
+     "name": [
+      "-u",
+      "--not-installed-only"
+     ],
+     "description": "Show only packages which are not installed"
+    },
+    {
+     "name": "--sort-by-name",
+     "description": "Sort packages by name (default)"
+    },
+    {
+     "name": "--sort-by-repo",
+     "description": "Sort packages by repository"
+    },
+    {
+     "name": [
+      "-r",
+      "--repo"
+     ],
+     "description": "Work only with the specified repository",
+     "args": {
+      "name": "alias"
+     }
+    }
+   ],
+   "args": {
+    "name": "pattern"
+   }
+  },
+  {
+   "name": [
+    "info",
+    "if",
+    "show"
+   ],
+   "description": "Show full information for specified packages",
+   "priority": 75,
+   "options": [
+    {
+     "name": [
+      "-s",
+      "--match-substrings"
+     ],
+     "description": "Print information for packages partially matching name"
+    },
+    {
+     "name": [
+      "-t",
+      "--type"
+     ],
+     "description": "Type of package (package, patch, pattern, product)",
+     "args": {
+      "name": "type"
+     }
+    },
+    {
+     "name": "--provides",
+     "description": "Show provides"
+    },
+    {
+     "name": "--requires",
+     "description": "Show requires and prerequires"
+    },
+    {
+     "name": "--conflicts",
+     "description": "Show conflicts"
+    },
+    {
+     "name": "--obsoletes",
+     "description": "Show obsoletes"
+    },
+    {
+     "name": "--recommends",
+     "description": "Show recommends"
+    },
+    {
+     "name": "--supplements",
+     "description": "Show supplements"
+    },
+    {
+     "name": "--suggests",
+     "description": "Show suggests"
+    },
+    {
+     "name": "--enhances",
+     "description": "Show enhances"
+    },
+    {
+     "name": [
+      "-r",
+      "--repo"
+     ],
+     "description": "Work only with the specified repository",
+     "args": {
+      "name": "alias"
+     }
+    }
+   ],
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "patch-info",
+   "description": "Show full information for specified patches"
+  },
+  {
+   "name": "pattern-info",
+   "description": "Show full information for specified patterns"
+  },
+  {
+   "name": "product-info",
+   "description": "Show full information for specified products"
+  },
+  {
+   "name": [
+    "patches",
+    "pch"
+   ],
+   "description": "List all available patches",
+   "options": [
+    {
+     "name": [
+      "-r",
+      "--repo"
+     ],
+     "description": "Work only with the specified repository",
+     "args": {
+      "name": "alias"
+     }
+    }
+   ]
+  },
+  {
+   "name": [
+    "packages",
+    "pa"
+   ],
+   "description": "List all available packages",
+   "options": [
+    {
+     "name": "--autoinstalled",
+     "description": "Show installed packages which were automatically selected by the"
+    },
+    {
+     "name": "--userinstalled",
+     "description": "Show installed packages which were explicitly selected by the user"
+    },
+    {
+     "name": "--system",
+     "description": "Show installed packages which are not provided by any repository"
+    },
+    {
+     "name": "--orphaned",
+     "description": "Show system packages which are orphaned (without repository and without"
+    },
+    {
+     "name": "--suggested",
+     "description": "Show packages which are suggested"
+    },
+    {
+     "name": "--recommended",
+     "description": "Show packages which are recommended"
+    },
+    {
+     "name": "--unneeded",
+     "description": "Show packages which are unneeded"
+    },
+    {
+     "name": [
+      "-N",
+      "--sort-by-name"
+     ],
+     "description": "Sort the list by package name"
+    },
+    {
+     "name": [
+      "-R",
+      "--sort-by-repo"
+     ],
+     "description": "Sort the list by repository"
+    },
+    {
+     "name": [
+      "-r",
+      "--repo"
+     ],
+     "description": "Work only with the specified repository",
+     "args": {
+      "name": "alias"
+     }
+    },
+    {
+     "name": [
+      "-i",
+      "--installed-only"
+     ],
+     "description": "Show only installed packages"
+    },
+    {
+     "name": [
+      "-u",
+      "--not-installed-only"
+     ],
+     "description": "Show only packages which are not installed"
+    }
+   ]
+  },
+  {
+   "name": [
+    "patterns",
+    "pt"
+   ],
+   "description": "List all available patterns",
+   "options": [
+    {
+     "name": [
+      "-r",
+      "--repo"
+     ],
+     "description": "Work only with the specified repository",
+     "args": {
+      "name": "alias"
+     }
+    },
+    {
+     "name": [
+      "-i",
+      "--installed-only"
+     ],
+     "description": "Show only installed packages"
+    },
+    {
+     "name": [
+      "-u",
+      "--not-installed-only"
+     ],
+     "description": "Show only packages which are not installed"
+    }
+   ]
+  },
+  {
+   "name": [
+    "products",
+    "pd"
+   ],
+   "description": "List all available products",
+   "options": [
+    {
+     "name": "--xmlfwd",
+     "description": "XML output only: Literally forward the XML tags found in a product file",
+     "args": {
+      "name": "tag"
+     }
+    },
+    {
+     "name": [
+      "-r",
+      "--repo"
+     ],
+     "description": "Work only with the specified repository",
+     "args": {
+      "name": "alias"
+     }
+    },
+    {
+     "name": [
+      "-i",
+      "--installed-only"
+     ],
+     "description": "Show only installed packages"
+    },
+    {
+     "name": [
+      "-u",
+      "--not-installed-only"
+     ],
+     "description": "Show only packages which are not installed"
+    }
+   ]
+  },
+  {
+   "name": [
+    "what-provides",
+    "wp"
+   ],
+   "description": "List packages providing specified capability"
+  },
+  {
+   "name": [
+    "addlock",
+    "al"
+   ],
+   "description": "Add a package lock",
+   "options": [
+    {
+     "name": [
+      "-t",
+      "--type"
+     ],
+     "description": "Type of package (package, patch, pattern, product)",
+     "args": {
+      "name": "type"
+     }
+    },
+    {
+     "name": [
+      "-r",
+      "--repo"
+     ],
+     "description": "Restrict the lock to the specified repository",
+     "args": {
+      "name": "alias"
+     }
+    },
+    {
+     "name": [
+      "-m",
+      "--comment"
+     ],
+     "description": "Reason for specific lock",
+     "args": {
+      "name": "string"
+     }
+    }
+   ]
+  },
+  {
+   "name": [
+    "removelock",
+    "rl"
+   ],
+   "description": "Remove a package lock",
+   "options": [
+    {
+     "name": [
+      "-t",
+      "--type"
+     ],
+     "description": "Type of package (package, patch, pattern, product)",
+     "args": {
+      "name": "type"
+     }
+    },
+    {
+     "name": [
+      "-r",
+      "--repo"
+     ],
+     "description": "Remove only locks with specified repository",
+     "args": {
+      "name": "alias"
+     }
+    }
+   ]
+  },
+  {
+   "name": [
+    "locks",
+    "ll"
+   ],
+   "description": "List current package locks",
+   "options": [
+    {
+     "name": [
+      "-m",
+      "--matches"
+     ],
+     "description": "Show the number of resolvables matched by each lock"
+    },
+    {
+     "name": [
+      "-s",
+      "--solvables"
+     ],
+     "description": "List the resolvables matched by each lock"
+    }
+   ]
+  },
+  {
+   "name": [
+    "cleanlocks",
+    "cl"
+   ],
+   "description": "Remove useless locks",
+   "options": [
+    {
+     "name": [
+      "-d",
+      "--only-duplicates"
+     ],
+     "description": "Clean only duplicate locks"
+    },
+    {
+     "name": [
+      "-e",
+      "--only-empty"
+     ],
+     "description": "Clean only locks which doesn't lock anything"
+    }
+   ]
+  },
+  {
+   "name": [
+    "locales",
+    "lloc"
+   ],
+   "description": "List requested locales (languages codes)",
+   "options": [
+    {
+     "name": [
+      "-p",
+      "--packages"
+     ],
+     "description": "Show corresponding packages"
+    },
+    {
+     "name": [
+      "-a",
+      "--all"
+     ],
+     "description": "List all available locales"
+    }
+   ]
+  },
+  {
+   "name": [
+    "addlocale",
+    "aloc"
+   ],
+   "description": "Add locale(s) to requested locales",
+   "options": [
+    {
+     "name": [
+      "-n",
+      "--no-packages"
+     ],
+     "description": "Do not install corresponding packages for given locale(s)"
+    }
+   ]
+  },
+  {
+   "name": [
+    "removelocale",
+    "rloc"
+   ],
+   "description": "Remove locale(s) from requested locales",
+   "options": [
+    {
+     "name": [
+      "-n",
+      "--no-packages"
+     ],
+     "description": "Do not remove corresponding packages for given locale(s)"
+    }
+   ]
+  },
+  {
+   "name": [
+    "versioncmp",
+    "vcmp"
+   ],
+   "description": "Compare two version strings",
+   "options": [
+    {
+     "name": [
+      "-m",
+      "--match"
+     ],
+     "description": "Takes missing release number as any release"
+    }
+   ]
+  },
+  {
+   "name": [
+    "targetos",
+    "tos"
+   ],
+   "description": "Print the target operating system ID string",
+   "options": [
+    {
+     "name": [
+      "-l",
+      "--label"
+     ],
+     "description": "Show the baseproducts distribution and short label instead"
+    }
+   ]
+  },
+  {
+   "name": "licenses",
+   "description": "Print report about licenses and EULAs of installed packages"
+  },
+  {
+   "name": "download",
+   "description": "Download rpms specified on the commandline to a local directory",
+   "options": [
+    {
+     "name": "--all-matches",
+     "description": "Download all versions matching the commandline arguments"
+    },
+    {
+     "name": "--from",
+     "description": "Select packages from the specified repository",
+     "args": {
+      "name": "alias"
+     }
+    },
+    {
+     "name": [
+      "-D",
+      "--dry-run"
+     ],
+     "description": "Don't change anything, just report what would be done"
+    },
+    {
+     "name": [
+      "-r",
+      "--repo"
+     ],
+     "description": "Work only with the specified repository",
+     "args": {
+      "name": "alias"
+     }
+    }
+   ]
+  },
+  {
+   "name": "source-download",
+   "description": "Download source rpms for all installed packages to a local directory",
+   "options": [
+    {
+     "name": [
+      "-d",
+      "--directory"
+     ],
+     "description": "Download all source rpms to this directory",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--delete",
+     "description": "Default: false"
+    },
+    {
+     "name": "--no-delete",
+     "description": "Whether to delete extraneous source rpms in the local directory"
+    },
+    {
+     "name": "--status",
+     "description": "Don't download any source rpms, but show which source rpms are missing"
+    }
+   ]
+  },
+  {
+   "name": "needs-rebooting",
+   "description": "Check if the reboot-needed flag was set"
+  },
+  {
+   "name": "ps",
+   "description": "List running processes which might still use files and libraries deleted",
+   "options": [
+    {
+     "name": [
+      "-s",
+      "--short"
+     ],
+     "description": "Create a short table not showing the deleted files"
+    },
+    {
+     "name": "--print",
+     "description": "For each associated system service print <format> on the standard",
+     "args": {
+      "name": "format"
+     }
+    },
+    {
+     "name": [
+      "-d",
+      "--debugFile"
+     ],
+     "description": "Write debug output to file <path>",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    }
+   ]
+  },
+  {
+   "name": "purge-kernels",
+   "description": "Remove old kernels",
+   "options": [
+    {
+     "name": "--details",
+     "description": "Show the detailed installation summary"
+    },
+    {
+     "name": [
+      "-D",
+      "--dry-run"
+     ],
+     "description": "Don't change anything, just report what would be done"
+    }
+   ]
+  },
+  {
+   "name": "system-architecture",
+   "description": "Print the detected system architecture"
+  },
+  {
+   "name": "subcommand",
+   "description": "Lists available subcommands"
+  }
+ ],
+ "options": [
+  {
+   "name": [
+    "--help",
+    "-h"
+   ],
+   "description": "Help",
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "--version",
+    "-V"
+   ],
+   "description": "Output the version number",
+   "isPersistent": true
+  },
+  {
+   "name": "--promptids",
+   "description": "Output a list of zypper's user prompts",
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "--config",
+    "-c"
+   ],
+   "description": "Use specified config file instead of the default",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--userdata",
+   "description": "User defined transaction id used in history and plugins",
+   "args": {
+    "name": "string"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "--quiet",
+    "-q"
+   ],
+   "description": "Suppress normal output, print only error messages",
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "--verbose",
+    "-v"
+   ],
+   "description": "Increase verbosity",
+   "isPersistent": true
+  },
+  {
+   "name": "--color",
+   "description": "Default: false",
+   "isPersistent": true
+  },
+  {
+   "name": "--no-color",
+   "description": "Whether to use colors in output if tty supports it",
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "--no-abbrev",
+    "-A"
+   ],
+   "description": "Do not abbreviate text in tables",
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "--table-style",
+    "-s"
+   ],
+   "description": "Table style (0-11)",
+   "args": {
+    "name": "integer"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "--non-interactive",
+    "-n"
+   ],
+   "description": "Do not ask anything, use default answers automatically",
+   "isPersistent": true
+  },
+  {
+   "name": "--non-interactive-include-reboot-patches",
+   "description": "Do not treat patches as interactive, which have the rebootSuggested-flag",
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "--xmlout",
+    "-x"
+   ],
+   "description": "Switch to XML output",
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "--ignore-unknown",
+    "-i"
+   ],
+   "description": "Ignore unknown packages",
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "--terse",
+    "-t"
+   ],
+   "description": "Terse output for machine consumption",
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "--reposd-dir",
+    "-D"
+   ],
+   "description": "Use alternative repository definition file directory",
+   "args": {
+    "name": "dir",
+    "template": "folders"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--servicesd-dir",
+   "description": "Use alternative services definition file directory",
+   "args": {
+    "name": "dir",
+    "template": "folders"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "--cache-dir",
+    "-C"
+   ],
+   "description": "Use alternative directory for all caches",
+   "args": {
+    "name": "dir",
+    "template": "folders"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--raw-cache-dir",
+   "description": "Use alternative raw meta-data cache directory",
+   "args": {
+    "name": "dir",
+    "template": "folders"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--solv-cache-dir",
+   "description": "Use alternative solv file cache directory",
+   "args": {
+    "name": "dir",
+    "template": "folders"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--pkg-cache-dir",
+   "description": "Use alternative package cache directory",
+   "args": {
+    "name": "dir",
+    "template": "folders"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--no-gpg-checks",
+   "description": "Ignore GPG check failures and continue",
+   "isPersistent": true
+  },
+  {
+   "name": "--gpg-auto-import-keys",
+   "description": "Automatically trust and import new repository signing keys",
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "--plus-repo",
+    "-p"
+   ],
+   "description": "Use an additional repository",
+   "args": {
+    "name": "uri"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--plus-content",
+   "description": "Additionally use disabled repositories providing a specific keyword",
+   "args": {
+    "name": "tag"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--disable-repositories",
+   "description": "Do not read meta-data from repositories",
+   "isPersistent": true
+  },
+  {
+   "name": "--no-refresh",
+   "description": "Do not refresh the repositories",
+   "isPersistent": true
+  },
+  {
+   "name": "--no-cd",
+   "description": "Ignore CD/DVD repositories",
+   "isPersistent": true
+  },
+  {
+   "name": "--no-remote",
+   "description": "Ignore remote repositories",
+   "isPersistent": true
+  },
+  {
+   "name": "--releasever",
+   "description": "Set the value of $releasever in all .repo files (default: distribution",
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "--root",
+    "-R"
+   ],
+   "description": "Operate on a different root directory",
+   "args": {
+    "name": "dir",
+    "template": "folders"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--installroot",
+   "description": "Operate on a different root directory, but share repositories with the",
+   "args": {
+    "name": "dir",
+    "template": "folders"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--disable-system-resolvables",
+   "description": "Do not read installed packages",
+   "isPersistent": true
+  }
+ ]
+}

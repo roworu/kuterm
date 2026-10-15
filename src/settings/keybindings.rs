@@ -9,7 +9,10 @@ use serde_json_lenient::Value;
 
 use super::{CommandAction, config};
 use crate::ui::{
-    terminal_view::{Copy, Paste, Search, ShowHints, ToggleViMode},
+    terminal_view::{
+        Complete, CompletionAccept, CompletionDismiss, CompletionNext, CompletionPrev, Copy, Paste,
+        Search, ShowHints, ToggleViMode,
+    },
     workspace::{
         ActivateTab, CloseTab, Hide, HideOthers, Minimize, NewTab, NextTab, Quit, RunAction,
         ToggleCommandPalette, ToggleFullscreen,
@@ -50,6 +53,8 @@ pub enum When {
     Palette,
     ViMode,
     AltScreen,
+    /// while the completion popup shows
+    Completion,
 }
 
 impl When {
@@ -61,6 +66,7 @@ impl When {
             When::Palette => "CommandPalette",
             When::ViMode => "Terminal && vi_mode",
             When::AltScreen => "Terminal && alt_screen",
+            When::Completion => COMPLETION_CONTEXT,
         }
     }
 }
@@ -70,6 +76,9 @@ impl Default for Keybindings {
         Self::parse("{}").expect("bundled default keybindings are invalid")
     }
 }
+
+// the popup keys are plain keys the shell needs, so they only work while it shows
+const COMPLETION_CONTEXT: &str = "Terminal && completion";
 
 // keys are checked before this runs, so `KeyBinding::new` won't panic
 fn binding(action: &str, keys: &str, when: Option<&str>) -> Option<KeyBinding> {
@@ -82,6 +91,19 @@ fn binding(action: &str, keys: &str, when: Option<&str>) -> Option<KeyBinding> {
         "search" => KeyBinding::new(keys, Search, when.or(Some("Terminal"))),
         "hints" => KeyBinding::new(keys, ShowHints, when.or(Some("Terminal"))),
         "vi_mode" => KeyBinding::new(keys, ToggleViMode, when.or(Some("Terminal"))),
+        "complete" => KeyBinding::new(keys, Complete, when.or(Some("Terminal"))),
+        "completion_next" => {
+            KeyBinding::new(keys, CompletionNext, when.or(Some(COMPLETION_CONTEXT)))
+        }
+        "completion_prev" => {
+            KeyBinding::new(keys, CompletionPrev, when.or(Some(COMPLETION_CONTEXT)))
+        }
+        "completion_accept" => {
+            KeyBinding::new(keys, CompletionAccept, when.or(Some(COMPLETION_CONTEXT)))
+        }
+        "completion_dismiss" => {
+            KeyBinding::new(keys, CompletionDismiss, when.or(Some(COMPLETION_CONTEXT)))
+        }
         "command_palette" => KeyBinding::new(keys, ToggleCommandPalette, when),
         "toggle_fullscreen" => KeyBinding::new(keys, ToggleFullscreen, when),
         "quit" => KeyBinding::new(keys, Quit, when),
@@ -231,7 +253,7 @@ mod tests {
         assert_eq!(keys.0["copy"].as_deref(), Some("ctrl-shift-c"));
         assert_eq!(keys.0["activate_tab_9"].as_deref(), Some("alt-9"));
         assert_eq!(keys.0["toggle_fullscreen"].as_deref(), Some("f11"));
-        assert_eq!(keys.bindings().len(), 25);
+        assert_eq!(keys.bindings().len(), 30);
     }
 
     #[test]
@@ -262,7 +284,7 @@ mod tests {
         assert_eq!(keys.0["new_tab"].as_deref(), Some("ctrl-shift-n"));
         assert_eq!(keys.0["close_tab"], None);
         assert_eq!(keys.0["paste"].as_deref(), Some("ctrl-shift-v"));
-        assert_eq!(keys.bindings().len(), 25);
+        assert_eq!(keys.bindings().len(), 30);
     }
 
     #[test]
@@ -291,7 +313,7 @@ mod tests {
     fn activate_tab_10_adds_a_binding_for_index_9() {
         let keys = Keybindings::parse(r#"{"activate_tab_10": "alt-0"}"#).unwrap();
         let bindings = keys.bindings();
-        assert_eq!(bindings.len(), 26);
+        assert_eq!(bindings.len(), 31);
         let strokes = |ix: usize| -> Vec<Keystroke> {
             let found: Vec<_> = bindings
                 .iter()
@@ -339,6 +361,8 @@ mod tests {
             "reset_font_size",
             "open_settings",
             "reload_config",
+            "complete",
+            "completion_next",
             "activate_tab_1",
         ] {
             // other sections have keys like "copy" too

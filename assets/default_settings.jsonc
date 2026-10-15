@@ -232,6 +232,33 @@
     "notify_after": 10,
   },
 
+  // a popup of completions for the command line: programs, subcommands, options and their
+  // values, files and folders, with what they do. it needs zsh 5.3 or newer with
+  // "shell_integration.inject" on, other shells and shells over ssh work as before without
+  // it. the shell reports its command line to kuterm over a private socket of the tab, and a
+  // picked completion is put into the shell's own line, so nothing is typed for you.
+  // nothing is run to find completions: commands come from your PATH, the rest from specs
+  // in the json form of fig's specs (github.com/withfig/autocomplete). kuterm brings specs
+  // for the core commands, apt, dnf, pacman, zypper, apk, snap, flatpak, pip, systemctl,
+  // git, cargo, docker, npm, aws and more; a spec named like the command, like
+  // "kubectl.json", in the "completions" folder next to this file adds one or replaces
+  // kuterm's. their "generators" and scripts are ignored, they would run commands. new or
+  // changed specs are read when kuterm starts.
+  // keys while the popup shows are in "keybindings": "completion_next",
+  // "completion_prev", "completion_accept" and "completion_dismiss"
+  "autocomplete": {
+    // off until it works with your shell setup, new tabs pick up a change
+    "enable": true,
+    // when the popup shows:
+    //   "auto" - while typing a command, escape hides it until the next word
+    //   "key"  - only on the "complete" key
+    "trigger": "auto",
+    // rows shown at once, the list scrolls past them. from 1 to 50
+    "max_items": 8,
+    // show what each completion does next to it
+    "show_descriptions": true,
+  },
+
   // focus a split pane when the mouse moves over it, without clicking. keys then go to the
   // pane under the mouse
   "focus_follows_mouse": false,
@@ -766,6 +793,16 @@
     // select, / searches and n/N go to the next match, y copies, escape leaves.
     // a number before a motion repeats it, like 5j
     "vi_mode": "ctrl-shift-space",
+    // show completions for the command line, see "autocomplete". with "trigger": "auto"
+    // it brings a popup hidden with escape back
+    "complete": "ctrl-space",
+    // keys of the completion popup, they only work while it shows, other keys go to the
+    // shell as usual. accepting puts the picked completion into the command line, enter
+    // still runs the line as it is
+    "completion_next": "down",
+    "completion_prev": "up",
+    "completion_accept": "tab",
+    "completion_dismiss": "escape",
     // open command palette
     "command_palette": "ctrl-shift-p",
     // toggle fullscreen
@@ -813,8 +850,9 @@
   //             "unbind" - the keys do nothing in kuterm and reach the terminal program
   //             a command palette action, like { "send_text": "\u001b[2J" } that sends
   //             text to the program right away, or { "new_tab_with_profile": "dev" }
-  //   "when":   "terminal", "search" (the search bar), "palette", "vi_mode" or "alt_screen"
-  //             (full screen programs like vim). left out works everywhere
+  //   "when":   "terminal", "search" (the search bar), "palette", "vi_mode", "alt_screen"
+  //             (full screen programs like vim) or "completion" (while the completion popup
+  //             shows). left out works everywhere
   // keys pressed one after another, like "ctrl-a c", wait 1 second for the next one.
   // example:
   //   [
@@ -1070,6 +1108,8 @@
         "vi_mode": "cmd-shift-space",
         "jump_to_prev_prompt": "cmd-up",
         "jump_to_next_prompt": "cmd-down",
+        // ctrl-space switches input sources on macos
+        "complete": "cmd-i",
         "command_palette": "cmd-shift-p",
         "toggle_fullscreen": "ctrl-cmd-f",
         "quit": "cmd-q",

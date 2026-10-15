@@ -1,0 +1,111 @@
+{
+ "name": "less",
+ "description": "Page through text one screen at a time",
+ "options": [
+  {
+   "name": [
+    "-R",
+    "--RAW-CONTROL-CHARS"
+   ],
+   "description": "Show colors and other escapes",
+   "priority": 70
+  },
+  {
+   "name": [
+    "-S",
+    "--chop-long-lines"
+   ],
+   "description": "Cut long lines instead of wrapping"
+  },
+  {
+   "name": [
+    "-N",
+    "--LINE-NUMBERS"
+   ],
+   "description": "Show line numbers"
+  },
+  {
+   "name": [
+    "-i",
+    "--ignore-case"
+   ],
+   "description": "Ignore case in searches unless they have capitals"
+  },
+  {
+   "name": [
+    "-I",
+    "--IGNORE-CASE"
+   ],
+   "description": "Ignore case in all searches"
+  },
+  {
+   "name": [
+    "-F",
+    "--quit-if-one-screen"
+   ],
+   "description": "Exit right away if it fits on one screen"
+  },
+  {
+   "name": [
+    "-X",
+    "--no-init"
+   ],
+   "description": "Leave the text on screen after exiting"
+  },
+  {
+   "name": "+F",
+   "description": "Follow the file as it grows, like tail -f"
+  },
+  {
+   "name": "+G",
+   "description": "Start at the end"
+  },
+  {
+   "name": [
+    "-p",
+    "--pattern"
+   ],
+   "description": "Start at the first match",
+   "args": {
+    "name": "pattern"
+   }
+  },
+  {
+   "name": [
+    "-x",
+    "--tabs"
+   ],
+   "description": "Tab stops",
+   "args": {
+    "name": "n"
+   }
+  },
+  {
+   "name": [
+    "-K",
+    "--quit-on-intr"
+   ],
+   "description": "Exit on ctrl-c"
+  },
+  {
+   "name": [
+    "-M",
+    "--LONG-PROMPT"
+   ],
+   "description": "Show a long prompt with the position"
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Show the version"
+  }
+ ],
+ "args": {
+  "name": "file",
+  "template": "filepaths",
+  "isVariadic": true,
+  "isOptional": true
+ }
+}

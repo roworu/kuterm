@@ -1,0 +1,98 @@
+{
+ "name": "realpath",
+ "description": "Print the resolved path",
+ "options": [
+  {
+   "name": [
+    "-q",
+    "--quiet"
+   ],
+   "description": "Do not print warnings for invalid paths"
+  },
+  {
+   "name": [
+    "-s",
+    "--strip"
+   ],
+   "description": "Only strip '.' and '..' components, but don't resolve symbolic links [aliases"
+  },
+  {
+   "name": [
+    "-z",
+    "--zero"
+   ],
+   "description": "Separate output filenames with \\0 rather than newline"
+  },
+  {
+   "name": [
+    "-L",
+    "--logical"
+   ],
+   "description": "Resolve '..' components before symlinks"
+  },
+  {
+   "name": [
+    "-P",
+    "--physical"
+   ],
+   "description": "Resolve symlinks as encountered (default)"
+  },
+  {
+   "name": [
+    "-E",
+    "--canonicalize"
+   ],
+   "description": "All but the last component must exist (default)"
+  },
+  {
+   "name": [
+    "-e",
+    "--canonicalize-existing"
+   ],
+   "description": "Canonicalize by following every symlink in every component of the given name re…"
+  },
+  {
+   "name": [
+    "-m",
+    "--canonicalize-missing"
+   ],
+   "description": "Canonicalize by following every symlink in every component of the given name re…"
+  },
+  {
+   "name": "--relative-to",
+   "description": "Print the resolved path relative to DIR",
+   "args": {
+    "name": "dir",
+    "template": "folders"
+   }
+  },
+  {
+   "name": "--relative-base",
+   "description": "Print absolute paths unless paths below DIR",
+   "args": {
+    "name": "dir",
+    "template": "folders"
+   }
+  },
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Print help"
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Print version"
+  }
+ ],
+ "args": {
+  "name": "file",
+  "template": "filepaths",
+  "isVariadic": true,
+  "isOptional": true
+ }
+}

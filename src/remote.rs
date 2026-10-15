@@ -71,7 +71,7 @@ impl Reply {
 }
 
 /// folder sockets go in: `$XDG_RUNTIME_DIR`, the temp folder without it
-fn runtime_dir() -> PathBuf {
+pub(crate) fn runtime_dir() -> PathBuf {
     std::env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
         .filter(|dir| dir.is_absolute())

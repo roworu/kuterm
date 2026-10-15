@@ -1,0 +1,4215 @@
+{
+ "name": "flatpak",
+ "description": "Build, install and run applications and runtimes",
+ "subcommands": [
+  {
+   "name": "install",
+   "description": "Install an application or runtime",
+   "priority": 76,
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": [
+      "-u",
+      "--user"
+     ],
+     "description": "Work on the user installation"
+    },
+    {
+     "name": "--system",
+     "description": "Work on the system-wide installation (default)"
+    },
+    {
+     "name": "--installation",
+     "description": "Work on a non-default system-wide installation",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": "--arch",
+     "description": "Arch to install for",
+     "args": {
+      "name": "arch"
+     }
+    },
+    {
+     "name": "--no-pull",
+     "description": "Don't pull, only install from local cache"
+    },
+    {
+     "name": "--no-deploy",
+     "description": "Don't deploy, only download to local cache"
+    },
+    {
+     "name": "--no-related",
+     "description": "Don't install related refs"
+    },
+    {
+     "name": "--no-deps",
+     "description": "Don't verify/install runtime dependencies"
+    },
+    {
+     "name": "--no-auto-pin",
+     "description": "Don't automatically pin explicit installs"
+    },
+    {
+     "name": "--no-static-deltas",
+     "description": "Don't use static deltas"
+    },
+    {
+     "name": "--runtime",
+     "description": "Look for runtime with the specified name"
+    },
+    {
+     "name": "--app",
+     "description": "Look for app with the specified name"
+    },
+    {
+     "name": "--include-sdk",
+     "description": "Additionally install the SDK used to build the given refs"
+    },
+    {
+     "name": "--include-debug",
+     "description": "Additionally install the debug info for the given refs and their dependencies"
+    },
+    {
+     "name": "--bundle",
+     "description": "Assume LOCATION is a .flatpak single-file bundle"
+    },
+    {
+     "name": "--from",
+     "description": "Assume LOCATION is a .flatpakref application description"
+    },
+    {
+     "name": "--gpg-file",
+     "description": "Check bundle signatures with GPG key from FILE (- for stdin)",
+     "args": {
+      "name": "file",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--subpath",
+     "description": "Only install this subpath",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": [
+      "-y",
+      "--assumeyes"
+     ],
+     "description": "Automatically answer yes for all questions"
+    },
+    {
+     "name": "--reinstall",
+     "description": "Uninstall first if already installed"
+    },
+    {
+     "name": "--noninteractive",
+     "description": "Produce minimal output and don't ask questions"
+    },
+    {
+     "name": "--or-update",
+     "description": "Update install if already installed"
+    },
+    {
+     "name": "--sideload-repo",
+     "description": "Use this local repo for sideloads",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ],
+   "args": {
+    "name": "ref",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "update",
+   "description": "Update an installed application or runtime",
+   "priority": 76,
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": [
+      "-u",
+      "--user"
+     ],
+     "description": "Work on the user installation"
+    },
+    {
+     "name": "--system",
+     "description": "Work on the system-wide installation (default)"
+    },
+    {
+     "name": "--installation",
+     "description": "Work on a non-default system-wide installation",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": "--arch",
+     "description": "Arch to update for",
+     "args": {
+      "name": "arch"
+     }
+    },
+    {
+     "name": "--commit",
+     "description": "Commit to deploy",
+     "args": {
+      "name": "commit"
+     }
+    },
+    {
+     "name": "--force-remove",
+     "description": "Remove old files even if running"
+    },
+    {
+     "name": "--no-pull",
+     "description": "Don't pull, only update from local cache"
+    },
+    {
+     "name": "--no-deploy",
+     "description": "Don't deploy, only download to local cache"
+    },
+    {
+     "name": "--no-related",
+     "description": "Don't update related refs"
+    },
+    {
+     "name": "--no-deps",
+     "description": "Don't verify/install runtime dependencies"
+    },
+    {
+     "name": "--no-static-deltas",
+     "description": "Don't use static deltas"
+    },
+    {
+     "name": "--runtime",
+     "description": "Look for runtime with the specified name"
+    },
+    {
+     "name": "--app",
+     "description": "Look for app with the specified name"
+    },
+    {
+     "name": "--appstream",
+     "description": "Update appstream for remote"
+    },
+    {
+     "name": "--subpath",
+     "description": "Only update this subpath",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": [
+      "-y",
+      "--assumeyes"
+     ],
+     "description": "Automatically answer yes for all questions"
+    },
+    {
+     "name": "--noninteractive",
+     "description": "Produce minimal output and don't ask questions"
+    },
+    {
+     "name": "--sideload-repo",
+     "description": "Use this local repo for sideloads",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ],
+   "args": {
+    "name": "ref",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "uninstall",
+   "description": "Uninstall an installed application or runtime",
+   "priority": 75,
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": [
+      "-u",
+      "--user"
+     ],
+     "description": "Work on the user installation"
+    },
+    {
+     "name": "--system",
+     "description": "Work on the system-wide installation (default)"
+    },
+    {
+     "name": "--installation",
+     "description": "Work on a non-default system-wide installation",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": "--arch",
+     "description": "Arch to uninstall",
+     "args": {
+      "name": "arch"
+     }
+    },
+    {
+     "name": "--keep-ref",
+     "description": "Keep ref in local repository"
+    },
+    {
+     "name": "--no-related",
+     "description": "Don't uninstall related refs"
+    },
+    {
+     "name": "--force-remove",
+     "description": "Remove files even if running"
+    },
+    {
+     "name": "--runtime",
+     "description": "Look for runtime with the specified name"
+    },
+    {
+     "name": "--app",
+     "description": "Look for app with the specified name"
+    },
+    {
+     "name": "--all",
+     "description": "Uninstall all"
+    },
+    {
+     "name": "--unused",
+     "description": "Uninstall unused"
+    },
+    {
+     "name": "--delete-data",
+     "description": "Delete app data"
+    },
+    {
+     "name": [
+      "-y",
+      "--assumeyes"
+     ],
+     "description": "Automatically answer yes for all questions"
+    },
+    {
+     "name": "--noninteractive",
+     "description": "Produce minimal output and don't ask questions"
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ],
+   "args": {
+    "name": "ref",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "mask",
+   "description": "Mask out updates and automatic installation",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": [
+      "-u",
+      "--user"
+     ],
+     "description": "Work on the user installation"
+    },
+    {
+     "name": "--system",
+     "description": "Work on the system-wide installation (default)"
+    },
+    {
+     "name": "--installation",
+     "description": "Work on a non-default system-wide installation",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": "--remove",
+     "description": "Remove matching masks"
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "pin",
+   "description": "Pin a runtime to prevent automatic removal",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": [
+      "-u",
+      "--user"
+     ],
+     "description": "Work on the user installation"
+    },
+    {
+     "name": "--system",
+     "description": "Work on the system-wide installation (default)"
+    },
+    {
+     "name": "--installation",
+     "description": "Work on a non-default system-wide installation",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": "--remove",
+     "description": "Remove matching pins"
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "list",
+   "description": "List installed apps and/or runtimes",
+   "priority": 76,
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": [
+      "-u",
+      "--user"
+     ],
+     "description": "Work on the user installation"
+    },
+    {
+     "name": "--system",
+     "description": "Work on the system-wide installation (default)"
+    },
+    {
+     "name": "--installation",
+     "description": "Work on a non-default system-wide installation",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": [
+      "-d",
+      "--show-details"
+     ],
+     "description": "Show extra information"
+    },
+    {
+     "name": "--runtime",
+     "description": "List installed runtimes"
+    },
+    {
+     "name": "--app",
+     "description": "List installed applications"
+    },
+    {
+     "name": "--arch",
+     "description": "Arch to show",
+     "args": {
+      "name": "arch"
+     }
+    },
+    {
+     "name": [
+      "-a",
+      "--all"
+     ],
+     "description": "List all refs (including locale/debug)"
+    },
+    {
+     "name": "--app-runtime",
+     "description": "List all applications using RUNTIME",
+     "args": {
+      "name": "runtime"
+     }
+    },
+    {
+     "name": "--columns",
+     "description": "What information to show",
+     "args": {
+      "name": "field"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "info",
+   "description": "Show info for installed app or runtime",
+   "priority": 75,
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": "--arch",
+     "description": "Arch to use",
+     "args": {
+      "name": "arch"
+     }
+    },
+    {
+     "name": "--user",
+     "description": "Show user installations"
+    },
+    {
+     "name": "--system",
+     "description": "Show system-wide installations"
+    },
+    {
+     "name": "--installation",
+     "description": "Show specific system-wide installations",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": [
+      "-r",
+      "--show-ref"
+     ],
+     "description": "Show ref"
+    },
+    {
+     "name": [
+      "-c",
+      "--show-commit"
+     ],
+     "description": "Show commit"
+    },
+    {
+     "name": [
+      "-o",
+      "--show-origin"
+     ],
+     "description": "Show origin"
+    },
+    {
+     "name": [
+      "-s",
+      "--show-size"
+     ],
+     "description": "Show size"
+    },
+    {
+     "name": [
+      "-m",
+      "--show-metadata"
+     ],
+     "description": "Show metadata"
+    },
+    {
+     "name": "--show-runtime",
+     "description": "Show runtime"
+    },
+    {
+     "name": "--show-sdk",
+     "description": "Show sdk"
+    },
+    {
+     "name": [
+      "-M",
+      "--show-permissions"
+     ],
+     "description": "Show permissions"
+    },
+    {
+     "name": "--file-access",
+     "description": "Query file access",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": [
+      "-e",
+      "--show-extensions"
+     ],
+     "description": "Show extensions"
+    },
+    {
+     "name": [
+      "-l",
+      "--show-location"
+     ],
+     "description": "Show location"
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ],
+   "args": {
+    "name": "ref",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "history",
+   "description": "Show history",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": [
+      "-u",
+      "--user"
+     ],
+     "description": "Work on the user installation"
+    },
+    {
+     "name": "--system",
+     "description": "Work on the system-wide installation (default)"
+    },
+    {
+     "name": "--installation",
+     "description": "Work on a non-default system-wide installation",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": "--since",
+     "description": "Only show changes after TIME",
+     "args": {
+      "name": "time"
+     }
+    },
+    {
+     "name": "--until",
+     "description": "Only show changes before TIME",
+     "args": {
+      "name": "time"
+     }
+    },
+    {
+     "name": "--reverse",
+     "description": "Show newest entries first"
+    },
+    {
+     "name": "--columns",
+     "description": "What information to show",
+     "args": {
+      "name": "field"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "config",
+   "description": "Configure flatpak",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": [
+      "-u",
+      "--user"
+     ],
+     "description": "Work on the user installation"
+    },
+    {
+     "name": "--system",
+     "description": "Work on the system-wide installation (default)"
+    },
+    {
+     "name": "--installation",
+     "description": "Work on a non-default system-wide installation",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": "--list",
+     "description": "List configuration keys and values"
+    },
+    {
+     "name": "--get",
+     "description": "Get configuration for KEY"
+    },
+    {
+     "name": "--set",
+     "description": "Set configuration for KEY to VALUE"
+    },
+    {
+     "name": "--unset",
+     "description": "Unset configuration for KEY"
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "repair",
+   "description": "Repair flatpak installation",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": [
+      "-u",
+      "--user"
+     ],
+     "description": "Work on the user installation"
+    },
+    {
+     "name": "--system",
+     "description": "Work on the system-wide installation (default)"
+    },
+    {
+     "name": "--installation",
+     "description": "Work on a non-default system-wide installation",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": "--dry-run",
+     "description": "Don't make any changes"
+    },
+    {
+     "name": "--reinstall-all",
+     "description": "Reinstall all refs"
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "create-usb",
+   "description": "Put applications or runtimes onto removable media",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": [
+      "-u",
+      "--user"
+     ],
+     "description": "Work on the user installation"
+    },
+    {
+     "name": "--system",
+     "description": "Work on the system-wide installation (default)"
+    },
+    {
+     "name": "--installation",
+     "description": "Work on a non-default system-wide installation",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": "--app",
+     "description": "Look for app with the specified name"
+    },
+    {
+     "name": "--arch",
+     "description": "Arch to copy",
+     "args": {
+      "name": "arch"
+     }
+    },
+    {
+     "name": "--destination-repo",
+     "description": "Use custom repository directory within the mount",
+     "args": {
+      "name": "dest"
+     }
+    },
+    {
+     "name": "--runtime",
+     "description": "Look for runtime with the specified name"
+    },
+    {
+     "name": "--allow-partial",
+     "description": "Allow partial commits in the created repo"
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "search",
+   "description": "Search for remote apps/runtimes",
+   "priority": 75,
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": [
+      "-u",
+      "--user"
+     ],
+     "description": "Work on the user installation"
+    },
+    {
+     "name": "--system",
+     "description": "Work on the system-wide installation (default)"
+    },
+    {
+     "name": "--installation",
+     "description": "Work on a non-default system-wide installation",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": "--arch",
+     "description": "Arch to search for",
+     "args": {
+      "name": "arch"
+     }
+    },
+    {
+     "name": "--columns",
+     "description": "What information to show",
+     "args": {
+      "name": "field"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ],
+   "args": {
+    "name": "text"
+   }
+  },
+  {
+   "name": "run",
+   "description": "Run an application",
+   "priority": 76,
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": "--help-all",
+     "description": "Show all help options"
+    },
+    {
+     "name": [
+      "-u",
+      "--user"
+     ],
+     "description": "Work on the user installation"
+    },
+    {
+     "name": "--system",
+     "description": "Work on the system-wide installation (default)"
+    },
+    {
+     "name": "--installation",
+     "description": "Work on a non-default system-wide installation",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": "--arch",
+     "description": "Arch to use",
+     "args": {
+      "name": "arch"
+     }
+    },
+    {
+     "name": "--command",
+     "description": "Command to run",
+     "args": {
+      "name": "command"
+     }
+    },
+    {
+     "name": "--cwd",
+     "description": "Directory to run the command in",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--branch",
+     "description": "Branch to use",
+     "args": {
+      "name": "branch"
+     }
+    },
+    {
+     "name": [
+      "-d",
+      "--devel"
+     ],
+     "description": "Use development runtime"
+    },
+    {
+     "name": "--runtime",
+     "description": "Runtime to use",
+     "args": {
+      "name": "runtime"
+     }
+    },
+    {
+     "name": "--runtime-version",
+     "description": "Runtime version to use",
+     "args": {
+      "name": "version"
+     }
+    },
+    {
+     "name": "--log-session-bus",
+     "description": "Log session bus calls"
+    },
+    {
+     "name": "--log-system-bus",
+     "description": "Log system bus calls"
+    },
+    {
+     "name": "--log-a11y-bus",
+     "description": "Log accessibility bus calls"
+    },
+    {
+     "name": "--no-a11y-bus",
+     "description": "Don't proxy accessibility bus calls"
+    },
+    {
+     "name": "--a11y-bus",
+     "description": "Proxy accessibility bus calls (default except when sandboxed)"
+    },
+    {
+     "name": "--no-session-bus",
+     "description": "Don't proxy session bus calls"
+    },
+    {
+     "name": "--session-bus",
+     "description": "Proxy session bus calls (default except when sandboxed)"
+    },
+    {
+     "name": "--no-documents-portal",
+     "description": "Don't start portals"
+    },
+    {
+     "name": "--file-forwarding",
+     "description": "Enable file forwarding"
+    },
+    {
+     "name": "--commit",
+     "description": "Run specified commit"
+    },
+    {
+     "name": "--runtime-commit",
+     "description": "Use specified runtime commit"
+    },
+    {
+     "name": "--sandbox",
+     "description": "Run completely sandboxed"
+    },
+    {
+     "name": [
+      "-p",
+      "--die-with-parent"
+     ],
+     "description": "Kill processes when the parent process dies"
+    },
+    {
+     "name": "--parent-pid",
+     "description": "Use PID as parent pid for sharing namespaces",
+     "args": {
+      "name": "pid"
+     }
+    },
+    {
+     "name": "--parent-expose-pids",
+     "description": "Make processes visible in parent namespace"
+    },
+    {
+     "name": "--parent-share-pids",
+     "description": "Share process ID namespace with parent"
+    },
+    {
+     "name": "--instance-id-fd",
+     "description": "Write the instance ID to the given file descriptor"
+    },
+    {
+     "name": "--app-path",
+     "description": "Use PATH instead of the app's /app",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--app-fd",
+     "description": "Use FD instead of the app's /app",
+     "args": {
+      "name": "fd"
+     }
+    },
+    {
+     "name": "--usr-path",
+     "description": "Use PATH instead of the runtime's /usr",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--usr-fd",
+     "description": "Use FD instead of the runtime's /usr",
+     "args": {
+      "name": "fd"
+     }
+    },
+    {
+     "name": "--bind-fd",
+     "description": "Bind mount the file or directory referred to by FD to its canonicalized path",
+     "args": {
+      "name": "fd"
+     }
+    },
+    {
+     "name": "--ro-bind-fd",
+     "description": "Bind mount the file or directory referred to by FD read-only to its canonicaliz…",
+     "args": {
+      "name": "fd"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    },
+    {
+     "name": "--share",
+     "description": "Share with host",
+     "args": {
+      "name": "share"
+     }
+    },
+    {
+     "name": "--unshare",
+     "description": "Unshare with host",
+     "args": {
+      "name": "share"
+     }
+    },
+    {
+     "name": "--socket",
+     "description": "Expose socket to app",
+     "args": {
+      "name": "socket"
+     }
+    },
+    {
+     "name": "--nosocket",
+     "description": "Don't expose socket to app",
+     "args": {
+      "name": "socket"
+     }
+    },
+    {
+     "name": "--device",
+     "description": "Expose device to app",
+     "args": {
+      "name": "device"
+     }
+    },
+    {
+     "name": "--nodevice",
+     "description": "Don't expose device to app",
+     "args": {
+      "name": "device"
+     }
+    },
+    {
+     "name": "--allow",
+     "description": "Allow feature",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--disallow",
+     "description": "Don't allow feature",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--filesystem",
+     "description": "Expose filesystem to app (:ro for read-only)",
+     "args": {
+      "name": "filesystem"
+     }
+    },
+    {
+     "name": "--nofilesystem",
+     "description": "Don't expose filesystem to app",
+     "args": {
+      "name": "filesystem"
+     }
+    },
+    {
+     "name": "--env",
+     "description": "Set environment variable",
+     "args": {
+      "name": "var"
+     }
+    },
+    {
+     "name": "--env-fd",
+     "description": "Read environment variables in env -0 format from FD",
+     "args": {
+      "name": "fd"
+     }
+    },
+    {
+     "name": "--unset-env",
+     "description": "Remove variable from environment",
+     "args": {
+      "name": "var"
+     }
+    },
+    {
+     "name": "--own-name",
+     "description": "Allow app to own name on the session bus",
+     "args": {
+      "name": "dbus_name"
+     }
+    },
+    {
+     "name": "--talk-name",
+     "description": "Allow app to talk to name on the session bus",
+     "args": {
+      "name": "dbus_name"
+     }
+    },
+    {
+     "name": "--no-talk-name",
+     "description": "Don't allow app to talk to name on the session bus",
+     "args": {
+      "name": "dbus_name"
+     }
+    },
+    {
+     "name": "--system-own-name",
+     "description": "Allow app to own name on the system bus",
+     "args": {
+      "name": "dbus_name"
+     }
+    },
+    {
+     "name": "--system-talk-name",
+     "description": "Allow app to talk to name on the system bus",
+     "args": {
+      "name": "dbus_name"
+     }
+    },
+    {
+     "name": "--system-no-talk-name",
+     "description": "Don't allow app to talk to name on the system bus",
+     "args": {
+      "name": "dbus_name"
+     }
+    },
+    {
+     "name": "--a11y-own-name",
+     "description": "Allow app to own name on the a11y bus",
+     "args": {
+      "name": "dbus_name"
+     }
+    },
+    {
+     "name": "--add-policy",
+     "description": "Add generic policy option",
+     "args": {
+      "name": "subsystem"
+     }
+    },
+    {
+     "name": "--remove-policy",
+     "description": "Remove generic policy option",
+     "args": {
+      "name": "subsystem"
+     }
+    },
+    {
+     "name": "--usb",
+     "description": "Add USB device to enumerables",
+     "args": {
+      "name": "vendor_id"
+     }
+    },
+    {
+     "name": "--nousb",
+     "description": "Add USB device to hidden list",
+     "args": {
+      "name": "vendor_id"
+     }
+    },
+    {
+     "name": "--usb-list",
+     "description": "A list of USB devices that are enumerable",
+     "args": {
+      "name": "list"
+     }
+    },
+    {
+     "name": "--usb-list-file",
+     "description": "File containing a list of USB devices to make enumerable",
+     "args": {
+      "name": "filename",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--persist",
+     "description": "Persist home directory subpath",
+     "args": {
+      "name": "filename",
+      "template": "filepaths"
+     }
+    }
+   ],
+   "args": {
+    "name": "ref",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "override",
+   "description": "Override permissions for an application",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": "--help-all",
+     "description": "Show all help options"
+    },
+    {
+     "name": [
+      "-u",
+      "--user"
+     ],
+     "description": "Work on the user installation"
+    },
+    {
+     "name": "--system",
+     "description": "Work on the system-wide installation (default)"
+    },
+    {
+     "name": "--installation",
+     "description": "Work on a non-default system-wide installation",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": "--reset",
+     "description": "Remove existing overrides"
+    },
+    {
+     "name": "--show",
+     "description": "Show existing overrides"
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    },
+    {
+     "name": "--share",
+     "description": "Share with host",
+     "args": {
+      "name": "share"
+     }
+    },
+    {
+     "name": "--unshare",
+     "description": "Unshare with host",
+     "args": {
+      "name": "share"
+     }
+    },
+    {
+     "name": "--socket",
+     "description": "Expose socket to app",
+     "args": {
+      "name": "socket"
+     }
+    },
+    {
+     "name": "--nosocket",
+     "description": "Don't expose socket to app",
+     "args": {
+      "name": "socket"
+     }
+    },
+    {
+     "name": "--device",
+     "description": "Expose device to app",
+     "args": {
+      "name": "device"
+     }
+    },
+    {
+     "name": "--nodevice",
+     "description": "Don't expose device to app",
+     "args": {
+      "name": "device"
+     }
+    },
+    {
+     "name": "--allow",
+     "description": "Allow feature",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--disallow",
+     "description": "Don't allow feature",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--filesystem",
+     "description": "Expose filesystem to app (:ro for read-only)",
+     "args": {
+      "name": "filesystem"
+     }
+    },
+    {
+     "name": "--nofilesystem",
+     "description": "Don't expose filesystem to app",
+     "args": {
+      "name": "filesystem"
+     }
+    },
+    {
+     "name": "--env",
+     "description": "Set environment variable",
+     "args": {
+      "name": "var"
+     }
+    },
+    {
+     "name": "--env-fd",
+     "description": "Read environment variables in env -0 format from FD",
+     "args": {
+      "name": "fd"
+     }
+    },
+    {
+     "name": "--unset-env",
+     "description": "Remove variable from environment",
+     "args": {
+      "name": "var"
+     }
+    },
+    {
+     "name": "--own-name",
+     "description": "Allow app to own name on the session bus",
+     "args": {
+      "name": "dbus_name"
+     }
+    },
+    {
+     "name": "--talk-name",
+     "description": "Allow app to talk to name on the session bus",
+     "args": {
+      "name": "dbus_name"
+     }
+    },
+    {
+     "name": "--no-talk-name",
+     "description": "Don't allow app to talk to name on the session bus",
+     "args": {
+      "name": "dbus_name"
+     }
+    },
+    {
+     "name": "--system-own-name",
+     "description": "Allow app to own name on the system bus",
+     "args": {
+      "name": "dbus_name"
+     }
+    },
+    {
+     "name": "--system-talk-name",
+     "description": "Allow app to talk to name on the system bus",
+     "args": {
+      "name": "dbus_name"
+     }
+    },
+    {
+     "name": "--system-no-talk-name",
+     "description": "Don't allow app to talk to name on the system bus",
+     "args": {
+      "name": "dbus_name"
+     }
+    },
+    {
+     "name": "--a11y-own-name",
+     "description": "Allow app to own name on the a11y bus",
+     "args": {
+      "name": "dbus_name"
+     }
+    },
+    {
+     "name": "--add-policy",
+     "description": "Add generic policy option",
+     "args": {
+      "name": "subsystem"
+     }
+    },
+    {
+     "name": "--remove-policy",
+     "description": "Remove generic policy option",
+     "args": {
+      "name": "subsystem"
+     }
+    },
+    {
+     "name": "--usb",
+     "description": "Add USB device to enumerables",
+     "args": {
+      "name": "vendor_id"
+     }
+    },
+    {
+     "name": "--nousb",
+     "description": "Add USB device to hidden list",
+     "args": {
+      "name": "vendor_id"
+     }
+    },
+    {
+     "name": "--usb-list",
+     "description": "A list of USB devices that are enumerable",
+     "args": {
+      "name": "list"
+     }
+    },
+    {
+     "name": "--usb-list-file",
+     "description": "File containing a list of USB devices to make enumerable",
+     "args": {
+      "name": "filename",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--persist",
+     "description": "Persist home directory subpath",
+     "args": {
+      "name": "filename",
+      "template": "filepaths"
+     }
+    }
+   ]
+  },
+  {
+   "name": "make-current",
+   "description": "Specify default version to run",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": [
+      "-u",
+      "--user"
+     ],
+     "description": "Work on the user installation"
+    },
+    {
+     "name": "--system",
+     "description": "Work on the system-wide installation (default)"
+    },
+    {
+     "name": "--installation",
+     "description": "Work on a non-default system-wide installation",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": "--arch",
+     "description": "Arch to make current for",
+     "args": {
+      "name": "arch"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "enter",
+   "description": "Enter the namespace of a running application",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "ps",
+   "description": "Enumerate running applications",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": "--columns",
+     "description": "What information to show",
+     "args": {
+      "name": "field"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "kill",
+   "description": "Stop a running application",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "documents",
+   "description": "List exported files",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": "--columns",
+     "description": "What information to show",
+     "args": {
+      "name": "field"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "document-export",
+   "description": "Grant an application access to a specific file",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": [
+      "-u",
+      "--unique"
+     ],
+     "description": "Create a unique document reference"
+    },
+    {
+     "name": [
+      "-t",
+      "--transient"
+     ],
+     "description": "Make the document transient for the current session"
+    },
+    {
+     "name": [
+      "-n",
+      "--noexist"
+     ],
+     "description": "Don't require the file to exist already"
+    },
+    {
+     "name": [
+      "-r",
+      "--allow-read"
+     ],
+     "description": "Give the app read permissions"
+    },
+    {
+     "name": [
+      "-w",
+      "--allow-write"
+     ],
+     "description": "Give the app write permissions"
+    },
+    {
+     "name": [
+      "-d",
+      "--allow-delete"
+     ],
+     "description": "Give the app delete permissions"
+    },
+    {
+     "name": [
+      "-g",
+      "--allow-grant-permission"
+     ],
+     "description": "Give the app permissions to grant further permissions"
+    },
+    {
+     "name": "--forbid-read",
+     "description": "Revoke read permissions of the app"
+    },
+    {
+     "name": "--forbid-write",
+     "description": "Revoke write permissions of the app"
+    },
+    {
+     "name": "--forbid-delete",
+     "description": "Revoke delete permissions of the app"
+    },
+    {
+     "name": "--forbid-grant-permission",
+     "description": "Revoke the permission to grant further permissions"
+    },
+    {
+     "name": [
+      "-a",
+      "--app"
+     ],
+     "description": "Add permissions for this app",
+     "args": {
+      "name": "appid"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "document-unexport",
+   "description": "Revoke access to a specific file",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": "--doc-id",
+     "description": "Specify the document ID"
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "document-info",
+   "description": "Show information about a specific file",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "permissions",
+   "description": "List permissions",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "permission-remove",
+   "description": "Remove item from permission store",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "permission-set",
+   "description": "Set permissions",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": "--data",
+     "description": "Associate DATA with the entry",
+     "args": {
+      "name": "data"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "permission-show",
+   "description": "Show app permissions",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "permission-reset",
+   "description": "Reset app permissions",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": "--all",
+     "description": "Reset all permissions"
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "remotes",
+   "description": "List all configured remotes",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": [
+      "-u",
+      "--user"
+     ],
+     "description": "Work on the user installation"
+    },
+    {
+     "name": "--system",
+     "description": "Work on the system-wide installation (default)"
+    },
+    {
+     "name": "--installation",
+     "description": "Work on a non-default system-wide installation",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": [
+      "-d",
+      "--show-details"
+     ],
+     "description": "Show remote details"
+    },
+    {
+     "name": "--show-disabled",
+     "description": "Show disabled remotes"
+    },
+    {
+     "name": "--columns",
+     "description": "What information to show",
+     "args": {
+      "name": "field"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "remote-add",
+   "description": "Add a new remote repository (by URL)",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": "--no-gpg-verify",
+     "description": "Disable GPG verification"
+    },
+    {
+     "name": "--no-enumerate",
+     "description": "Mark the remote as don't enumerate"
+    },
+    {
+     "name": "--no-use-for-deps",
+     "description": "Mark the remote as don't use for deps"
+    },
+    {
+     "name": "--prio",
+     "description": "Set priority (default 1, higher is more prioritized)",
+     "args": {
+      "name": "priority"
+     }
+    },
+    {
+     "name": "--subset",
+     "description": "The named subset to use for this remote",
+     "args": {
+      "name": "subset"
+     }
+    },
+    {
+     "name": "--title",
+     "description": "A nice name to use for this remote",
+     "args": {
+      "name": "title"
+     }
+    },
+    {
+     "name": "--comment",
+     "description": "A one-line comment for this remote",
+     "args": {
+      "name": "comment"
+     }
+    },
+    {
+     "name": "--description",
+     "description": "A full-paragraph description for this remote",
+     "args": {
+      "name": "description"
+     }
+    },
+    {
+     "name": "--homepage",
+     "description": "URL for a website for this remote",
+     "args": {
+      "name": "url"
+     }
+    },
+    {
+     "name": "--icon",
+     "description": "URL for an icon for this remote",
+     "args": {
+      "name": "url"
+     }
+    },
+    {
+     "name": "--default-branch",
+     "description": "Default branch to use for this remote",
+     "args": {
+      "name": "branch"
+     }
+    },
+    {
+     "name": "--collection-id",
+     "description": "Collection ID",
+     "args": {
+      "name": "collection-id"
+     }
+    },
+    {
+     "name": "--gpg-import",
+     "description": "Import GPG key from FILE (- for stdin)",
+     "args": {
+      "name": "file",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--filter",
+     "description": "Set path to local filter FILE",
+     "args": {
+      "name": "file",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--disable",
+     "description": "Disable the remote"
+    },
+    {
+     "name": "--authenticator-name",
+     "description": "Name of authenticator",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": "--authenticator-option",
+     "description": "Authenticator option",
+     "args": {
+      "name": "key"
+     }
+    },
+    {
+     "name": "--authenticator-install",
+     "description": "Autoinstall authenticator"
+    },
+    {
+     "name": "--no-authenticator-install",
+     "description": "Don't autoinstall authenticator"
+    },
+    {
+     "name": "--no-follow_redirect",
+     "description": "Don't follow the redirect set in the summary file"
+    },
+    {
+     "name": [
+      "-u",
+      "--user"
+     ],
+     "description": "Work on the user installation"
+    },
+    {
+     "name": "--system",
+     "description": "Work on the system-wide installation (default)"
+    },
+    {
+     "name": "--installation",
+     "description": "Work on a non-default system-wide installation",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": "--if-not-exists",
+     "description": "Do nothing if the provided remote exists"
+    },
+    {
+     "name": "--from",
+     "description": "LOCATION specifies a configuration file, not the repo location"
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "remote-modify",
+   "description": "Modify properties of a configured remote",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": "--no-gpg-verify",
+     "description": "Disable GPG verification"
+    },
+    {
+     "name": "--no-enumerate",
+     "description": "Mark the remote as don't enumerate"
+    },
+    {
+     "name": "--no-use-for-deps",
+     "description": "Mark the remote as don't use for deps"
+    },
+    {
+     "name": "--prio",
+     "description": "Set priority (default 1, higher is more prioritized)",
+     "args": {
+      "name": "priority"
+     }
+    },
+    {
+     "name": "--title",
+     "description": "A nice name to use for this remote",
+     "args": {
+      "name": "title"
+     }
+    },
+    {
+     "name": "--comment",
+     "description": "A one-line comment for this remote",
+     "args": {
+      "name": "comment"
+     }
+    },
+    {
+     "name": "--description",
+     "description": "A full-paragraph description for this remote",
+     "args": {
+      "name": "description"
+     }
+    },
+    {
+     "name": "--homepage",
+     "description": "URL for a website for this remote",
+     "args": {
+      "name": "url"
+     }
+    },
+    {
+     "name": "--icon",
+     "description": "URL for an icon for this remote",
+     "args": {
+      "name": "url"
+     }
+    },
+    {
+     "name": "--default-branch",
+     "description": "Default branch to use for this remote",
+     "args": {
+      "name": "branch"
+     }
+    },
+    {
+     "name": "--collection-id",
+     "description": "Collection ID",
+     "args": {
+      "name": "collection-id"
+     }
+    },
+    {
+     "name": "--gpg-import",
+     "description": "Import GPG key from FILE (- for stdin)",
+     "args": {
+      "name": "file",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--no-filter",
+     "description": "Disable local filter"
+    },
+    {
+     "name": "--filter",
+     "description": "Set path to local filter FILE",
+     "args": {
+      "name": "file",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--disable",
+     "description": "Disable the remote"
+    },
+    {
+     "name": "--authenticator-name",
+     "description": "Name of authenticator",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": "--authenticator-option",
+     "description": "Authenticator options",
+     "args": {
+      "name": "key"
+     }
+    },
+    {
+     "name": "--authenticator-install",
+     "description": "Autoinstall authenticator"
+    },
+    {
+     "name": "--no-authenticator-install",
+     "description": "Don't autoinstall authenticator"
+    },
+    {
+     "name": "--follow-redirect",
+     "description": "Follow the redirect set in the summary file"
+    },
+    {
+     "name": "--no-follow-redirect",
+     "description": "Don't follow the redirect set in the summary file"
+    },
+    {
+     "name": [
+      "-u",
+      "--user"
+     ],
+     "description": "Work on the user installation"
+    },
+    {
+     "name": "--system",
+     "description": "Work on the system-wide installation (default)"
+    },
+    {
+     "name": "--installation",
+     "description": "Work on a non-default system-wide installation",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": "--gpg-verify",
+     "description": "Enable GPG verification"
+    },
+    {
+     "name": "--enumerate",
+     "description": "Mark the remote as enumerate"
+    },
+    {
+     "name": "--use-for-deps",
+     "description": "Mark the remote as used for dependencies"
+    },
+    {
+     "name": "--url",
+     "description": "Set a new url",
+     "args": {
+      "name": "url"
+     }
+    },
+    {
+     "name": "--subset",
+     "description": "Set a new subset to use",
+     "args": {
+      "name": "subset"
+     }
+    },
+    {
+     "name": "--enable",
+     "description": "Enable the remote"
+    },
+    {
+     "name": "--update-metadata",
+     "description": "Update extra metadata from the summary file"
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "remote-delete",
+   "description": "Delete a configured remote",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": "--force",
+     "description": "Remove remote even if in use"
+    },
+    {
+     "name": [
+      "-u",
+      "--user"
+     ],
+     "description": "Work on the user installation"
+    },
+    {
+     "name": "--system",
+     "description": "Work on the system-wide installation (default)"
+    },
+    {
+     "name": "--installation",
+     "description": "Work on a non-default system-wide installation",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "remote-ls",
+   "description": "List contents of a configured remote",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": [
+      "-u",
+      "--user"
+     ],
+     "description": "Work on the user installation"
+    },
+    {
+     "name": "--system",
+     "description": "Work on the system-wide installation (default)"
+    },
+    {
+     "name": "--installation",
+     "description": "Work on a non-default system-wide installation",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": [
+      "-d",
+      "--show-details"
+     ],
+     "description": "Show arches and branches"
+    },
+    {
+     "name": "--runtime",
+     "description": "Show only runtimes"
+    },
+    {
+     "name": "--app",
+     "description": "Show only apps"
+    },
+    {
+     "name": "--updates",
+     "description": "Show only those where updates are available"
+    },
+    {
+     "name": "--arch",
+     "description": "Limit to this arch (* for all)",
+     "args": {
+      "name": "arch"
+     }
+    },
+    {
+     "name": [
+      "-a",
+      "--all"
+     ],
+     "description": "List all refs (including locale/debug)"
+    },
+    {
+     "name": "--app-runtime",
+     "description": "List all applications using RUNTIME",
+     "args": {
+      "name": "runtime"
+     }
+    },
+    {
+     "name": "--columns",
+     "description": "What information to show",
+     "args": {
+      "name": "field"
+     }
+    },
+    {
+     "name": "--cached",
+     "description": "Use local caches even if they are stale"
+    },
+    {
+     "name": "--sideloaded",
+     "description": "Only list refs available as sideloads"
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "remote-info",
+   "description": "Show information about a remote app or runtime",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": [
+      "-u",
+      "--user"
+     ],
+     "description": "Work on the user installation"
+    },
+    {
+     "name": "--system",
+     "description": "Work on the system-wide installation (default)"
+    },
+    {
+     "name": "--installation",
+     "description": "Work on a non-default system-wide installation",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": "--arch",
+     "description": "Arch to install for",
+     "args": {
+      "name": "arch"
+     }
+    },
+    {
+     "name": "--commit",
+     "description": "Commit to show info for",
+     "args": {
+      "name": "commit"
+     }
+    },
+    {
+     "name": "--runtime",
+     "description": "Look for runtime with the specified name"
+    },
+    {
+     "name": "--app",
+     "description": "Look for app with the specified name"
+    },
+    {
+     "name": "--log",
+     "description": "Display log"
+    },
+    {
+     "name": [
+      "-r",
+      "--show-ref"
+     ],
+     "description": "Show ref"
+    },
+    {
+     "name": [
+      "-c",
+      "--show-commit"
+     ],
+     "description": "Show commit"
+    },
+    {
+     "name": [
+      "-p",
+      "--show-parent"
+     ],
+     "description": "Show parent"
+    },
+    {
+     "name": [
+      "-m",
+      "--show-metadata"
+     ],
+     "description": "Show metadata"
+    },
+    {
+     "name": "--show-runtime",
+     "description": "Show runtime"
+    },
+    {
+     "name": "--show-sdk",
+     "description": "Show sdk"
+    },
+    {
+     "name": "--cached",
+     "description": "Use local caches even if they are stale"
+    },
+    {
+     "name": "--sideloaded",
+     "description": "Only list refs available as sideloads"
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "build-init",
+   "description": "Initialize a directory for building",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": "--arch",
+     "description": "Arch to use",
+     "args": {
+      "name": "arch"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--var"
+     ],
+     "description": "Initialize var from named runtime",
+     "args": {
+      "name": "runtime"
+     }
+    },
+    {
+     "name": "--base",
+     "description": "Initialize apps from named app",
+     "args": {
+      "name": "app"
+     }
+    },
+    {
+     "name": "--base-version",
+     "description": "Specify version for --base",
+     "args": {
+      "name": "version"
+     }
+    },
+    {
+     "name": "--base-extension",
+     "description": "Include this base extension",
+     "args": {
+      "name": "extension"
+     }
+    },
+    {
+     "name": "--extension-tag",
+     "description": "Extension tag to use if building extension",
+     "args": {
+      "name": "extension_tag"
+     }
+    },
+    {
+     "name": [
+      "-w",
+      "--writable-sdk"
+     ],
+     "description": "Initialize /usr with a writable copy of the sdk"
+    },
+    {
+     "name": "--type",
+     "description": "Specify the build type (app, runtime, extension)",
+     "args": {
+      "name": "type"
+     }
+    },
+    {
+     "name": "--tag",
+     "description": "Add a tag",
+     "args": {
+      "name": "tag"
+     }
+    },
+    {
+     "name": "--sdk-extension",
+     "description": "Include this sdk extension in /usr",
+     "args": {
+      "name": "extension"
+     }
+    },
+    {
+     "name": "--extension",
+     "description": "Add extension point info",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": "--sdk-dir",
+     "description": "Where to store sdk (defaults to 'usr')",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--update",
+     "description": "Re-initialize the sdk/var"
+    },
+    {
+     "name": "--verbose",
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "build",
+   "description": "Run a build command inside the build dir",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": "--help-all",
+     "description": "Show all help options"
+    },
+    {
+     "name": [
+      "-r",
+      "--runtime"
+     ],
+     "description": "Use Platform runtime rather than Sdk"
+    },
+    {
+     "name": "--readonly",
+     "description": "Make destination readonly"
+    },
+    {
+     "name": "--bind-mount",
+     "description": "Add bind mount",
+     "args": {
+      "name": "dest"
+     }
+    },
+    {
+     "name": "--build-dir",
+     "description": "Start build in this directory",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--sdk-dir",
+     "description": "Where to look for custom sdk dir (defaults to 'usr')",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--metadata",
+     "description": "Use alternative file for the metadata",
+     "args": {
+      "name": "file",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": [
+      "-p",
+      "--die-with-parent"
+     ],
+     "description": "Kill processes when the parent process dies"
+    },
+    {
+     "name": "--with-appdir",
+     "description": "Export application homedir directory to build"
+    },
+    {
+     "name": "--log-session-bus",
+     "description": "Log session bus calls"
+    },
+    {
+     "name": "--log-system-bus",
+     "description": "Log system bus calls"
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    },
+    {
+     "name": "--share",
+     "description": "Share with host",
+     "args": {
+      "name": "share"
+     }
+    },
+    {
+     "name": "--unshare",
+     "description": "Unshare with host",
+     "args": {
+      "name": "share"
+     }
+    },
+    {
+     "name": "--socket",
+     "description": "Expose socket to app",
+     "args": {
+      "name": "socket"
+     }
+    },
+    {
+     "name": "--nosocket",
+     "description": "Don't expose socket to app",
+     "args": {
+      "name": "socket"
+     }
+    },
+    {
+     "name": "--device",
+     "description": "Expose device to app",
+     "args": {
+      "name": "device"
+     }
+    },
+    {
+     "name": "--nodevice",
+     "description": "Don't expose device to app",
+     "args": {
+      "name": "device"
+     }
+    },
+    {
+     "name": "--allow",
+     "description": "Allow feature",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--disallow",
+     "description": "Don't allow feature",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--filesystem",
+     "description": "Expose filesystem to app (:ro for read-only)",
+     "args": {
+      "name": "filesystem"
+     }
+    },
+    {
+     "name": "--nofilesystem",
+     "description": "Don't expose filesystem to app",
+     "args": {
+      "name": "filesystem"
+     }
+    },
+    {
+     "name": "--env",
+     "description": "Set environment variable",
+     "args": {
+      "name": "var"
+     }
+    },
+    {
+     "name": "--env-fd",
+     "description": "Read environment variables in env -0 format from FD",
+     "args": {
+      "name": "fd"
+     }
+    },
+    {
+     "name": "--unset-env",
+     "description": "Remove variable from environment",
+     "args": {
+      "name": "var"
+     }
+    },
+    {
+     "name": "--own-name",
+     "description": "Allow app to own name on the session bus",
+     "args": {
+      "name": "dbus_name"
+     }
+    },
+    {
+     "name": "--talk-name",
+     "description": "Allow app to talk to name on the session bus",
+     "args": {
+      "name": "dbus_name"
+     }
+    },
+    {
+     "name": "--no-talk-name",
+     "description": "Don't allow app to talk to name on the session bus",
+     "args": {
+      "name": "dbus_name"
+     }
+    },
+    {
+     "name": "--system-own-name",
+     "description": "Allow app to own name on the system bus",
+     "args": {
+      "name": "dbus_name"
+     }
+    },
+    {
+     "name": "--system-talk-name",
+     "description": "Allow app to talk to name on the system bus",
+     "args": {
+      "name": "dbus_name"
+     }
+    },
+    {
+     "name": "--system-no-talk-name",
+     "description": "Don't allow app to talk to name on the system bus",
+     "args": {
+      "name": "dbus_name"
+     }
+    },
+    {
+     "name": "--a11y-own-name",
+     "description": "Allow app to own name on the a11y bus",
+     "args": {
+      "name": "dbus_name"
+     }
+    },
+    {
+     "name": "--add-policy",
+     "description": "Add generic policy option",
+     "args": {
+      "name": "subsystem"
+     }
+    },
+    {
+     "name": "--remove-policy",
+     "description": "Remove generic policy option",
+     "args": {
+      "name": "subsystem"
+     }
+    },
+    {
+     "name": "--usb",
+     "description": "Add USB device to enumerables",
+     "args": {
+      "name": "vendor_id"
+     }
+    },
+    {
+     "name": "--nousb",
+     "description": "Add USB device to hidden list",
+     "args": {
+      "name": "vendor_id"
+     }
+    },
+    {
+     "name": "--usb-list",
+     "description": "A list of USB devices that are enumerable",
+     "args": {
+      "name": "list"
+     }
+    },
+    {
+     "name": "--usb-list-file",
+     "description": "File containing a list of USB devices to make enumerable",
+     "args": {
+      "name": "filename",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--persist",
+     "description": "Persist home directory subpath",
+     "args": {
+      "name": "filename",
+      "template": "filepaths"
+     }
+    }
+   ]
+  },
+  {
+   "name": "build-finish",
+   "description": "Finish a build dir for export",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": "--help-all",
+     "description": "Show all help options"
+    },
+    {
+     "name": "--command",
+     "description": "Command to set",
+     "args": {
+      "name": "command"
+     }
+    },
+    {
+     "name": "--require-version",
+     "description": "Flatpak version to require",
+     "args": {
+      "name": "major"
+     }
+    },
+    {
+     "name": "--no-exports",
+     "description": "Don't process exports"
+    },
+    {
+     "name": "--extra-data",
+     "description": "Extra data info"
+    },
+    {
+     "name": "--extension",
+     "description": "Add extension point info",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": "--remove-extension",
+     "description": "Remove extension point info",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": "--extension-priority",
+     "description": "Set extension priority (only for extensions)",
+     "args": {
+      "name": "value"
+     }
+    },
+    {
+     "name": "--sdk",
+     "description": "Change the sdk used for the app",
+     "args": {
+      "name": "sdk"
+     }
+    },
+    {
+     "name": "--runtime",
+     "description": "Change the runtime used for the app",
+     "args": {
+      "name": "runtime"
+     }
+    },
+    {
+     "name": "--metadata",
+     "description": "Set generic metadata option",
+     "args": {
+      "name": "group"
+     }
+    },
+    {
+     "name": "--no-inherit-permissions",
+     "description": "Don't inherit permissions from runtime"
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    },
+    {
+     "name": "--share",
+     "description": "Share with host",
+     "args": {
+      "name": "share"
+     }
+    },
+    {
+     "name": "--unshare",
+     "description": "Unshare with host",
+     "args": {
+      "name": "share"
+     }
+    },
+    {
+     "name": "--socket",
+     "description": "Expose socket to app",
+     "args": {
+      "name": "socket"
+     }
+    },
+    {
+     "name": "--nosocket",
+     "description": "Don't expose socket to app",
+     "args": {
+      "name": "socket"
+     }
+    },
+    {
+     "name": "--device",
+     "description": "Expose device to app",
+     "args": {
+      "name": "device"
+     }
+    },
+    {
+     "name": "--nodevice",
+     "description": "Don't expose device to app",
+     "args": {
+      "name": "device"
+     }
+    },
+    {
+     "name": "--allow",
+     "description": "Allow feature",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--disallow",
+     "description": "Don't allow feature",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--filesystem",
+     "description": "Expose filesystem to app (:ro for read-only)",
+     "args": {
+      "name": "filesystem"
+     }
+    },
+    {
+     "name": "--nofilesystem",
+     "description": "Don't expose filesystem to app",
+     "args": {
+      "name": "filesystem"
+     }
+    },
+    {
+     "name": "--env",
+     "description": "Set environment variable",
+     "args": {
+      "name": "var"
+     }
+    },
+    {
+     "name": "--env-fd",
+     "description": "Read environment variables in env -0 format from FD",
+     "args": {
+      "name": "fd"
+     }
+    },
+    {
+     "name": "--unset-env",
+     "description": "Remove variable from environment",
+     "args": {
+      "name": "var"
+     }
+    },
+    {
+     "name": "--own-name",
+     "description": "Allow app to own name on the session bus",
+     "args": {
+      "name": "dbus_name"
+     }
+    },
+    {
+     "name": "--talk-name",
+     "description": "Allow app to talk to name on the session bus",
+     "args": {
+      "name": "dbus_name"
+     }
+    },
+    {
+     "name": "--no-talk-name",
+     "description": "Don't allow app to talk to name on the session bus",
+     "args": {
+      "name": "dbus_name"
+     }
+    },
+    {
+     "name": "--system-own-name",
+     "description": "Allow app to own name on the system bus",
+     "args": {
+      "name": "dbus_name"
+     }
+    },
+    {
+     "name": "--system-talk-name",
+     "description": "Allow app to talk to name on the system bus",
+     "args": {
+      "name": "dbus_name"
+     }
+    },
+    {
+     "name": "--system-no-talk-name",
+     "description": "Don't allow app to talk to name on the system bus",
+     "args": {
+      "name": "dbus_name"
+     }
+    },
+    {
+     "name": "--a11y-own-name",
+     "description": "Allow app to own name on the a11y bus",
+     "args": {
+      "name": "dbus_name"
+     }
+    },
+    {
+     "name": "--add-policy",
+     "description": "Add generic policy option",
+     "args": {
+      "name": "subsystem"
+     }
+    },
+    {
+     "name": "--remove-policy",
+     "description": "Remove generic policy option",
+     "args": {
+      "name": "subsystem"
+     }
+    },
+    {
+     "name": "--usb",
+     "description": "Add USB device to enumerables",
+     "args": {
+      "name": "vendor_id"
+     }
+    },
+    {
+     "name": "--nousb",
+     "description": "Add USB device to hidden list",
+     "args": {
+      "name": "vendor_id"
+     }
+    },
+    {
+     "name": "--usb-list",
+     "description": "A list of USB devices that are enumerable",
+     "args": {
+      "name": "list"
+     }
+    },
+    {
+     "name": "--usb-list-file",
+     "description": "File containing a list of USB devices to make enumerable",
+     "args": {
+      "name": "filename",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--persist",
+     "description": "Persist home directory subpath",
+     "args": {
+      "name": "filename",
+      "template": "filepaths"
+     }
+    }
+   ]
+  },
+  {
+   "name": "build-export",
+   "description": "Export a build dir to a repository",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": [
+      "-s",
+      "--subject"
+     ],
+     "description": "One line subject",
+     "args": {
+      "name": "subject"
+     }
+    },
+    {
+     "name": [
+      "-b",
+      "--body"
+     ],
+     "description": "Full description",
+     "args": {
+      "name": "body"
+     }
+    },
+    {
+     "name": "--arch",
+     "description": "Architecture to export for (must be host compatible)",
+     "args": {
+      "name": "arch"
+     }
+    },
+    {
+     "name": [
+      "-r",
+      "--runtime"
+     ],
+     "description": "Commit runtime (/usr), not /app"
+    },
+    {
+     "name": "--update-appstream",
+     "description": "Update the appstream branch"
+    },
+    {
+     "name": "--no-update-summary",
+     "description": "Don't update the summary"
+    },
+    {
+     "name": "--files",
+     "description": "Use alternative directory for the files",
+     "args": {
+      "name": "subdir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--metadata",
+     "description": "Use alternative file for the metadata",
+     "args": {
+      "name": "file",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--gpg-sign",
+     "description": "GPG Key ID to sign the commit with",
+     "args": {
+      "name": "key-id"
+     }
+    },
+    {
+     "name": "--exclude",
+     "description": "Files to exclude",
+     "args": {
+      "name": "pattern"
+     }
+    },
+    {
+     "name": "--include",
+     "description": "Excluded files to include",
+     "args": {
+      "name": "pattern"
+     }
+    },
+    {
+     "name": "--gpg-homedir",
+     "description": "GPG Homedir to use when looking for keyrings",
+     "args": {
+      "name": "homedir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--subset",
+     "description": "Add to a named subset",
+     "args": {
+      "name": "subset"
+     }
+    },
+    {
+     "name": "--end-of-life",
+     "description": "Mark build as end-of-life",
+     "args": {
+      "name": "reason"
+     }
+    },
+    {
+     "name": "--end-of-life-rebase",
+     "description": "Mark build as end-of-life, to be replaced with the given ID",
+     "args": {
+      "name": "id"
+     }
+    },
+    {
+     "name": "--token-type",
+     "description": "Set type of token needed to install this commit",
+     "args": {
+      "name": "val"
+     }
+    },
+    {
+     "name": "--timestamp",
+     "description": "Override the timestamp of the commit",
+     "args": {
+      "name": "timestamp"
+     }
+    },
+    {
+     "name": "--collection-id",
+     "description": "Collection ID",
+     "args": {
+      "name": "collection-id"
+     }
+    },
+    {
+     "name": "--disable-fsync",
+     "description": "Do not invoke fsync()"
+    },
+    {
+     "name": "--disable-sandbox",
+     "description": "Do not sandbox icon validator"
+    },
+    {
+     "name": "--no-summary-index",
+     "description": "Don't generate a summary index"
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "build-bundle",
+   "description": "Create a bundle file from a ref in a local repository",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": "--runtime",
+     "description": "Export runtime instead of app"
+    },
+    {
+     "name": "--arch",
+     "description": "Arch to bundle for",
+     "args": {
+      "name": "arch"
+     }
+    },
+    {
+     "name": "--repo-url",
+     "description": "Url for repo",
+     "args": {
+      "name": "url"
+     }
+    },
+    {
+     "name": "--runtime-repo",
+     "description": "Url for runtime flatpakrepo file",
+     "args": {
+      "name": "url"
+     }
+    },
+    {
+     "name": "--gpg-keys",
+     "description": "Add GPG key from FILE (- for stdin)",
+     "args": {
+      "name": "file",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--gpg-sign",
+     "description": "GPG Key ID to sign the OCI image with",
+     "args": {
+      "name": "key-id"
+     }
+    },
+    {
+     "name": "--gpg-homedir",
+     "description": "GPG Homedir to use when looking for keyrings",
+     "args": {
+      "name": "homedir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--from-commit",
+     "description": "OSTree commit to create a delta bundle from",
+     "args": {
+      "name": "commit"
+     }
+    },
+    {
+     "name": "--oci",
+     "description": "Export oci image instead of flatpak bundle"
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "build-import-bundle",
+   "description": "Import a bundle file",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": "--ref",
+     "description": "Override the ref used for the imported bundle",
+     "args": {
+      "name": "ref"
+     }
+    },
+    {
+     "name": "--oci",
+     "description": "Import oci image instead of flatpak bundle"
+    },
+    {
+     "name": "--gpg-sign",
+     "description": "GPG Key ID to sign the commit with",
+     "args": {
+      "name": "key-id"
+     }
+    },
+    {
+     "name": "--gpg-homedir",
+     "description": "GPG Homedir to use when looking for keyrings",
+     "args": {
+      "name": "homedir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--update-appstream",
+     "description": "Update the appstream branch"
+    },
+    {
+     "name": "--no-update-summary",
+     "description": "Don't update the summary"
+    },
+    {
+     "name": "--no-summary-index",
+     "description": "Don't generate a summary index"
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "build-sign",
+   "description": "Sign an application or runtime",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": "--arch",
+     "description": "Arch to install for",
+     "args": {
+      "name": "arch"
+     }
+    },
+    {
+     "name": "--runtime",
+     "description": "Look for runtime with the specified name"
+    },
+    {
+     "name": "--gpg-sign",
+     "description": "GPG Key ID to sign the commit with",
+     "args": {
+      "name": "key-id"
+     }
+    },
+    {
+     "name": "--gpg-homedir",
+     "description": "GPG Homedir to use when looking for keyrings",
+     "args": {
+      "name": "homedir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "build-update-repo",
+   "description": "Update the summary file in a repository",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": "--redirect-url",
+     "description": "Redirect this repo to a new URL",
+     "args": {
+      "name": "url"
+     }
+    },
+    {
+     "name": "--title",
+     "description": "A nice name to use for this repository",
+     "args": {
+      "name": "title"
+     }
+    },
+    {
+     "name": "--comment",
+     "description": "A one-line comment for this repository",
+     "args": {
+      "name": "comment"
+     }
+    },
+    {
+     "name": "--description",
+     "description": "A full-paragraph description for this repository",
+     "args": {
+      "name": "description"
+     }
+    },
+    {
+     "name": "--homepage",
+     "description": "URL for a website for this repository",
+     "args": {
+      "name": "url"
+     }
+    },
+    {
+     "name": "--icon",
+     "description": "URL for an icon for this repository",
+     "args": {
+      "name": "url"
+     }
+    },
+    {
+     "name": "--default-branch",
+     "description": "Default branch to use for this repository",
+     "args": {
+      "name": "branch"
+     }
+    },
+    {
+     "name": "--collection-id",
+     "description": "Collection ID",
+     "args": {
+      "name": "collection-id"
+     }
+    },
+    {
+     "name": "--deploy-sideload-collection-id",
+     "description": "Permanently deploy collection ID to client remote configurations, only for side…"
+    },
+    {
+     "name": "--deploy-collection-id",
+     "description": "Permanently deploy collection ID to client remote configurations"
+    },
+    {
+     "name": "--authenticator-name",
+     "description": "Name of authenticator for this repository",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": "--authenticator-install",
+     "description": "Autoinstall authenticator for this repository"
+    },
+    {
+     "name": "--no-authenticator-install",
+     "description": "Don't autoinstall authenticator for this repository"
+    },
+    {
+     "name": "--authenticator-option",
+     "description": "Authenticator option",
+     "args": {
+      "name": "key"
+     }
+    },
+    {
+     "name": "--gpg-import",
+     "description": "Import new default GPG public key from FILE",
+     "args": {
+      "name": "file",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--gpg-sign",
+     "description": "GPG Key ID to sign the summary with",
+     "args": {
+      "name": "key-id"
+     }
+    },
+    {
+     "name": "--gpg-homedir",
+     "description": "GPG Homedir to use when looking for keyrings",
+     "args": {
+      "name": "homedir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--generate-static-deltas",
+     "description": "Generate delta files"
+    },
+    {
+     "name": "--no-update-summary",
+     "description": "Don't update the summary"
+    },
+    {
+     "name": "--no-update-appstream",
+     "description": "Don't update the appstream branch"
+    },
+    {
+     "name": "--static-delta-jobs",
+     "description": "Max parallel jobs when creating deltas (default: NUMCPUs)",
+     "args": {
+      "name": "num-jobs"
+     }
+    },
+    {
+     "name": "--static-delta-ignore-ref",
+     "description": "Don't create deltas matching refs",
+     "args": {
+      "name": "pattern"
+     }
+    },
+    {
+     "name": "--prune",
+     "description": "Prune unused objects"
+    },
+    {
+     "name": "--prune-dry-run",
+     "description": "Prune but don't actually remove anything"
+    },
+    {
+     "name": "--prune-depth",
+     "description": "Only traverse DEPTH parents for each commit (default: -1=infinite)",
+     "args": {
+      "name": "depth"
+     }
+    },
+    {
+     "name": "--no-summary-index",
+     "description": "Don't generate a summary index"
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "build-commit-from",
+   "description": "Create new commit based on existing ref",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": "--src-repo",
+     "description": "Source repo dir",
+     "args": {
+      "name": "src-repo"
+     }
+    },
+    {
+     "name": "--src-ref",
+     "description": "Source repo ref",
+     "args": {
+      "name": "src-ref"
+     }
+    },
+    {
+     "name": "--untrusted",
+     "description": "Do not trust SRC-REPO"
+    },
+    {
+     "name": "--force",
+     "description": "Always commit, even if same content"
+    },
+    {
+     "name": "--extra-collection-id",
+     "description": "Add an extra collection id ref and binding",
+     "args": {
+      "name": "collection-id"
+     }
+    },
+    {
+     "name": "--subset",
+     "description": "Add to a named subset",
+     "args": {
+      "name": "subset"
+     }
+    },
+    {
+     "name": [
+      "-s",
+      "--subject"
+     ],
+     "description": "One line subject",
+     "args": {
+      "name": "subject"
+     }
+    },
+    {
+     "name": [
+      "-b",
+      "--body"
+     ],
+     "description": "Full description",
+     "args": {
+      "name": "body"
+     }
+    },
+    {
+     "name": "--update-appstream",
+     "description": "Update the appstream branch"
+    },
+    {
+     "name": "--no-update-summary",
+     "description": "Don't update the summary"
+    },
+    {
+     "name": "--gpg-sign",
+     "description": "GPG Key ID to sign the commit with",
+     "args": {
+      "name": "key-id"
+     }
+    },
+    {
+     "name": "--gpg-homedir",
+     "description": "GPG Homedir to use when looking for keyrings",
+     "args": {
+      "name": "homedir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--end-of-life",
+     "description": "Mark build as end-of-life",
+     "args": {
+      "name": "reason"
+     }
+    },
+    {
+     "name": "--end-of-life-rebase",
+     "description": "Mark refs matching the OLDID prefix as end-of-life, to be replaced with the giv…",
+     "args": {
+      "name": "oldid"
+     }
+    },
+    {
+     "name": "--token-type",
+     "description": "Set type of token needed to install this commit",
+     "args": {
+      "name": "val"
+     }
+    },
+    {
+     "name": "--timestamp",
+     "description": "Override the timestamp of the commit (NOW for current time)",
+     "args": {
+      "name": "timestamp"
+     }
+    },
+    {
+     "name": "--disable-fsync",
+     "description": "Do not invoke fsync()"
+    },
+    {
+     "name": "--no-summary-index",
+     "description": "Don't generate a summary index"
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  },
+  {
+   "name": "repo",
+   "description": "Show information about a repo",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help options"
+    },
+    {
+     "name": "--info",
+     "description": "Print general information about the repository"
+    },
+    {
+     "name": "--branches",
+     "description": "List the branches in the repository"
+    },
+    {
+     "name": "--metadata",
+     "description": "Print metadata for a branch",
+     "args": {
+      "name": "branch"
+     }
+    },
+    {
+     "name": "--commits",
+     "description": "Show commits for a branch",
+     "args": {
+      "name": "branch"
+     }
+    },
+    {
+     "name": "--subsets",
+     "description": "Print information about the repo subsets"
+    },
+    {
+     "name": "--subset",
+     "description": "Limit information to subsets with this prefix"
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Show debug information, -vv for more detail"
+    },
+    {
+     "name": "--ostree-verbose",
+     "description": "Show OSTree debug information"
+    }
+   ]
+  }
+ ],
+ "options": [
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Show help options"
+  },
+  {
+   "name": "--version",
+   "description": "Print version information and exit"
+  },
+  {
+   "name": "--default-arch",
+   "description": "Print default arch and exit"
+  },
+  {
+   "name": "--supported-arches",
+   "description": "Print supported arches and exit"
+  },
+  {
+   "name": "--gl-drivers",
+   "description": "Print active gl drivers and exit"
+  },
+  {
+   "name": "--installations",
+   "description": "Print paths for system installations and exit"
+  },
+  {
+   "name": "--print-updated-env",
+   "description": "Print the updated environment needed to run flatpaks"
+  },
+  {
+   "name": "--print-system-only",
+   "description": "Only include the system installation with --print-updated-env"
+  },
+  {
+   "name": [
+    "-v",
+    "--verbose"
+   ],
+   "description": "Show debug information, -vv for more detail"
+  },
+  {
+   "name": "--ostree-verbose",
+   "description": "Show OSTree debug information"
+  }
+ ]
+}

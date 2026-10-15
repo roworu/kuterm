@@ -321,6 +321,101 @@ mod tests {
         assert_eq!(terminal.last_output_text().as_deref(), Some("integ_42"));
     }
 
+    /// next message from a shell `matches` takes, skipping the others
+    #[cfg(unix)]
+    fn wait_shell(
+        events: &mut futures::channel::mpsc::UnboundedReceiver<crate::completion::ShellEvent>,
+        what: &str,
+        matches: impl Fn(&crate::completion::ShellMessage) -> bool,
+    ) -> crate::completion::ShellEvent {
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            match events.try_recv() {
+                Ok(event) if matches(&event.message) => return event,
+                Ok(_) => {}
+                Err(_) => std::thread::sleep(Duration::from_millis(20)),
+            }
+            assert!(Instant::now() < deadline, "no {what} from zsh");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn zsh_reports_its_line_and_takes_completions() {
+        use crate::completion::{Bridge, SOCKET_ENV, ShellMessage, protocol};
+
+        let Some(zsh) = ["/usr/bin/zsh", "/bin/zsh"]
+            .into_iter()
+            .find(|path| std::path::Path::new(path).exists())
+        else {
+            eprintln!("no zsh, skipped");
+            return;
+        };
+        // a home of its own: no user files, and an empty .zshrc skips zsh's first run wizard
+        let home = std::env::temp_dir().join(format!("kuterm-zsh-{}", std::process::id()));
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::write(home.join(".zshrc"), "PS1='$ '\n").unwrap();
+        let mut zsh = profile(Shell::Program(zsh.into()));
+        let home_str = home.to_string_lossy().into_owned();
+        zsh.env.insert("HOME".into(), home_str.clone());
+        zsh.env.insert("ZDOTDIR".into(), home_str);
+        let mut zsh = with_shell_integration(&zsh);
+        let mut bridge = Bridge::new().unwrap();
+        let mut events = bridge.take_events().unwrap();
+        zsh.env
+            .insert(SOCKET_ENV.into(), bridge.path().to_string_lossy().into());
+        let mut builder = spawn_with(&TerminalSettings::default(), &zsh);
+        let terminal = &mut builder.terminal;
+        terminal.set_completion_bridge(bridge);
+
+        wait_shell(
+            &mut events,
+            "hello",
+            |m| matches!(m, ShellMessage::Hello { shell } if shell == "zsh"),
+        );
+        wait_shell(&mut events, "PATH", |m| {
+            matches!(m, ShellMessage::Env { .. })
+        });
+        terminal.input(b"echo comp_".to_vec());
+        let typed = wait_shell(
+            &mut events,
+            "the typed line",
+            |m| matches!(m, ShellMessage::Line { buffer, cursor: 10, .. } if buffer == "echo comp_"),
+        );
+        let ShellMessage::Line { seq, cwd, .. } = &typed.message else {
+            unreachable!()
+        };
+        assert!(cwd.is_absolute());
+
+        // an answer to an older line is dropped
+        let stale = protocol::accept(seq - 1, 5, 10, "wrong ").unwrap();
+        assert!(terminal.send_to_shell(typed.conn, &stale));
+        let fresh = protocol::accept(*seq, 5, 10, "comp_done ").unwrap();
+        assert!(terminal.send_to_shell(typed.conn, &fresh));
+        wait_shell(
+            &mut events,
+            "the completed line",
+            |m| matches!(m, ShellMessage::Line { buffer, cursor: 15, .. } if buffer == "echo comp_done "),
+        );
+
+        // the completed line runs as typed
+        terminal.input(b"\r".to_vec());
+        wait_shell(&mut events, "the end of the line", |m| {
+            *m == ShellMessage::End
+        });
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while !screen_text(terminal)
+            .lines()
+            .any(|line| line.trim_end() == "comp_done")
+        {
+            assert!(Instant::now() < deadline, "{}", screen_text(terminal));
+            std::thread::sleep(Duration::from_millis(50));
+            terminal.sync();
+        }
+        assert!(!screen_text(terminal).contains("wrong"));
+        std::fs::remove_dir_all(&home).ok();
+    }
+
     #[test]
     fn zsh_and_fish_are_pointed_at_the_scripts() {
         let zsh = with_shell_integration(&profile(Shell::Program("/usr/bin/zsh".into())));

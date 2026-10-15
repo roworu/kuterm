@@ -1,0 +1,134 @@
+{
+ "name": "killall",
+ "description": "Kill processes by name",
+ "options": [
+  {
+   "name": [
+    "-e",
+    "--exact"
+   ],
+   "description": "Require exact match for very long names"
+  },
+  {
+   "name": [
+    "-I",
+    "--ignore-case"
+   ],
+   "description": "Case insensitive process name match"
+  },
+  {
+   "name": [
+    "-g",
+    "--process-group"
+   ],
+   "description": "Kill process group instead of process"
+  },
+  {
+   "name": [
+    "-y",
+    "--younger-than"
+   ],
+   "description": "Kill processes younger than TIME"
+  },
+  {
+   "name": [
+    "-o",
+    "--older-than"
+   ],
+   "description": "Kill processes older than TIME"
+  },
+  {
+   "name": [
+    "-i",
+    "--interactive"
+   ],
+   "description": "Ask for confirmation before killing"
+  },
+  {
+   "name": [
+    "-l",
+    "--list"
+   ],
+   "description": "List all known signal names"
+  },
+  {
+   "name": [
+    "-q",
+    "--quiet"
+   ],
+   "description": "Don't print complaints"
+  },
+  {
+   "name": [
+    "-r",
+    "--regexp"
+   ],
+   "description": "Interpret NAME as an extended regular expression"
+  },
+  {
+   "name": [
+    "-s",
+    "--signal"
+   ],
+   "description": "Send this signal instead of SIGTERM",
+   "args": {
+    "name": "signal"
+   }
+  },
+  {
+   "name": [
+    "-u",
+    "--user"
+   ],
+   "description": "Kill only process(es) running as USER",
+   "args": {
+    "name": "user"
+   }
+  },
+  {
+   "name": [
+    "-v",
+    "--verbose"
+   ],
+   "description": "Report if the signal was successfully sent"
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Display version information"
+  },
+  {
+   "name": [
+    "-w",
+    "--wait"
+   ],
+   "description": "Wait for processes to die"
+  },
+  {
+   "name": [
+    "-n",
+    "--ns"
+   ],
+   "description": "Match processes that belong to the same namespaces",
+   "args": {
+    "name": "pid"
+   }
+  },
+  {
+   "name": [
+    "-Z",
+    "--context"
+   ],
+   "description": "Must precede other arguments",
+   "args": {
+    "name": "regexp"
+   }
+  }
+ ],
+ "args": {
+  "name": "name",
+  "isVariadic": true
+ }
+}

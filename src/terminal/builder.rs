@@ -26,7 +26,7 @@ use futures::{
 };
 use gpui::{Context, Task};
 
-use super::{Content, Terminal, TerminalBounds};
+use super::{Content, Event, Terminal, TerminalBounds};
 use crate::settings::{Profile, Shell, TerminalSettings};
 
 #[derive(Clone)]
@@ -194,7 +194,10 @@ impl TerminalBuilder {
             command_started: None,
             graphics,
             cell_size,
+            #[cfg(unix)]
+            completion: None,
             _event_loop_task: Task::ready(()),
+            _completion_task: Task::ready(()),
         };
 
         Ok(TerminalBuilder {
@@ -205,6 +208,22 @@ impl TerminalBuilder {
 
     /// start pumping alacritty events into terminal entity
     pub fn subscribe(mut self, cx: &Context<Terminal>) -> Terminal {
+        #[cfg(unix)]
+        if let Some(mut shell_events) = self
+            .terminal
+            .completion
+            .as_mut()
+            .and_then(|bridge| bridge.take_events())
+        {
+            self.terminal._completion_task = cx.spawn(async move |terminal, cx| {
+                while let Some(event) = shell_events.next().await {
+                    let emitted = terminal.update(cx, |_, cx| cx.emit(Event::Shell(event)));
+                    if emitted.is_err() {
+                        break;
+                    }
+                }
+            });
+        }
         self.terminal._event_loop_task = cx.spawn(async move |terminal, cx| {
             while let Some(event) = self.events_rx.next().await {
                 let Ok(()) = terminal.update(cx, |terminal, cx| {

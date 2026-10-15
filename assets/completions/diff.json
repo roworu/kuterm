@@ -1,0 +1,365 @@
+{
+ "name": "diff",
+ "description": "Compare files line by line",
+ "options": [
+  {
+   "name": "--normal",
+   "description": "Output a normal diff (the default)"
+  },
+  {
+   "name": [
+    "-q",
+    "--brief"
+   ],
+   "description": "Report only when files differ"
+  },
+  {
+   "name": [
+    "-s",
+    "--report-identical-files"
+   ],
+   "description": "Report when two files are the same"
+  },
+  {
+   "name": [
+    "-c",
+    "-C",
+    "--context"
+   ],
+   "description": "Output NUM (default 3) lines of copied context",
+   "args": {
+    "name": "num"
+   }
+  },
+  {
+   "name": [
+    "-u",
+    "-U",
+    "--unified"
+   ],
+   "description": "Output NUM (default 3) lines of unified context",
+   "args": {
+    "name": "num"
+   }
+  },
+  {
+   "name": [
+    "-e",
+    "--ed"
+   ],
+   "description": "Output an ed script"
+  },
+  {
+   "name": [
+    "-n",
+    "--rcs"
+   ],
+   "description": "Output an RCS format diff"
+  },
+  {
+   "name": [
+    "-y",
+    "--side-by-side"
+   ],
+   "description": "Output in two columns"
+  },
+  {
+   "name": [
+    "-W",
+    "--width"
+   ],
+   "description": "Output at most NUM (default 130) print columns",
+   "args": {
+    "name": "num"
+   }
+  },
+  {
+   "name": "--left-column",
+   "description": "Output only the left column of common lines"
+  },
+  {
+   "name": "--suppress-common-lines",
+   "description": "Do not output common lines"
+  },
+  {
+   "name": [
+    "-p",
+    "--show-c-function"
+   ],
+   "description": "Show which C function each change is in"
+  },
+  {
+   "name": [
+    "-F",
+    "--show-function-line"
+   ],
+   "description": "Show the most recent line matching RE",
+   "args": {
+    "name": "re"
+   }
+  },
+  {
+   "name": "--label",
+   "description": "Use LABEL instead of file name and timestamp",
+   "args": {
+    "name": "label"
+   }
+  },
+  {
+   "name": [
+    "-t",
+    "--expand-tabs"
+   ],
+   "description": "Expand tabs to spaces in output"
+  },
+  {
+   "name": [
+    "-T",
+    "--initial-tab"
+   ],
+   "description": "Make tabs line up by prepending a tab"
+  },
+  {
+   "name": "--tabsize",
+   "description": "Tab stops every NUM (default 8) print columns",
+   "args": {
+    "name": "num"
+   }
+  },
+  {
+   "name": "--suppress-blank-empty",
+   "description": "Suppress space or tab before empty output lines"
+  },
+  {
+   "name": [
+    "-l",
+    "--paginate"
+   ],
+   "description": "Pass output through 'pr' to paginate it"
+  },
+  {
+   "name": [
+    "-r",
+    "--recursive"
+   ],
+   "description": "Recursively compare any subdirectories found"
+  },
+  {
+   "name": "--no-dereference",
+   "description": "Don't follow symbolic links"
+  },
+  {
+   "name": [
+    "-N",
+    "--new-file"
+   ],
+   "description": "Treat absent files as empty"
+  },
+  {
+   "name": "--unidirectional-new-file",
+   "description": "Treat absent first files as empty"
+  },
+  {
+   "name": "--ignore-file-name-case",
+   "description": "Ignore case when comparing file names"
+  },
+  {
+   "name": "--no-ignore-file-name-case",
+   "description": "Consider case when comparing file names"
+  },
+  {
+   "name": [
+    "-x",
+    "--exclude"
+   ],
+   "description": "Exclude files that match PAT",
+   "args": {
+    "name": "pat"
+   }
+  },
+  {
+   "name": [
+    "-X",
+    "--exclude-from"
+   ],
+   "description": "Exclude files that match any pattern in FILE",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": [
+    "-S",
+    "--starting-file"
+   ],
+   "description": "Start with FILE when comparing directories",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "--from-file",
+   "description": "Compare FILE1 to all operands",
+   "args": {
+    "name": "file1"
+   }
+  },
+  {
+   "name": "--to-file",
+   "description": "Compare all operands to FILE2",
+   "args": {
+    "name": "file2"
+   }
+  },
+  {
+   "name": [
+    "-i",
+    "--ignore-case"
+   ],
+   "description": "Ignore case differences in file contents"
+  },
+  {
+   "name": [
+    "-E",
+    "--ignore-tab-expansion"
+   ],
+   "description": "Ignore changes due to tab expansion"
+  },
+  {
+   "name": [
+    "-Z",
+    "--ignore-trailing-space"
+   ],
+   "description": "Ignore white space at line end"
+  },
+  {
+   "name": [
+    "-b",
+    "--ignore-space-change"
+   ],
+   "description": "Ignore changes in the amount of white space"
+  },
+  {
+   "name": [
+    "-w",
+    "--ignore-all-space"
+   ],
+   "description": "Ignore all white space"
+  },
+  {
+   "name": [
+    "-B",
+    "--ignore-blank-lines"
+   ],
+   "description": "Ignore changes where lines are all blank"
+  },
+  {
+   "name": [
+    "-I",
+    "--ignore-matching-lines"
+   ],
+   "description": "Ignore changes where all lines match RE",
+   "args": {
+    "name": "re"
+   }
+  },
+  {
+   "name": [
+    "-a",
+    "--text"
+   ],
+   "description": "Treat all files as text"
+  },
+  {
+   "name": "--strip-trailing-cr",
+   "description": "Strip trailing carriage return on input"
+  },
+  {
+   "name": [
+    "-D",
+    "--ifdef"
+   ],
+   "description": "Output merged file with '#ifdef NAME' diffs",
+   "args": {
+    "name": "name"
+   }
+  },
+  {
+   "name": "--GTYPE-group-format",
+   "description": "Format GTYPE input groups with GFMT",
+   "args": {
+    "name": "gfmt"
+   }
+  },
+  {
+   "name": "--line-format",
+   "description": "Format all input lines with LFMT",
+   "args": {
+    "name": "lfmt"
+   }
+  },
+  {
+   "name": "--LTYPE-line-format",
+   "description": "Format LTYPE input lines with LFMT",
+   "args": {
+    "name": "lfmt"
+   }
+  },
+  {
+   "name": [
+    "-d",
+    "--minimal"
+   ],
+   "description": "Try hard to find a smaller set of changes"
+  },
+  {
+   "name": "--horizon-lines",
+   "description": "Keep NUM lines of the common prefix and suffix",
+   "args": {
+    "name": "num"
+   }
+  },
+  {
+   "name": "--speed-large-files",
+   "description": "Assume large files and many scattered small changes"
+  },
+  {
+   "name": "--color",
+   "description": "Color output",
+   "args": {
+    "name": "when",
+    "isOptional": true
+   }
+  },
+  {
+   "name": "--palette",
+   "description": "The colors to use when --color is active",
+   "args": {
+    "name": "palette"
+   }
+  },
+  {
+   "name": "--help",
+   "description": "Display this help and exit"
+  },
+  {
+   "name": [
+    "-v",
+    "--version"
+   ],
+   "description": "Output version information and exit"
+  }
+ ],
+ "args": [
+  {
+   "name": "file",
+   "template": "filepaths"
+  },
+  {
+   "name": "file",
+   "template": "filepaths"
+  }
+ ]
+}

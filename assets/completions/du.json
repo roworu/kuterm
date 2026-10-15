@@ -1,0 +1,208 @@
+{
+ "name": "du",
+ "description": "Estimate file space usage",
+ "options": [
+  {
+   "name": "--help",
+   "description": "Print help information"
+  },
+  {
+   "name": [
+    "-a",
+    "--all"
+   ],
+   "description": "Write counts for all files, not just directories"
+  },
+  {
+   "name": [
+    "-A",
+    "--apparent-size"
+   ],
+   "description": "Print apparent sizes, rather than disk usage although the apparent size is usua…"
+  },
+  {
+   "name": [
+    "-B",
+    "--block-size"
+   ],
+   "description": "Scale sizes by SIZE before printing them",
+   "args": {
+    "name": "size"
+   }
+  },
+  {
+   "name": [
+    "-b",
+    "--bytes"
+   ],
+   "description": "Equivalent to '--apparent-size --block-size=1'"
+  },
+  {
+   "name": [
+    "-c",
+    "--total"
+   ],
+   "description": "Produce a grand total"
+  },
+  {
+   "name": [
+    "-d",
+    "--max-depth"
+   ],
+   "description": "Print the total for a directory (or file, with --all) only if it is N or fewer…",
+   "args": {
+    "name": "n"
+   }
+  },
+  {
+   "name": [
+    "-h",
+    "--human-readable"
+   ],
+   "description": "Print sizes in human readable format (e.g., 1K 234M 2G)"
+  },
+  {
+   "name": "--inodes",
+   "description": "List inode usage information instead of block usage like --block-size=1K"
+  },
+  {
+   "name": "-k",
+   "description": "Like --block-size=1K"
+  },
+  {
+   "name": [
+    "-l",
+    "--count-links"
+   ],
+   "description": "Count sizes many times if hard linked"
+  },
+  {
+   "name": [
+    "-L",
+    "--dereference"
+   ],
+   "description": "Follow all symbolic links"
+  },
+  {
+   "name": [
+    "-D",
+    "--dereference-args"
+   ],
+   "description": "Follow only symlinks that are listed on the command line [aliases: -H]"
+  },
+  {
+   "name": [
+    "-P",
+    "--no-dereference"
+   ],
+   "description": "Don't follow any symbolic links (this is the default)"
+  },
+  {
+   "name": "-m",
+   "description": "Like --block-size=1M"
+  },
+  {
+   "name": [
+    "-0",
+    "--null"
+   ],
+   "description": "End each output line with 0 byte rather than newline"
+  },
+  {
+   "name": [
+    "-S",
+    "--separate-dirs"
+   ],
+   "description": "Do not include size of subdirectories"
+  },
+  {
+   "name": [
+    "-s",
+    "--summarize"
+   ],
+   "description": "Display only a total for each argument"
+  },
+  {
+   "name": "--si",
+   "description": "Like -h, but use powers of 1000 not 1024"
+  },
+  {
+   "name": [
+    "-x",
+    "--one-file-system"
+   ],
+   "description": "Skip directories on different file systems"
+  },
+  {
+   "name": [
+    "-t",
+    "--threshold"
+   ],
+   "description": "Exclude entries smaller than SIZE if positive, or entries greater than SIZE if…",
+   "args": {
+    "name": "size"
+   }
+  },
+  {
+   "name": [
+    "-v",
+    "--verbose"
+   ],
+   "description": "Verbose mode (option not present in GNU/Coreutils)"
+  },
+  {
+   "name": "--exclude",
+   "description": "Exclude files that match PATTERN",
+   "args": {
+    "name": "pattern"
+   }
+  },
+  {
+   "name": [
+    "-X",
+    "--exclude-from"
+   ],
+   "description": "Exclude files that match any pattern in FILE",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "--files0-from",
+   "description": "Summarize device usage of the NUL-terminated file names specified in file F",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "--time",
+   "description": "Show time of the last modification of any file in the directory, or any of its",
+   "args": {
+    "name": "word",
+    "isOptional": true
+   }
+  },
+  {
+   "name": "--time-style",
+   "description": "Show times using style STYLE: full-iso, long-iso, iso, +FORMAT FORMAT is interp…",
+   "args": {
+    "name": "style"
+   }
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Print version"
+  }
+ ],
+ "args": {
+  "name": "file",
+  "template": "filepaths",
+  "isVariadic": true,
+  "isOptional": true
+ }
+}

@@ -1,0 +1,52 @@
+{
+ "name": "tee",
+ "description": "Copy standard input to files and standard output",
+ "options": [
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Print help"
+  },
+  {
+   "name": [
+    "-a",
+    "--append"
+   ],
+   "description": "Append to the given FILEs, do not overwrite"
+  },
+  {
+   "name": [
+    "-i",
+    "--ignore-interrupts"
+   ],
+   "description": "Ignore interrupt signals (ignored on non-Unix platforms)"
+  },
+  {
+   "name": "-p",
+   "description": "Set write error behavior (ignored on non-Unix platforms)"
+  },
+  {
+   "name": "--output-error",
+   "description": "Set write error behavior",
+   "args": {
+    "name": "output-error",
+    "isOptional": true
+   }
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Print version"
+  }
+ ],
+ "args": {
+  "name": "file",
+  "template": "filepaths",
+  "isVariadic": true,
+  "isOptional": true
+ }
+}

@@ -1,0 +1,249 @@
+{
+ "name": "ps",
+ "description": "Report a snapshot of the current processes",
+ "options": [
+  {
+   "name": [
+    "-A",
+    "-e"
+   ],
+   "description": "All processes"
+  },
+  {
+   "name": "-a",
+   "description": "All with tty, except session leaders"
+  },
+  {
+   "name": "-d",
+   "description": "All except session leaders"
+  },
+  {
+   "name": [
+    "-N",
+    "--deselect"
+   ],
+   "description": "Negate selection"
+  },
+  {
+   "name": "-C",
+   "description": "Command name",
+   "args": {
+    "name": "command"
+   }
+  },
+  {
+   "name": [
+    "-G",
+    "--Group"
+   ],
+   "description": "Real group id or name",
+   "args": {
+    "name": "gid"
+   }
+  },
+  {
+   "name": [
+    "-g",
+    "--group"
+   ],
+   "description": "Session or effective group name",
+   "args": {
+    "name": "group"
+   }
+  },
+  {
+   "name": [
+    "-p",
+    "--pid"
+   ],
+   "description": "Process id",
+   "args": {
+    "name": "pid"
+   }
+  },
+  {
+   "name": "--ppid",
+   "description": "Parent process id",
+   "args": {
+    "name": "pid"
+   }
+  },
+  {
+   "name": [
+    "-q",
+    "--quick-pid"
+   ],
+   "description": "Process id (quick mode)",
+   "args": {
+    "name": "pid"
+   }
+  },
+  {
+   "name": [
+    "-s",
+    "--sid"
+   ],
+   "description": "Session id",
+   "args": {
+    "name": "session"
+   }
+  },
+  {
+   "name": [
+    "-t",
+    "--tty"
+   ],
+   "description": "Terminal",
+   "args": {
+    "name": "tty"
+   }
+  },
+  {
+   "name": [
+    "-u",
+    "--user"
+   ],
+   "description": "Effective user id or name",
+   "args": {
+    "name": "uid"
+   }
+  },
+  {
+   "name": [
+    "-U",
+    "--User"
+   ],
+   "description": "Real user id or name",
+   "args": {
+    "name": "uid"
+   }
+  },
+  {
+   "name": "-D",
+   "description": "Date format for lstart",
+   "args": {
+    "name": "format"
+   }
+  },
+  {
+   "name": "-F",
+   "description": "Extra full"
+  },
+  {
+   "name": "-f",
+   "description": "Full-format, including command lines"
+  },
+  {
+   "name": "-H",
+   "description": "Show process hierarchy"
+  },
+  {
+   "name": "-j",
+   "description": "Jobs format"
+  },
+  {
+   "name": "-l",
+   "description": "Long format"
+  },
+  {
+   "name": "-M",
+   "description": "Add security data (for SELinux)"
+  },
+  {
+   "name": "-O",
+   "description": "Preloaded with default columns",
+   "args": {
+    "name": "format"
+   }
+  },
+  {
+   "name": [
+    "-o",
+    "--format"
+   ],
+   "description": "User-defined format",
+   "args": {
+    "name": "format"
+   }
+  },
+  {
+   "name": "-P",
+   "description": "Add psr column"
+  },
+  {
+   "name": "-y",
+   "description": "Do not show flags, show rss vs"
+  },
+  {
+   "name": "--context",
+   "description": "Display security context (for SELinux)"
+  },
+  {
+   "name": "--headers",
+   "description": "Repeat header lines, one per page"
+  },
+  {
+   "name": "--no-headers",
+   "description": "Do not print header at all"
+  },
+  {
+   "name": [
+    "--cols",
+    "--columns",
+    "--width"
+   ],
+   "description": "Set screen width",
+   "args": {
+    "name": "num"
+   }
+  },
+  {
+   "name": [
+    "--rows",
+    "--lines"
+   ],
+   "description": "Set screen height",
+   "args": {
+    "name": "num"
+   }
+  },
+  {
+   "name": "--signames",
+   "description": "Display signal masks using signal names"
+  },
+  {
+   "name": "-L",
+   "description": "Possibly with LWP and NLWP columns"
+  },
+  {
+   "name": "-m",
+   "description": "After processes"
+  },
+  {
+   "name": "-T",
+   "description": "Possibly with SPID column"
+  },
+  {
+   "name": "-c",
+   "description": "Show scheduling class with -l option"
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Display version information and exit"
+  },
+  {
+   "name": "-w",
+   "description": "Unlimited output width"
+  },
+  {
+   "name": "--help",
+   "description": "Display help and exit",
+   "args": {
+    "name": "simple"
+   }
+  }
+ ]
+}

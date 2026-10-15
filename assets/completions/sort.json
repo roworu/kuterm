@@ -1,0 +1,243 @@
+{
+ "name": "sort",
+ "description": "Sort lines of text files",
+ "options": [
+  {
+   "name": "--help",
+   "description": "Print help information"
+  },
+  {
+   "name": "--version",
+   "description": "Print version information"
+  },
+  {
+   "name": "--sort",
+   "description": "[possible values: general-numeric, human-numeric, month, numeric, version",
+   "args": {
+    "name": "sort"
+   }
+  },
+  {
+   "name": [
+    "-h",
+    "--human-numeric-sort"
+   ],
+   "description": "Compare according to human readable sizes, eg 1M > 100k"
+  },
+  {
+   "name": [
+    "-M",
+    "--month-sort"
+   ],
+   "description": "Compare according to month name abbreviation"
+  },
+  {
+   "name": [
+    "-n",
+    "--numeric-sort"
+   ],
+   "description": "Compare according to string numerical value"
+  },
+  {
+   "name": [
+    "-g",
+    "--general-numeric-sort"
+   ],
+   "description": "Compare according to string general numerical value"
+  },
+  {
+   "name": [
+    "-V",
+    "--version-sort"
+   ],
+   "description": "Sort by SemVer version number, eg 1.12.2 > 1.1.2"
+  },
+  {
+   "name": [
+    "-R",
+    "--random-sort"
+   ],
+   "description": "Shuffle in random order"
+  },
+  {
+   "name": "--random-source",
+   "description": "Use FILE as a source of random data",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": [
+    "-d",
+    "--dictionary-order"
+   ],
+   "description": "Consider only blanks and alphanumeric characters"
+  },
+  {
+   "name": [
+    "-m",
+    "--merge"
+   ],
+   "description": "Merge already sorted files"
+  },
+  {
+   "name": [
+    "-c",
+    "--check"
+   ],
+   "description": "Check for sorted input",
+   "args": {
+    "name": "check",
+    "isOptional": true
+   }
+  },
+  {
+   "name": [
+    "-C",
+    "--check-silent"
+   ],
+   "description": "Exit successfully if the given file is already sorted, and exit with status 1"
+  },
+  {
+   "name": [
+    "-f",
+    "--ignore-case"
+   ],
+   "description": "Fold lower case to upper case characters"
+  },
+  {
+   "name": [
+    "-i",
+    "--ignore-nonprinting"
+   ],
+   "description": "Ignore nonprinting characters"
+  },
+  {
+   "name": [
+    "-b",
+    "--ignore-leading-blanks"
+   ],
+   "description": "Ignore leading blanks when finding sort keys in each line"
+  },
+  {
+   "name": [
+    "-o",
+    "--output"
+   ],
+   "description": "Write output to FILENAME instead of stdout",
+   "args": {
+    "name": "filename",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": [
+    "-r",
+    "--reverse"
+   ],
+   "description": "Reverse the output"
+  },
+  {
+   "name": [
+    "-s",
+    "--stable"
+   ],
+   "description": "Stabilize sort by disabling last-resort comparison"
+  },
+  {
+   "name": [
+    "-u",
+    "--unique"
+   ],
+   "description": "Output only the first of an equal run"
+  },
+  {
+   "name": [
+    "-k",
+    "--key"
+   ],
+   "description": "Sort by a key",
+   "args": {
+    "name": "key"
+   }
+  },
+  {
+   "name": [
+    "-t",
+    "--field-separator"
+   ],
+   "description": "Custom separator for -k",
+   "args": {
+    "name": "field-separator"
+   }
+  },
+  {
+   "name": [
+    "-z",
+    "--zero-terminated"
+   ],
+   "description": "Line delimiter is NUL, not newline"
+  },
+  {
+   "name": "--parallel",
+   "description": "Change the number of threads running concurrently to NUM_THREADS",
+   "args": {
+    "name": "num_threads"
+   }
+  },
+  {
+   "name": [
+    "-S",
+    "--buffer-size"
+   ],
+   "description": "Sets the maximum SIZE of each segment in number of sorted items",
+   "args": {
+    "name": "size"
+   }
+  },
+  {
+   "name": [
+    "-T",
+    "--temporary-directory"
+   ],
+   "description": "Use DIR for temporaries, not $TMPDIR or /tmp",
+   "args": {
+    "name": "dir",
+    "template": "folders"
+   }
+  },
+  {
+   "name": "--compress-program",
+   "description": "Compress temporary files with PROG, decompress with PROG -d",
+   "args": {
+    "name": "prog"
+   }
+  },
+  {
+   "name": "--batch-size",
+   "description": "Merge at most N_MERGE inputs at once",
+   "args": {
+    "name": "n_merge"
+   }
+  },
+  {
+   "name": "--files0-from",
+   "description": "Read input from the files specified by NUL-terminated NUL_FILE",
+   "args": {
+    "name": "nul_file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "--debug",
+   "description": "Underline the parts of the line that are actually used for sorting"
+  }
+ ],
+ "args": {
+  "name": "file",
+  "template": "filepaths",
+  "isVariadic": true,
+  "isOptional": true
+ }
+}

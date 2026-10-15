@@ -1,0 +1,59 @@
+{
+ "name": "apt-cache",
+ "description": "Query the APT package cache",
+ "subcommands": [
+  {
+   "name": "showsrc",
+   "description": "Show source records",
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "search",
+   "description": "Search the package list for a regex pattern",
+   "priority": 75,
+   "args": {
+    "name": "pattern"
+   }
+  },
+  {
+   "name": "depends",
+   "description": "Show raw dependency information for a package",
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "rdepends",
+   "description": "Show reverse dependency information for a package",
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "show",
+   "description": "Show a readable record for the package",
+   "priority": 75,
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "pkgnames",
+   "description": "List the names of all packages in the system"
+  },
+  {
+   "name": "policy",
+   "description": "Show policy settings",
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  }
+ ]
+}

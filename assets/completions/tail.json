@@ -1,0 +1,118 @@
+{
+ "name": "tail",
+ "description": "Print the last lines of files",
+ "options": [
+  {
+   "name": [
+    "-c",
+    "--bytes"
+   ],
+   "description": "Number of bytes to print",
+   "args": {
+    "name": "bytes"
+   }
+  },
+  {
+   "name": [
+    "-f",
+    "--follow"
+   ],
+   "description": "Print the file as it grows [possible values: descriptor, name]",
+   "args": {
+    "name": "follow",
+    "isOptional": true
+   }
+  },
+  {
+   "name": [
+    "-n",
+    "--lines"
+   ],
+   "description": "Number of lines to print",
+   "args": {
+    "name": "lines"
+   }
+  },
+  {
+   "name": "--pid",
+   "description": "With -f, terminate after process ID, PID dies",
+   "args": {
+    "name": "pid"
+   }
+  },
+  {
+   "name": [
+    "-q",
+    "--quiet"
+   ],
+   "description": "Never output headers giving file names [aliases: --silent]"
+  },
+  {
+   "name": [
+    "-s",
+    "--sleep-interval"
+   ],
+   "description": "Number of seconds to sleep between polling the file when running with -f",
+   "args": {
+    "name": "n"
+   }
+  },
+  {
+   "name": "--max-unchanged-stats",
+   "description": "Reopen a FILE which has not changed size after N (default 5) iterations to see…",
+   "args": {
+    "name": "n"
+   }
+  },
+  {
+   "name": [
+    "-v",
+    "--verbose"
+   ],
+   "description": "Always output headers giving file names"
+  },
+  {
+   "name": [
+    "-z",
+    "--zero-terminated"
+   ],
+   "description": "Line delimiter is NUL, not newline"
+  },
+  {
+   "name": "--use-polling",
+   "description": "Disable 'inotify' support and use polling instead"
+  },
+  {
+   "name": "--retry",
+   "description": "Keep trying to open a file if it is inaccessible"
+  },
+  {
+   "name": "-F",
+   "description": "Same as --follow=name --retry"
+  },
+  {
+   "name": "--debug",
+   "description": "Indicate which --follow implementation is used"
+  },
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Print help"
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Print version"
+  }
+ ],
+ "args": {
+  "name": "file",
+  "template": "filepaths",
+  "isVariadic": true,
+  "isOptional": true
+ }
+}

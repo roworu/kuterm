@@ -1,0 +1,104 @@
+{
+ "name": "man",
+ "description": "Show reference manuals",
+ "options": [
+  {
+   "name": [
+    "-k",
+    "--apropos"
+   ],
+   "description": "Search page names and descriptions",
+   "args": {
+    "name": "regex"
+   },
+   "priority": 70
+  },
+  {
+   "name": [
+    "-f",
+    "--whatis"
+   ],
+   "description": "Show one-line descriptions"
+  },
+  {
+   "name": [
+    "-a",
+    "--all"
+   ],
+   "description": "Show every matching page"
+  },
+  {
+   "name": [
+    "-w",
+    "--where",
+    "--path"
+   ],
+   "description": "Print where the page is"
+  },
+  {
+   "name": [
+    "-l",
+    "--local-file"
+   ],
+   "description": "Show this file as a manual page",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": [
+    "-K",
+    "--global-apropos"
+   ],
+   "description": "Search the text of all pages",
+   "args": {
+    "name": "regex"
+   }
+  }
+ ],
+ "args": [
+  {
+   "name": "section",
+   "isOptional": true,
+   "suggestions": [
+    {
+     "name": "1",
+     "description": "Programs and shell commands"
+    },
+    {
+     "name": "2",
+     "description": "System calls"
+    },
+    {
+     "name": "3",
+     "description": "Library calls"
+    },
+    {
+     "name": "4",
+     "description": "Special files"
+    },
+    {
+     "name": "5",
+     "description": "File formats"
+    },
+    {
+     "name": "6",
+     "description": "Games"
+    },
+    {
+     "name": "7",
+     "description": "Miscellaneous"
+    },
+    {
+     "name": "8",
+     "description": "System administration"
+    }
+   ]
+  },
+  {
+   "name": "page",
+   "isVariadic": true
+  }
+ ]
+}

@@ -1,0 +1,243 @@
+{
+ "name": "useradd",
+ "description": "Create a new user",
+ "options": [
+  {
+   "name": "--badname",
+   "description": "Do not check for bad names (DEPRECATED)"
+  },
+  {
+   "name": [
+    "-b",
+    "--base-dir"
+   ],
+   "description": "Base directory for the home directory of the",
+   "args": {
+    "name": "base_dir",
+    "template": "folders"
+   }
+  },
+  {
+   "name": "--btrfs-subvolume-home",
+   "description": "Use BTRFS subvolume for home directory"
+  },
+  {
+   "name": [
+    "-c",
+    "--comment"
+   ],
+   "description": "GECOS field of the new account",
+   "args": {
+    "name": "comment"
+   }
+  },
+  {
+   "name": [
+    "-d",
+    "--home-dir"
+   ],
+   "description": "Home directory of the new account",
+   "args": {
+    "name": "home_dir",
+    "template": "folders"
+   }
+  },
+  {
+   "name": [
+    "-D",
+    "--defaults"
+   ],
+   "description": "Print or change default useradd configuration"
+  },
+  {
+   "name": [
+    "-e",
+    "--expiredate"
+   ],
+   "description": "Expiration date of the new account",
+   "args": {
+    "name": "expire_date"
+   }
+  },
+  {
+   "name": [
+    "-f",
+    "--inactive"
+   ],
+   "description": "Password inactivity period of the new account",
+   "args": {
+    "name": "inactive"
+   }
+  },
+  {
+   "name": [
+    "-F",
+    "--add-subids-for-system"
+   ],
+   "description": "Add entries to sub[ud]id even when adding a system user"
+  },
+  {
+   "name": [
+    "-g",
+    "--gid"
+   ],
+   "description": "Name or ID of the primary group of the new",
+   "args": {
+    "name": "group"
+   }
+  },
+  {
+   "name": [
+    "-G",
+    "--groups"
+   ],
+   "description": "List of supplementary groups of the new",
+   "args": {
+    "name": "groups"
+   }
+  },
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Display this help message and exit"
+  },
+  {
+   "name": [
+    "-k",
+    "--skel"
+   ],
+   "description": "Use this alternative skeleton directory",
+   "args": {
+    "name": "skel_dir",
+    "template": "folders"
+   }
+  },
+  {
+   "name": [
+    "-K",
+    "--key"
+   ],
+   "description": "Override /etc/login.defs defaults"
+  },
+  {
+   "name": [
+    "-m",
+    "--create-home"
+   ],
+   "description": "Create the user's home directory"
+  },
+  {
+   "name": [
+    "-M",
+    "--no-create-home"
+   ],
+   "description": "Do not create the user's home directory"
+  },
+  {
+   "name": [
+    "-N",
+    "--no-user-group"
+   ],
+   "description": "Do not create a group with the same name as"
+  },
+  {
+   "name": [
+    "-o",
+    "--non-unique"
+   ],
+   "description": "Allow to create users with duplicate"
+  },
+  {
+   "name": [
+    "-p",
+    "--password"
+   ],
+   "description": "Encrypted password of the new account",
+   "args": {
+    "name": "password"
+   }
+  },
+  {
+   "name": [
+    "-r",
+    "--system"
+   ],
+   "description": "Create a system account"
+  },
+  {
+   "name": [
+    "-R",
+    "--root"
+   ],
+   "description": "Directory to chroot into",
+   "args": {
+    "name": "chroot_dir",
+    "template": "folders"
+   }
+  },
+  {
+   "name": [
+    "-P",
+    "--prefix"
+   ],
+   "description": "Prefix directory where are located the /etc/* files",
+   "args": {
+    "name": "prefix_dir",
+    "template": "folders"
+   }
+  },
+  {
+   "name": [
+    "-s",
+    "--shell"
+   ],
+   "description": "Login shell of the new account",
+   "args": {
+    "name": "shell"
+   }
+  },
+  {
+   "name": [
+    "-u",
+    "--uid"
+   ],
+   "description": "User ID of the new account",
+   "args": {
+    "name": "uid"
+   }
+  },
+  {
+   "name": [
+    "-U",
+    "--user-group"
+   ],
+   "description": "Create a group with the same name as the user"
+  },
+  {
+   "name": [
+    "-Z",
+    "--selinux-user"
+   ],
+   "description": "Use a specific SEUSER for the SELinux user mapping",
+   "args": {
+    "name": "seuser"
+   }
+  },
+  {
+   "name": "--selinux-range",
+   "description": "Use a specific MLS range for the SELinux user mapping",
+   "args": {
+    "name": "serange"
+   }
+  },
+  {
+   "name": "--extrausers",
+   "description": "Use the extra users database"
+  }
+ ],
+ "args": {
+  "name": "login"
+ }
+}

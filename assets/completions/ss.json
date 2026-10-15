@@ -1,0 +1,318 @@
+{
+ "name": "ss",
+ "description": "Investigate sockets",
+ "options": [
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "This message"
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Output version information"
+  },
+  {
+   "name": [
+    "-n",
+    "--numeric"
+   ],
+   "description": "Don't resolve service names"
+  },
+  {
+   "name": [
+    "-r",
+    "--resolve"
+   ],
+   "description": "Resolve host names"
+  },
+  {
+   "name": [
+    "-a",
+    "--all"
+   ],
+   "description": "Display all sockets"
+  },
+  {
+   "name": [
+    "-l",
+    "--listening"
+   ],
+   "description": "Display listening sockets"
+  },
+  {
+   "name": [
+    "-B",
+    "--bound-inactive"
+   ]
+  },
+  {
+   "name": [
+    "-o",
+    "--options"
+   ],
+   "description": "Show timer information"
+  },
+  {
+   "name": [
+    "-e",
+    "--extended"
+   ],
+   "description": "Show detailed socket information"
+  },
+  {
+   "name": [
+    "-m",
+    "--memory"
+   ],
+   "description": "Show socket memory usage"
+  },
+  {
+   "name": [
+    "-p",
+    "--processes"
+   ],
+   "description": "Show process using socket"
+  },
+  {
+   "name": [
+    "-T",
+    "--threads"
+   ],
+   "description": "Show thread using socket"
+  },
+  {
+   "name": [
+    "-i",
+    "--info"
+   ],
+   "description": "Show internal TCP information"
+  },
+  {
+   "name": "--tipcinfo",
+   "description": "Show internal tipc socket information"
+  },
+  {
+   "name": [
+    "-s",
+    "--summary"
+   ],
+   "description": "Show socket usage summary"
+  },
+  {
+   "name": "--tos",
+   "description": "Show tos and priority information"
+  },
+  {
+   "name": "--cgroup",
+   "description": "Show cgroup information"
+  },
+  {
+   "name": [
+    "-b",
+    "--bpf"
+   ],
+   "description": "Show bpf filter socket information"
+  },
+  {
+   "name": "--bpf-maps",
+   "description": "Show all BPF socket-local storage maps"
+  },
+  {
+   "name": "--bpf-map-id",
+   "description": "Show a BPF socket-local storage map",
+   "args": {
+    "name": "map-id"
+   }
+  },
+  {
+   "name": [
+    "-E",
+    "--events"
+   ],
+   "description": "Continually display sockets as they are destroyed"
+  },
+  {
+   "name": [
+    "-Z",
+    "--context"
+   ],
+   "description": "Display task SELinux security contexts"
+  },
+  {
+   "name": [
+    "-z",
+    "--contexts"
+   ],
+   "description": "Display task and socket SELinux security contexts"
+  },
+  {
+   "name": [
+    "-N",
+    "--net"
+   ],
+   "description": "Switch to the specified network namespace name"
+  },
+  {
+   "name": [
+    "-4",
+    "--ipv4"
+   ],
+   "description": "Display only IP version 4 sockets"
+  },
+  {
+   "name": [
+    "-6",
+    "--ipv6"
+   ],
+   "description": "Display only IP version 6 sockets"
+  },
+  {
+   "name": [
+    "-0",
+    "--packet"
+   ],
+   "description": "Display PACKET sockets"
+  },
+  {
+   "name": [
+    "-t",
+    "--tcp"
+   ],
+   "description": "Display only TCP sockets"
+  },
+  {
+   "name": [
+    "-M",
+    "--mptcp"
+   ],
+   "description": "Display only MPTCP sockets"
+  },
+  {
+   "name": [
+    "-S",
+    "--sctp"
+   ],
+   "description": "Display only SCTP sockets"
+  },
+  {
+   "name": [
+    "-u",
+    "--udp"
+   ],
+   "description": "Display only UDP sockets"
+  },
+  {
+   "name": [
+    "-d",
+    "--dccp"
+   ],
+   "description": "Display only DCCP sockets"
+  },
+  {
+   "name": [
+    "-w",
+    "--raw"
+   ],
+   "description": "Display only RAW sockets"
+  },
+  {
+   "name": [
+    "-x",
+    "--unix"
+   ],
+   "description": "Display only Unix domain sockets"
+  },
+  {
+   "name": "--tipc",
+   "description": "Display only TIPC sockets"
+  },
+  {
+   "name": "--vsock",
+   "description": "Display only vsock sockets"
+  },
+  {
+   "name": "--xdp",
+   "description": "Display only XDP sockets"
+  },
+  {
+   "name": [
+    "-f",
+    "--family"
+   ],
+   "description": "FAMILY := {inet|inet6|link|unix|netlink|vsock|tipc|xdp|help}",
+   "args": {
+    "name": "family"
+   }
+  },
+  {
+   "name": [
+    "-K",
+    "--kill"
+   ],
+   "description": "Forcibly close sockets, display what was closed"
+  },
+  {
+   "name": [
+    "-H",
+    "--no-header"
+   ],
+   "description": "Suppress header line"
+  },
+  {
+   "name": [
+    "-Q",
+    "--no-queues"
+   ],
+   "description": "Suppress sending and receiving queue columns"
+  },
+  {
+   "name": [
+    "-O",
+    "--oneline"
+   ],
+   "description": "Socket's data printed on a single line"
+  },
+  {
+   "name": "--inet-sockopt",
+   "description": "Show various inet socket options"
+  },
+  {
+   "name": [
+    "-A",
+    "--query",
+    "--socket"
+   ],
+   "description": "QUERY := {all|inet|tcp|mptcp|udp|raw|unix|unix_dgram|unix_stream|unix_seqpacket…",
+   "args": {
+    "name": "query"
+   }
+  },
+  {
+   "name": [
+    "-D",
+    "--diag"
+   ],
+   "description": "Dump raw information about TCP sockets to FILE",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": [
+    "-F",
+    "--filter"
+   ],
+   "description": "Read filter information from FILE",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  }
+ ]
+}

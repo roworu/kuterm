@@ -34,6 +34,8 @@ anyhow = "1"
 base64 = "0.23"
 image = { version = "0.25", default-features = false, features = ["png"] }
 futures = "0.3"
+# big completion specs are bundled gzipped, already in the tree through gpui
+flate2 = "1"
 # finds escapes in pty output, already in the tree through alacritty
 memchr = "2"
 # reloads config files when they change, without polling them

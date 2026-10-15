@@ -1,0 +1,217 @@
+{
+ "name": "ssh",
+ "description": "OpenSSH remote login client",
+ "options": [
+  {
+   "name": "-p",
+   "description": "Port to connect to",
+   "args": {
+    "name": "port"
+   },
+   "priority": 70
+  },
+  {
+   "name": "-i",
+   "description": "Identity (private key) file",
+   "args": {
+    "name": "identity_file",
+    "template": "filepaths"
+   },
+   "priority": 70
+  },
+  {
+   "name": "-l",
+   "description": "User to log in as",
+   "args": {
+    "name": "login_name"
+   }
+  },
+  {
+   "name": "-J",
+   "description": "Connect through these jump hosts",
+   "args": {
+    "name": "destination"
+   }
+  },
+  {
+   "name": "-L",
+   "description": "Forward a local port: [bind:]port:host:hostport",
+   "args": {
+    "name": "address"
+   }
+  },
+  {
+   "name": "-R",
+   "description": "Forward a remote port: [bind:]port:host:hostport",
+   "args": {
+    "name": "address"
+   }
+  },
+  {
+   "name": "-D",
+   "description": "Dynamic SOCKS forwarding on a local port",
+   "args": {
+    "name": "port"
+   }
+  },
+  {
+   "name": "-N",
+   "description": "Run no remote command, only forward ports"
+  },
+  {
+   "name": "-f",
+   "description": "Go to the background before running the command"
+  },
+  {
+   "name": "-t",
+   "description": "Force a terminal, -tt even without a local one"
+  },
+  {
+   "name": "-T",
+   "description": "Don't allocate a terminal"
+  },
+  {
+   "name": "-A",
+   "description": "Forward the authentication agent"
+  },
+  {
+   "name": "-X",
+   "description": "Forward X11"
+  },
+  {
+   "name": "-Y",
+   "description": "Forward X11 as trusted"
+  },
+  {
+   "name": "-C",
+   "description": "Compress all data"
+  },
+  {
+   "name": "-v",
+   "description": "Verbose, up to -vvv",
+   "isRepeatable": 3
+  },
+  {
+   "name": "-q",
+   "description": "Quiet"
+  },
+  {
+   "name": "-o",
+   "description": "Set an ssh_config option, like StrictHostKeyChecking=no",
+   "args": {
+    "name": "option"
+   }
+  },
+  {
+   "name": "-F",
+   "description": "Use this config file",
+   "args": {
+    "name": "configfile",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "-E",
+   "description": "Append debug logs to this file",
+   "args": {
+    "name": "log_file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "-4",
+   "description": "IPv4 only"
+  },
+  {
+   "name": "-6",
+   "description": "IPv6 only"
+  },
+  {
+   "name": "-c",
+   "description": "Ciphers to use",
+   "args": {
+    "name": "cipher_spec"
+   }
+  },
+  {
+   "name": "-m",
+   "description": "MAC algorithms to use",
+   "args": {
+    "name": "mac_spec"
+   }
+  },
+  {
+   "name": "-b",
+   "description": "Bind to this local address",
+   "args": {
+    "name": "bind_address"
+   }
+  },
+  {
+   "name": "-W",
+   "description": "Forward stdin and stdout to host:port",
+   "args": {
+    "name": "host:port"
+   }
+  },
+  {
+   "name": "-M",
+   "description": "Master mode for connection sharing"
+  },
+  {
+   "name": "-S",
+   "description": "Control socket for connection sharing",
+   "args": {
+    "name": "ctl_path",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "-O",
+   "description": "Control a master process",
+   "args": {
+    "name": "ctl_cmd",
+    "suggestions": [
+     "check",
+     "forward",
+     "cancel",
+     "exit",
+     "stop"
+    ]
+   }
+  },
+  {
+   "name": "-G",
+   "description": "Print the configuration for the host and exit"
+  },
+  {
+   "name": "-Q",
+   "description": "List supported algorithms",
+   "args": {
+    "name": "query",
+    "suggestions": [
+     "cipher",
+     "mac",
+     "kex",
+     "key",
+     "sig"
+    ]
+   }
+  },
+  {
+   "name": "-V",
+   "description": "Print the version"
+  }
+ ],
+ "args": [
+  {
+   "name": "destination",
+   "description": "[user@]host or ssh://[user@]host[:port]"
+  },
+  {
+   "name": "command",
+   "isOptional": true,
+   "isVariadic": true
+  }
+ ]
+}

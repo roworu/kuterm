@@ -1,0 +1,99 @@
+{
+ "name": "hostnamectl",
+ "description": "Query or change the system hostname",
+ "subcommands": [
+  {
+   "name": "status",
+   "description": "Show current hostname settings"
+  },
+  {
+   "name": "hostname",
+   "description": "Get/set system hostname"
+  },
+  {
+   "name": "icon-name",
+   "description": "Get/set icon name for host"
+  },
+  {
+   "name": "chassis",
+   "description": "Get/set chassis type for host"
+  },
+  {
+   "name": "deployment",
+   "description": "Get/set deployment environment for host"
+  },
+  {
+   "name": "location",
+   "description": "Get/set location for host"
+  }
+ ],
+ "options": [
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Show this help",
+   "isPersistent": true
+  },
+  {
+   "name": "--version",
+   "description": "Show package version",
+   "isPersistent": true
+  },
+  {
+   "name": "--no-ask-password",
+   "description": "Do not prompt for password",
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-H",
+    "--host"
+   ],
+   "description": "Operate on remote host",
+   "args": {
+    "name": "user"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-M",
+    "--machine"
+   ],
+   "args": {
+    "name": "container"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--transient",
+   "description": "Only set transient hostname",
+   "isPersistent": true
+  },
+  {
+   "name": "--static",
+   "description": "Only set static hostname",
+   "isPersistent": true
+  },
+  {
+   "name": "--pretty",
+   "description": "Only set pretty hostname",
+   "isPersistent": true
+  },
+  {
+   "name": "--json",
+   "description": "Generate JSON output",
+   "args": {
+    "name": "pretty"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "-j",
+   "description": "Same as --json=pretty on tty, --json=short otherwise",
+   "isPersistent": true
+  }
+ ]
+}

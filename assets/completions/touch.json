@@ -1,0 +1,84 @@
+{
+ "name": "touch",
+ "description": "Change file timestamps, create empty files",
+ "options": [
+  {
+   "name": "--help",
+   "description": "Print help information"
+  },
+  {
+   "name": "-a",
+   "description": "Change only the access time"
+  },
+  {
+   "name": "-t",
+   "description": "Use [[CC]YY]MMDDhhmm[.ss] instead of the current time",
+   "args": {
+    "name": "stamp"
+   }
+  },
+  {
+   "name": [
+    "-d",
+    "--date"
+   ],
+   "description": "Parse argument and use it instead of current time",
+   "args": {
+    "name": "string"
+   }
+  },
+  {
+   "name": "-f",
+   "description": "Ignored"
+  },
+  {
+   "name": "-m",
+   "description": "Change only the modification time"
+  },
+  {
+   "name": [
+    "-c",
+    "--no-create"
+   ],
+   "description": "Do not create any files"
+  },
+  {
+   "name": [
+    "-h",
+    "--no-dereference"
+   ],
+   "description": "Affect each symbolic link instead of any referenced file (only for systems that…"
+  },
+  {
+   "name": [
+    "-r",
+    "--reference"
+   ],
+   "description": "Use this file's times instead of the current time",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "--time",
+   "description": "Change only the specified time: \"access\", \"atime\", or \"use\" are equivalent to -a",
+   "args": {
+    "name": "word"
+   }
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Print version"
+  }
+ ],
+ "args": {
+  "name": "file",
+  "template": "filepaths",
+  "isVariadic": true,
+  "isOptional": true
+ }
+}

@@ -1,0 +1,50 @@
+{
+ "name": "basename",
+ "description": "Strip directory and suffix from file names",
+ "options": [
+  {
+   "name": [
+    "-a",
+    "--multiple"
+   ],
+   "description": "Support multiple arguments and treat each as a NAME"
+  },
+  {
+   "name": [
+    "-s",
+    "--suffix"
+   ],
+   "description": "Remove a trailing SUFFIX",
+   "args": {
+    "name": "suffix"
+   }
+  },
+  {
+   "name": [
+    "-z",
+    "--zero"
+   ],
+   "description": "End each output line with NUL, not newline"
+  },
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Print help"
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Print version"
+  }
+ ],
+ "args": {
+  "name": "file",
+  "template": "filepaths",
+  "isVariadic": true,
+  "isOptional": true
+ }
+}

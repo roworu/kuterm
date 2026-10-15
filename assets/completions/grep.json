@@ -1,0 +1,380 @@
+{
+ "name": "grep",
+ "description": "Print lines that match patterns",
+ "options": [
+  {
+   "name": [
+    "-E",
+    "--extended-regexp"
+   ],
+   "description": "PATTERNS are extended regular expressions"
+  },
+  {
+   "name": [
+    "-F",
+    "--fixed-strings"
+   ],
+   "description": "PATTERNS are strings"
+  },
+  {
+   "name": [
+    "-G",
+    "--basic-regexp"
+   ],
+   "description": "PATTERNS are basic regular expressions"
+  },
+  {
+   "name": [
+    "-P",
+    "--perl-regexp"
+   ],
+   "description": "PATTERNS are Perl regular expressions"
+  },
+  {
+   "name": [
+    "-e",
+    "--regexp"
+   ],
+   "description": "Use PATTERNS for matching",
+   "args": {
+    "name": "patterns"
+   }
+  },
+  {
+   "name": [
+    "-f",
+    "--file"
+   ],
+   "description": "Take PATTERNS from FILE",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": [
+    "-i",
+    "--ignore-case"
+   ],
+   "description": "Ignore case distinctions in patterns and data"
+  },
+  {
+   "name": "--no-ignore-case",
+   "description": "Do not ignore case distinctions (default)"
+  },
+  {
+   "name": [
+    "-w",
+    "--word-regexp"
+   ],
+   "description": "Match only whole words"
+  },
+  {
+   "name": [
+    "-x",
+    "--line-regexp"
+   ],
+   "description": "Match only whole lines"
+  },
+  {
+   "name": [
+    "-z",
+    "--null-data"
+   ],
+   "description": "A data line ends in 0 byte, not newline"
+  },
+  {
+   "name": [
+    "-s",
+    "--no-messages"
+   ],
+   "description": "Suppress error messages"
+  },
+  {
+   "name": [
+    "-v",
+    "--invert-match"
+   ],
+   "description": "Select non-matching lines"
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Display version information and exit"
+  },
+  {
+   "name": "--help",
+   "description": "Display this help text and exit"
+  },
+  {
+   "name": [
+    "-m",
+    "--max-count"
+   ],
+   "description": "Stop after NUM selected lines",
+   "args": {
+    "name": "num"
+   }
+  },
+  {
+   "name": [
+    "-b",
+    "--byte-offset"
+   ],
+   "description": "Print the byte offset with output lines"
+  },
+  {
+   "name": [
+    "-n",
+    "--line-number"
+   ],
+   "description": "Print line number with output lines"
+  },
+  {
+   "name": "--line-buffered",
+   "description": "Flush output on every line"
+  },
+  {
+   "name": [
+    "-H",
+    "--with-filename"
+   ],
+   "description": "Print file name with output lines"
+  },
+  {
+   "name": [
+    "-h",
+    "--no-filename"
+   ],
+   "description": "Suppress the file name prefix on output"
+  },
+  {
+   "name": "--label",
+   "description": "Use LABEL as the standard input file name prefix",
+   "args": {
+    "name": "label"
+   }
+  },
+  {
+   "name": [
+    "-o",
+    "--only-matching"
+   ],
+   "description": "Show only nonempty parts of lines that match"
+  },
+  {
+   "name": [
+    "-q",
+    "--quiet",
+    "--silent"
+   ],
+   "description": "Suppress all normal output"
+  },
+  {
+   "name": "--binary-files",
+   "description": "Assume that binary files are TYPE",
+   "args": {
+    "name": "type"
+   }
+  },
+  {
+   "name": [
+    "-a",
+    "--text"
+   ],
+   "description": "Equivalent to --binary-files=text"
+  },
+  {
+   "name": "-I",
+   "description": "Equivalent to --binary-files=without-match"
+  },
+  {
+   "name": [
+    "-d",
+    "--directories"
+   ],
+   "description": "How to handle directories",
+   "args": {
+    "name": "action"
+   }
+  },
+  {
+   "name": [
+    "-D",
+    "--devices"
+   ],
+   "description": "How to handle devices, FIFOs and sockets",
+   "args": {
+    "name": "action"
+   }
+  },
+  {
+   "name": [
+    "-r",
+    "--recursive"
+   ],
+   "description": "Like --directories=recurse"
+  },
+  {
+   "name": [
+    "-R",
+    "--dereference-recursive"
+   ],
+   "description": "Likewise, but follow all symlinks"
+  },
+  {
+   "name": "--include",
+   "description": "Search only files that match GLOB (a file pattern)",
+   "args": {
+    "name": "glob"
+   }
+  },
+  {
+   "name": "--exclude",
+   "description": "Skip files that match GLOB",
+   "args": {
+    "name": "glob"
+   }
+  },
+  {
+   "name": "--exclude-from",
+   "description": "Skip files that match any file pattern from FILE",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "--exclude-dir",
+   "description": "Skip directories that match GLOB",
+   "args": {
+    "name": "glob"
+   }
+  },
+  {
+   "name": [
+    "-L",
+    "--files-without-match"
+   ],
+   "description": "Print only names of FILEs with no selected lines"
+  },
+  {
+   "name": [
+    "-l",
+    "--files-with-matches"
+   ],
+   "description": "Print only names of FILEs with selected lines"
+  },
+  {
+   "name": [
+    "-c",
+    "--count"
+   ],
+   "description": "Print only a count of selected lines per FILE"
+  },
+  {
+   "name": [
+    "-T",
+    "--initial-tab"
+   ],
+   "description": "Make tabs line up (if needed)"
+  },
+  {
+   "name": [
+    "-Z",
+    "--null"
+   ],
+   "description": "Print 0 byte after FILE name"
+  },
+  {
+   "name": [
+    "-B",
+    "--before-context"
+   ],
+   "description": "Print NUM lines of leading context",
+   "args": {
+    "name": "num"
+   }
+  },
+  {
+   "name": [
+    "-A",
+    "--after-context"
+   ],
+   "description": "Print NUM lines of trailing context",
+   "args": {
+    "name": "num"
+   }
+  },
+  {
+   "name": [
+    "-C",
+    "--context"
+   ],
+   "description": "Print NUM lines of output context",
+   "args": {
+    "name": "num"
+   }
+  },
+  {
+   "name": "-NUM",
+   "description": "Same as --context=NUM"
+  },
+  {
+   "name": "--group-separator",
+   "description": "Print SEP on line between matches with context",
+   "args": {
+    "name": "sep"
+   }
+  },
+  {
+   "name": "--no-group-separator",
+   "description": "Do not print separator for matches with context"
+  },
+  {
+   "name": "--color",
+   "args": {
+    "name": "when",
+    "isOptional": true,
+    "suggestions": [
+     "always",
+     "auto",
+     "never"
+    ]
+   }
+  },
+  {
+   "name": "--colour",
+   "description": "Use markers to highlight the matching strings",
+   "args": {
+    "name": "when",
+    "isOptional": true,
+    "suggestions": [
+     "always",
+     "auto",
+     "never"
+    ]
+   }
+  },
+  {
+   "name": [
+    "-U",
+    "--binary"
+   ],
+   "description": "Do not strip CR characters at EOL (MSDOS/Windows)"
+  }
+ ],
+ "args": [
+  {
+   "name": "pattern"
+  },
+  {
+   "name": "file",
+   "template": "filepaths",
+   "isVariadic": true,
+   "isOptional": true
+  }
+ ]
+}

@@ -24,9 +24,9 @@ pub(crate) use config::defaults as bundled_settings;
 pub use config::{Config, ConfigFiles};
 pub use keybindings::Keybindings;
 pub use options::{
-    BellTarget, ClipboardAccess, ConfirmQuit, CursorBlink, CursorShape, CursorUnfocused,
-    Decorations, FontSlant, LineHeight, LinkModifier, MemoryUnit, MenuBarMode, NewTabButton,
-    PatternAction, ProgramNotifications, RemoteControl, RestoreSession, ScrollEasing,
+    BellTarget, ClipboardAccess, CompletionTrigger, ConfirmQuit, CursorBlink, CursorShape,
+    CursorUnfocused, Decorations, FontSlant, LineHeight, LinkModifier, MemoryUnit, MenuBarMode,
+    NewTabButton, PatternAction, ProgramNotifications, RemoteControl, RestoreSession, ScrollEasing,
     ScrollbarEnable, ScrollbarPlacement, SearchCase, Shell, StartupMode, TabTitleAlign,
     TabTitleBlock, ThemeMode,
 };
@@ -68,6 +68,7 @@ pub struct Settings {
     pub hints: HintSettings,
     pub panes: PaneSettings,
     pub shell_integration: ShellIntegrationSettings,
+    pub autocomplete: AutocompleteSettings,
     /// program and arguments the history is opened with, the file goes last
     pub scrollback_pager: Vec<String>,
     pub restore_session: RestoreSession,
@@ -103,6 +104,16 @@ pub struct ShellIntegrationSettings {
     /// seconds a command runs before its end is notified while its tab is not seen,
     /// 0 never notifies
     pub notify_after: f32,
+}
+
+/// popup of completions for the command line, fed by shell integration
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+pub struct AutocompleteSettings {
+    pub enable: bool,
+    pub trigger: CompletionTrigger,
+    /// rows shown at once, the list scrolls past them
+    pub max_items: usize,
+    pub show_descriptions: bool,
 }
 
 /// split panes
@@ -473,6 +484,7 @@ const DIM_INACTIVE_RANGE: (f32, f32) = (0., 1.);
 const GRAPHICS_MEMORY_RANGE: (f32, f32) = (1., 4096.);
 // Duration panics on negative or huge seconds, a day is already "never"
 const NOTIFY_AFTER_RANGE: (f32, f32) = (0., 86400.);
+const MAX_COMPLETION_ITEMS_RANGE: (f32, f32) = (1., 50.);
 
 // Duration panics on negative or huge seconds, an hour is already "until clicked"
 const NOTIFICATION_TIMEOUT_RANGE: (f32, f32) = (0., 3600.);
@@ -667,6 +679,12 @@ impl Settings {
             NOTIFY_AFTER_RANGE,
         )
         .unwrap_or(defaults.shell_integration.notify_after);
+        settings.autocomplete.max_items = limit(
+            "autocomplete.max_items",
+            settings.autocomplete.max_items as f32,
+            MAX_COMPLETION_ITEMS_RANGE,
+        )
+        .map_or(defaults.autocomplete.max_items, |items| items as usize);
         settings.graphics.max_memory_mb = limit(
             "graphics.max_memory_mb",
             settings.graphics.max_memory_mb as f32,

@@ -1,5 +1,7 @@
 //! focusable view around terminal
 
+mod completions;
+
 use std::{
     path::Path,
     time::{Duration, Instant},
@@ -27,7 +29,21 @@ use crate::{
     },
 };
 
-actions!(terminal, [Copy, Paste, Search, ShowHints, ToggleViMode]);
+actions!(
+    terminal,
+    [
+        Copy,
+        Paste,
+        Search,
+        ShowHints,
+        ToggleViMode,
+        Complete,
+        CompletionNext,
+        CompletionPrev,
+        CompletionAccept,
+        CompletionDismiss
+    ]
+);
 
 /// clipboard change made from the view, so the workspace can notify about it
 pub enum ClipboardEvent {
@@ -103,6 +119,8 @@ pub struct TerminalView {
     last_mouse: Option<(Point<Pixels>, Modifiers)>,
     /// labels shown in hints mode, none outside of it
     hints: Option<Hints>,
+    /// completion popup for the shell's command line
+    completions: completions::CompletionMenu,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -114,6 +132,7 @@ impl TerminalView {
             cx.subscribe(&terminal, |this, _, event: &Event, cx| match event {
                 Event::Wakeup => cx.notify(),
                 Event::Bell => this.ring_bell(cx),
+                Event::Shell(event) => this.shell_event(event, cx),
                 _ => {}
             }),
             cx.on_focus_in(&focus_handle, window, |this, _, cx| {
@@ -144,6 +163,7 @@ impl TerminalView {
             hovered_link: None,
             last_mouse: None,
             hints: None,
+            completions: Default::default(),
             _subscriptions: subscriptions,
         }
     }
@@ -305,6 +325,63 @@ impl TerminalView {
 
     fn toggle_vi_mode_action(&mut self, _: &ToggleViMode, _: &mut Window, cx: &mut Context<Self>) {
         self.toggle_vi_mode(cx);
+    }
+
+    // with no shell to complete for, the key reaches the terminal
+    fn complete(&mut self, _: &Complete, _: &mut Window, cx: &mut Context<Self>) {
+        if !self.open_completions(cx) {
+            cx.propagate();
+        }
+    }
+
+    // the popup keys are plain keys the shell needs, a keymap may bind them anywhere
+    fn completion_key(
+        &mut self,
+        window: &Window,
+        cx: &mut Context<Self>,
+        run: impl FnOnce(&mut Self, &mut Context<Self>),
+    ) {
+        if self.completions_shown(window, cx) {
+            run(self, cx);
+        } else {
+            cx.propagate();
+        }
+    }
+
+    fn completion_next(&mut self, _: &CompletionNext, window: &mut Window, cx: &mut Context<Self>) {
+        self.completion_key(window, cx, |this, cx| this.move_completion(1, cx));
+    }
+
+    fn completion_prev(&mut self, _: &CompletionPrev, window: &mut Window, cx: &mut Context<Self>) {
+        self.completion_key(window, cx, |this, cx| this.move_completion(-1, cx));
+    }
+
+    fn completion_accept(
+        &mut self,
+        _: &CompletionAccept,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.completion_key(window, cx, Self::accept_completion);
+    }
+
+    fn completion_dismiss(
+        &mut self,
+        _: &CompletionDismiss,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.completion_key(window, cx, Self::dismiss_completions);
+    }
+
+    /// the completion popup shows, so its keys go to it
+    fn completions_shown(&self, window: &Window, cx: &App) -> bool {
+        let content = &self.terminal.read(cx).last_content;
+        self.completions.visible()
+            && self.focus_handle.is_focused(window)
+            && self.hints.is_none()
+            && content.display_offset == 0
+            && !content.mode.intersects(TermMode::VI | TermMode::ALT_SCREEN)
     }
 
     /// shown hints, exposed for tests
@@ -825,8 +902,8 @@ impl Focusable for TerminalView {
 }
 
 impl TerminalView {
-    // "vi_mode" and "alt_screen" let keybindings apply only then
-    fn key_context(&self, cx: &App) -> KeyContext {
+    // "vi_mode", "alt_screen" and "completion" let keybindings apply only then
+    fn key_context(&self, completions: bool, cx: &App) -> KeyContext {
         let mut context = KeyContext::new_with_defaults();
         context.add("Terminal");
         let mode = self.terminal.read(cx).last_content.mode;
@@ -835,6 +912,9 @@ impl TerminalView {
         }
         if mode.contains(TermMode::ALT_SCREEN) {
             context.add("alt_screen");
+        }
+        if completions {
+            context.add("completion");
         }
         context
     }
@@ -888,16 +968,25 @@ impl Render for TerminalView {
         if bell_flash.is_some() {
             window.request_animation_frame();
         }
+        let completions = self.completions_shown(window, cx);
+        let popup = completions
+            .then(|| self.render_completions(window.viewport_size().height, cx))
+            .flatten();
         div()
             .id("terminal-view")
             .size_full()
             .track_focus(&self.focus_handle)
-            .key_context(self.key_context(cx))
+            .key_context(self.key_context(completions, cx))
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::paste))
             .on_action(cx.listener(Self::search))
             .on_action(cx.listener(Self::show_hints_action))
             .on_action(cx.listener(Self::toggle_vi_mode_action))
+            .on_action(cx.listener(Self::complete))
+            .on_action(cx.listener(Self::completion_next))
+            .on_action(cx.listener(Self::completion_prev))
+            .on_action(cx.listener(Self::completion_accept))
+            .on_action(cx.listener(Self::completion_dismiss))
             .on_key_down(cx.listener(Self::key_down))
             .on_key_up(cx.listener(Self::key_up))
             .on_modifiers_changed(cx.listener(Self::modifiers_changed))
@@ -928,6 +1017,7 @@ impl Render for TerminalView {
                     .as_ref()
                     .map(|(bar, _)| div().absolute().top_2().right_4().child(bar.clone())),
             )
+            .children(popup)
     }
 }
 
@@ -939,7 +1029,7 @@ mod tests {
     use crate::terminal::{TerminalBounds, TerminalBuilder};
 
     /// focused view over a real shell, with terminal settings overridden by `json`
-    fn focused_view<'a>(
+    pub(super) fn focused_view<'a>(
         json: &str,
         cx: &'a mut TestAppContext,
     ) -> (Entity<TerminalView>, &'a mut VisualTestContext) {

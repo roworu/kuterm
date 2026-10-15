@@ -439,6 +439,16 @@ pub enum RemoteControl {
     Socket,
 }
 
+/// when the completion popup shows
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum CompletionTrigger {
+    /// while typing
+    Auto,
+    /// only on the "complete" key
+    Key,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,4 +1,5 @@
 mod cli;
+mod completion;
 mod remote;
 mod settings;
 mod terminal;

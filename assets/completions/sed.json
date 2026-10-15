@@ -1,0 +1,120 @@
+{
+ "name": "sed",
+ "description": "Stream editor for filtering and transforming text",
+ "options": [
+  {
+   "name": [
+    "-n",
+    "--quiet",
+    "--silent"
+   ],
+   "description": "Suppress automatic printing of pattern space"
+  },
+  {
+   "name": "--debug",
+   "description": "Annotate program execution"
+  },
+  {
+   "name": [
+    "-e",
+    "--expression"
+   ],
+   "description": "Add the script to the commands to be executed",
+   "args": {
+    "name": "script"
+   }
+  },
+  {
+   "name": [
+    "-f",
+    "--file"
+   ],
+   "description": "Add the contents of script-file to the commands to be executed",
+   "args": {
+    "name": "script-file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "--follow-symlinks",
+   "description": "Follow symlinks when processing in place"
+  },
+  {
+   "name": [
+    "-i",
+    "--in-place"
+   ],
+   "description": "Edit files in place (makes backup if SUFFIX supplied)",
+   "args": {
+    "name": "suffix",
+    "isOptional": true
+   }
+  },
+  {
+   "name": [
+    "-l",
+    "--line-length"
+   ],
+   "description": "Specify the desired line-wrap length for the `l' command",
+   "args": {
+    "name": "n"
+   }
+  },
+  {
+   "name": "--posix",
+   "description": "Disable all GNU extensions"
+  },
+  {
+   "name": [
+    "-E",
+    "-r",
+    "--regexp-extended"
+   ],
+   "description": "Use extended regular expressions in the script"
+  },
+  {
+   "name": [
+    "-s",
+    "--separate"
+   ],
+   "description": "Consider files as separate rather than as a single"
+  },
+  {
+   "name": "--sandbox",
+   "description": "Operate in sandbox mode (disable e/r/w commands)"
+  },
+  {
+   "name": [
+    "-u",
+    "--unbuffered"
+   ],
+   "description": "Load minimal amounts of data from the input files and flush"
+  },
+  {
+   "name": [
+    "-z",
+    "--null-data"
+   ],
+   "description": "Separate lines by NUL characters"
+  },
+  {
+   "name": "--help",
+   "description": "Display this help and exit"
+  },
+  {
+   "name": "--version",
+   "description": "Output version information and exit"
+  }
+ ],
+ "args": [
+  {
+   "name": "script"
+  },
+  {
+   "name": "file",
+   "template": "filepaths",
+   "isVariadic": true,
+   "isOptional": true
+  }
+ ]
+}

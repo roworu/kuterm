@@ -1,0 +1,64 @@
+{
+ "name": "stat",
+ "description": "Display file or file system status",
+ "options": [
+  {
+   "name": [
+    "-L",
+    "--dereference"
+   ],
+   "description": "Follow links"
+  },
+  {
+   "name": [
+    "-f",
+    "--file-system"
+   ],
+   "description": "Display file system status instead of file status"
+  },
+  {
+   "name": [
+    "-t",
+    "--terse"
+   ],
+   "description": "Print the information in terse form"
+  },
+  {
+   "name": [
+    "-c",
+    "--format"
+   ],
+   "description": "Use the specified FORMAT instead of the default",
+   "args": {
+    "name": "format"
+   }
+  },
+  {
+   "name": "--printf",
+   "description": "Like --format, but interpret backslash escapes",
+   "args": {
+    "name": "format"
+   }
+  },
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Print help"
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Print version"
+  }
+ ],
+ "args": {
+  "name": "file",
+  "template": "filepaths",
+  "isVariadic": true,
+  "isOptional": true
+ }
+}

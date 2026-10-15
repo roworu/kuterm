@@ -1,0 +1,190 @@
+{
+ "name": "apt-get",
+ "description": "APT package handling utility",
+ "subcommands": [
+  {
+   "name": "update",
+   "description": "Retrieve new lists of packages",
+   "priority": 76
+  },
+  {
+   "name": "upgrade",
+   "description": "Perform an upgrade",
+   "priority": 76
+  },
+  {
+   "name": "install",
+   "description": "Install new packages (pkg is libc6 not libc6.deb)",
+   "priority": 76,
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "reinstall",
+   "description": "Reinstall packages (pkg is libc6 not libc6.deb)",
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "remove",
+   "description": "Remove packages",
+   "priority": 76,
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "purge",
+   "description": "Remove packages and config files",
+   "priority": 75,
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "autoremove",
+   "description": "Remove automatically all unused packages",
+   "priority": 74
+  },
+  {
+   "name": "dist-upgrade",
+   "description": "Distribution upgrade, see apt-get(8)"
+  },
+  {
+   "name": "dselect-upgrade",
+   "description": "Follow dselect selections"
+  },
+  {
+   "name": "build-dep",
+   "description": "Configure build-dependencies for source packages",
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "satisfy",
+   "description": "Satisfy dependency strings"
+  },
+  {
+   "name": "clean",
+   "description": "Erase downloaded archive files"
+  },
+  {
+   "name": "autoclean",
+   "description": "Erase old downloaded archive files"
+  },
+  {
+   "name": "check",
+   "description": "Verify that there are no broken dependencies"
+  },
+  {
+   "name": "source",
+   "description": "Download source archives",
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "download",
+   "description": "Download the binary package into the current directory",
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "changelog",
+   "description": "Download and display the changelog for the given package",
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  }
+ ],
+ "options": [
+  {
+   "name": [
+    "-y",
+    "--yes",
+    "--assume-yes"
+   ],
+   "description": "Answer yes to all prompts",
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-s",
+    "--simulate",
+    "--dry-run"
+   ],
+   "description": "Show what would happen, change nothing",
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-q",
+    "--quiet"
+   ],
+   "description": "Print less, -qq even less",
+   "isPersistent": true
+  },
+  {
+   "name": "--no-install-recommends",
+   "description": "Don't install recommended packages",
+   "isPersistent": true
+  },
+  {
+   "name": "--install-suggests",
+   "description": "Also install suggested packages",
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-f",
+    "--fix-broken"
+   ],
+   "description": "Try to fix broken dependencies",
+   "isPersistent": true
+  },
+  {
+   "name": "--only-upgrade",
+   "description": "Only upgrade packages that are installed",
+   "isPersistent": true
+  },
+  {
+   "name": "--reinstall",
+   "description": "Reinstall packages that are up to date",
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-t",
+    "--target-release"
+   ],
+   "description": "Release to take packages from",
+   "args": {
+    "name": "release"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-o",
+    "--option"
+   ],
+   "description": "Set a configuration option",
+   "args": {
+    "name": "option"
+   },
+   "isPersistent": true
+  }
+ ]
+}
