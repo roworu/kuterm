@@ -312,6 +312,17 @@ impl TerminalView {
         cx.notify();
     }
 
+    /// first `file:line` the hint patterns find in the output of the last command of `terminal`
+    pub fn last_output_location(terminal: &Entity<Terminal>, cx: &mut App) -> Option<Link> {
+        if !cx.has_global::<HintPatterns>() {
+            cx.set_global(HintPatterns::default());
+        }
+        cx.update_global(|patterns: &mut HintPatterns, cx| {
+            patterns.0.update(&Settings::get(cx).hints.patterns);
+            terminal.read(cx).last_output_location(&mut patterns.0)
+        })
+    }
+
     fn show_hints_action(&mut self, _: &ShowHints, _: &mut Window, cx: &mut Context<Self>) {
         self.show_hints(cx);
     }
@@ -777,6 +788,19 @@ impl TerminalView {
         if self.selecting && Settings::get(cx).terminal.select_to_copy {
             self.copy_selection(cx);
         }
+        let click = self.selecting
+            && event.button == gpui::MouseButton::Left
+            && event.click_count == 1
+            && !event.modifiers.modified()
+            && Settings::get(cx).shell_integration.click_moves_cursor;
+        if click && self.terminal.read(cx).selection_text().is_none() {
+            let moved = self
+                .terminal
+                .update(cx, |term, _| term.click_moves_cursor(event.position));
+            if moved {
+                self.input_happened(cx);
+            }
+        }
         let was_local = self.selecting || self.dragging_scrollbar;
         self.selecting = false;
         self.dragging_scrollbar = false;
@@ -1001,7 +1025,10 @@ impl Render for TerminalView {
                 self.scrollbar_visible(cx),
                 // the workspace flashes the tab, or the pane edges while the tab bar is hidden
                 bell_flash.filter(|_| Settings::get(cx).bell.visual.target == BellTarget::Terminal),
-                self.hovered_link.as_ref().map(|link| link.range.clone()),
+                self.hovered_link
+                    .as_ref()
+                    .map(|link| link.ranges().cloned().collect())
+                    .unwrap_or_default(),
                 self.hints
                     .as_ref()
                     .map(|hints| {

@@ -7,16 +7,20 @@ use std::{
 
 use alacritty_terminal::{
     Term,
+    event::EventListener,
     grid::{Dimensions, Scroll},
     index::{Column, Line, Point as AlacPoint, Side},
     selection::{Selection, SelectionType},
+    term::{TermMode, cell::Flags},
 };
+use gpui::{Pixels, Point};
 
 use crate::settings::{Profile, Shell, state_dir};
 
 use super::{
-    Terminal,
+    Link, Terminal,
     builder::ZedListener,
+    links::{TextPatterns, pattern_matches},
     scanner::{OUTPUT_MARK, PROMPT_MARK},
 };
 
@@ -69,7 +73,208 @@ fn last_output(term: &Term<ZedListener>) -> Option<(AlacPoint, AlacPoint)> {
     newest.map(|(_, start, end)| (start, end))
 }
 
+/// cell after the last one of `point`'s line, the first of the next line at the edge
+fn next_cell<T: EventListener>(term: &Term<T>, point: AlacPoint) -> AlacPoint {
+    if point.column.0 + 1 < term.columns() {
+        AlacPoint::new(point.line, point.column + 1)
+    } else {
+        AlacPoint::new(point.line + 1, Column(0))
+    }
+}
+
+fn wraps<T: EventListener>(term: &Term<T>, line: Line) -> bool {
+    term.grid()[line][term.last_column()]
+        .flags
+        .contains(Flags::WRAPLINE)
+}
+
+/// first cell of the command line being typed, right after the newest prompt mark. none when
+/// output came after that prompt or the cursor is on another line than the command line,
+/// like after a continuation prompt
+fn prompt_input_start<T: EventListener>(term: &Term<T>) -> Option<AlacPoint> {
+    let cursor = term.grid().cursor.point;
+    // the newest mark is the closest one before the cursor
+    let mut point = cursor;
+    let mark = loop {
+        if let Some(link) = term.grid()[point].hyperlink()
+            && (link.id().starts_with(PROMPT_MARK) || link.id().starts_with(OUTPUT_MARK))
+        {
+            break link.id().to_string();
+        }
+        if point.column.0 > 0 {
+            point.column -= 1;
+        } else if point.line > term.topmost_line() {
+            point = AlacPoint::new(point.line - 1, term.last_column());
+        } else {
+            return None;
+        }
+    };
+    if !mark.starts_with(PROMPT_MARK) {
+        return None;
+    }
+    let start = next_cell(term, point);
+    // arrows only move along the line the cursor is on and the lines it wraps from
+    ((start.line.0..cursor.line.0).all(|line| wraps(term, Line(line))) && start <= cursor)
+        .then_some(start)
+}
+
+/// cells from `from` up to `to`, not counting `to`, a wide char counted once like the
+/// shell counts it
+fn chars_between<T: EventListener>(term: &Term<T>, from: AlacPoint, to: AlacPoint) -> usize {
+    let mut count = 0;
+    let mut point = from;
+    while point < to {
+        let flags = term.grid()[point].flags;
+        if !flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER) {
+            count += 1;
+        }
+        point = next_cell(term, point);
+    }
+    count
+}
+
+/// arrow keys that move the shell's cursor to `target` on the command line being typed,
+/// none when `target` is not on it. a click after the end of the text goes to its end
+fn arrows_to<T: EventListener>(term: &Term<T>, mut target: AlacPoint) -> Option<String> {
+    let start = prompt_input_start(term)?;
+    let cursor = term.grid().cursor.point;
+    let mut last_line = cursor.line;
+    while last_line < term.bottommost_line() && wraps(term, last_line) {
+        last_line += 1;
+    }
+    if target < start || target.line > last_line {
+        return None;
+    }
+    // past the last char typed, and past the cursor, which may sit after typed spaces
+    let mut end = cursor;
+    let mut point = start;
+    while point.line <= last_line {
+        if term.grid()[point].c != ' ' {
+            end = end.max(next_cell(term, point));
+        }
+        point = next_cell(term, point);
+    }
+    target = target.min(end);
+    // the right half of a wide char is the char
+    if target.column.0 > 0 && term.grid()[target].flags.contains(Flags::WIDE_CHAR_SPACER) {
+        target.column -= 1;
+    }
+    let app_cursor = term.mode().contains(TermMode::APP_CURSOR);
+    let (key, count) = if target >= cursor {
+        (
+            if app_cursor { "\x1bOC" } else { "\x1b[C" },
+            chars_between(term, cursor, target),
+        )
+    } else {
+        (
+            if app_cursor { "\x1bOD" } else { "\x1b[D" },
+            chars_between(term, target, cursor),
+        )
+    };
+    Some(key.repeat(count))
+}
+
+/// first and last cell marked with the hyperlink id `id`
+fn mark_cells<T: EventListener>(term: &Term<T>, id: &str) -> Option<(AlacPoint, AlacPoint)> {
+    let mut found: Option<(AlacPoint, AlacPoint)> = None;
+    for line in term.topmost_line().0..=term.bottommost_line().0 {
+        let row = &term.grid()[Line(line)];
+        for column in 0..term.columns() {
+            if row[Column(column)]
+                .hyperlink()
+                .is_some_and(|link| link.id() == id)
+            {
+                let point = AlacPoint::new(Line(line), Column(column));
+                found = Some((found.map_or(point, |(start, _)| start), point));
+            }
+        }
+    }
+    found
+}
+
+/// `target` with the line it names, like "src/main.rs:12" from "src/main.rs" and ":12: error",
+/// none when it names no line of a file
+fn file_line(target: &str, after: &str) -> Option<String> {
+    if target.contains("://") {
+        return None;
+    }
+    let text = format!("{target}{after}");
+    let text = text.trim_end_matches(':');
+    let parts: Vec<&str> = text.split(':').collect();
+    let numbers = |part: &&str| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit());
+    // a line, and maybe a column after it
+    let first = parts.iter().position(numbers)?;
+    let path = parts[..first].join(":");
+    (first > 0
+        && parts.len() - first <= 2
+        && parts[first..].iter().all(numbers)
+        && !path.is_empty())
+    .then(|| text.to_string())
+}
+
 impl Terminal {
+    /// command line of the last command started, as typed after its prompt
+    pub fn last_command_line(&self) -> Option<String> {
+        let (prompt, _) = self.last_command?;
+        let term = self.term.lock();
+        let (_, end) = mark_cells(&term, &format!("{PROMPT_MARK}{}", prompt?))?;
+        let start = next_cell(&term, end);
+        let mut last = start.line;
+        while last < term.bottommost_line() && wraps(&term, last) {
+            last += 1;
+        }
+        let text = term.bounds_to_string(start, AlacPoint::new(last, term.last_column()));
+        let text = text.trim();
+        (!text.is_empty()).then(|| text.to_string())
+    }
+
+    /// first match of `patterns` in the output of the last command that names a line of a
+    /// file, its target with the line, like "src/main.rs:12"
+    pub fn last_output_location(&self, patterns: &mut TextPatterns) -> Option<Link> {
+        let (_, output) = self.last_command?;
+        let term = self.term.lock();
+        let (start, end) = mark_cells(&term, &format!("{OUTPUT_MARK}{output}"))?;
+        let end = AlacPoint::new(end.line, term.last_column());
+        pattern_matches(&term, patterns, start, end)
+            .into_iter()
+            .find_map(|mut link| {
+                // the line number often follows the match, like "src/main.rs:12:5: error"
+                let mut after = String::new();
+                let mut point = *link.range.end();
+                while point.column < term.last_column() {
+                    point.column += 1;
+                    let c = term.grid()[point].c;
+                    if c != ':' && !c.is_ascii_digit() {
+                        break;
+                    }
+                    after.push(c);
+                }
+                link.target = file_line(&link.target, &after)?;
+                Some(link)
+            })
+    }
+
+    /// move the shell's cursor to the clicked cell of the command line being typed, with
+    /// arrow keys. false when the click is elsewhere or a command runs
+    pub fn click_moves_cursor(&mut self, position: Point<Pixels>) -> bool {
+        if self.command_started.is_some() {
+            return false;
+        }
+        let (target, _) = self.mouse_point(position);
+        let term = self.term.lock();
+        if term.mode().contains(TermMode::ALT_SCREEN) {
+            return false;
+        }
+        let Some(keys) = arrows_to(&term, target) else {
+            return false;
+        };
+        drop(term);
+        if !keys.is_empty() {
+            self.input(keys.into_bytes());
+        }
+        true
+    }
+
     /// scroll so the prompt above the top of the view, or below it, is the first line shown.
     /// false when there is no such prompt
     pub fn jump_to_prompt(&mut self, up: bool) -> bool {
@@ -214,7 +419,9 @@ pub fn with_shell_integration(profile: &Profile) -> Profile {
 mod tests {
     use std::time::{Duration, Instant};
 
-    use super::with_shell_integration;
+    use alacritty_terminal::index::{Column, Line, Point as AlacPoint};
+
+    use super::{arrows_to, file_line, with_shell_integration};
     use crate::{
         settings::{Shell, TerminalSettings},
         terminal::{
@@ -222,6 +429,70 @@ mod tests {
             tests::{profile, screen_text, spawn_with, wait_for_text},
         },
     };
+
+    /// alacritty term `columns` wide after printing a marked prompt and then `typed`
+    fn typed_after_prompt(
+        columns: usize,
+        typed: &str,
+    ) -> alacritty_terminal::Term<alacritty_terminal::event::VoidListener> {
+        use alacritty_terminal::{
+            Term,
+            event::VoidListener,
+            term::{Config, test::TermSize},
+            vte::ansi::Processor,
+        };
+        let mut term = Term::new(Config::default(), &TermSize::new(columns, 5), VoidListener);
+        let mut parser: Processor = Processor::new();
+        let prompt = "\x1b]8;id=kuterm-prompt-0;kuterm:\x1b\\$ \x1b]8;;\x1b\\";
+        parser.advance(&mut term, format!("{prompt}{typed}").as_bytes());
+        term
+    }
+
+    fn at(line: i32, column: usize) -> AlacPoint {
+        AlacPoint::new(Line(line), Column(column))
+    }
+
+    #[test]
+    fn clicks_on_the_command_line_count_arrows_over_wrapped_lines() {
+        // "$ echo hel" wraps into "lo world", the cursor after "world"
+        let term = typed_after_prompt(10, "echo hello world");
+        assert_eq!(term.grid().cursor.point, at(1, 8));
+        let left = |n: usize| Some("\x1b[D".repeat(n));
+        assert_eq!(arrows_to(&term, at(0, 2)), left(16));
+        assert_eq!(arrows_to(&term, at(1, 0)), left(8));
+        // after the end of the text goes to the end
+        assert_eq!(arrows_to(&term, at(1, 9)), Some(String::new()));
+        // the prompt itself and lines below are no part of the command line
+        assert_eq!(arrows_to(&term, at(0, 1)), None);
+        assert_eq!(arrows_to(&term, at(2, 0)), None);
+
+        // the other way, in the cursor mode the program asked for
+        let mut term = typed_after_prompt(10, "echo hello world\x1b[?1h");
+        term.grid_mut().cursor.point = at(0, 6);
+        assert_eq!(arrows_to(&term, at(1, 1)), Some("\x1bOC".repeat(5)));
+        term.grid_mut().cursor.point = at(1, 2);
+        assert_eq!(arrows_to(&term, at(0, 2)), Some("\x1bOD".repeat(10)));
+    }
+
+    #[test]
+    fn wide_chars_take_one_arrow() {
+        let term = typed_after_prompt(20, "a\u{4f60}\u{597d}b");
+        assert_eq!(term.grid().cursor.point, at(0, 8));
+        // both halves of a wide char are the char
+        assert_eq!(arrows_to(&term, at(0, 3)), Some("\x1b[D".repeat(3)));
+        assert_eq!(arrows_to(&term, at(0, 4)), Some("\x1b[D".repeat(3)));
+        assert_eq!(arrows_to(&term, at(0, 2)), Some("\x1b[D".repeat(4)));
+    }
+
+    #[test]
+    fn no_arrows_once_output_follows_the_prompt() {
+        let term = typed_after_prompt(20, "ls\r\n\x1b]8;id=kuterm-output-1;kuterm:\x1b\\out");
+        assert_eq!(arrows_to(&term, at(0, 2)), None);
+        assert_eq!(arrows_to(&term, at(1, 0)), None);
+        // a continuation prompt is a line the arrows can't reach
+        let term = typed_after_prompt(20, "echo 'a\r\n> b");
+        assert_eq!(arrows_to(&term, at(0, 3)), None);
+    }
 
     #[test]
     fn marks_find_prompts_and_the_last_output() {
@@ -293,6 +564,86 @@ mod tests {
         assert_eq!(*exit, Some(3));
         assert!(*duration >= Duration::from_millis(250) && *duration <= started.elapsed());
         assert_eq!((title.as_str(), body.as_str()), ("", "all done"));
+    }
+
+    #[test]
+    fn progress_tells_busy_and_idle_but_not_an_idle_that_ends_the_command() {
+        let profile = profile(Shell::WithArguments {
+            program: "/bin/sh".into(),
+            args: vec![
+                "-c".into(),
+                concat!(
+                    "printf '\\033]133;C\\007\\033]9;4;3\\007\\033]9;4;1;50\\007\\033]9;4;0\\007'; ",
+                    "printf '\\033]9;4;3\\007\\033]9;4;0\\007\\033]133;D;0\\007'; ",
+                    "echo busy_ready; sleep 5"
+                )
+                .into(),
+            ],
+        });
+        let mut builder = spawn_with(&TerminalSettings::default(), &profile);
+        let terminal = &mut builder.terminal;
+        wait_for_text(terminal, "busy_ready");
+        let busy: Vec<bool> = terminal
+            .handle_scan_events()
+            .into_iter()
+            .filter_map(|event| match event {
+                Event::BusyChanged(busy) => Some(busy),
+                _ => None,
+            })
+            .collect();
+        // percent after busy is still busy, the second idle came with the end of the command
+        assert_eq!(busy, [true, false, true]);
+    }
+
+    #[test]
+    fn file_lines_need_a_line_number() {
+        // what follows the match is cut at the first char other than ':' or a digit
+        assert_eq!(
+            file_line("src/main.rs", ":12:5:").as_deref(),
+            Some("src/main.rs:12:5")
+        );
+        assert_eq!(
+            file_line("src/main.rs:12", "").as_deref(),
+            Some("src/main.rs:12")
+        );
+        assert_eq!(file_line("src/main.rs", ":"), None);
+        assert_eq!(file_line("src/main.rs", ""), None);
+        assert_eq!(file_line("12", ":5"), None);
+        assert_eq!(file_line("http://host", ":8080"), None);
+    }
+
+    #[test]
+    fn last_command_line_and_the_first_file_line_of_its_output() {
+        use crate::{
+            settings::{PatternAction, TextPattern},
+            terminal::TextPatterns,
+        };
+
+        // a failed command printing a path with its line, then a command printing nothing
+        let script = concat!(
+            "printf '\\033]133;A\\007$ \\033]133;B\\007make all\\n\\033]133;C\\007'; ",
+            "printf 'build.log ok\\nsrc/main.rs:12:5: error\\n\\033]133;D;2\\007'; ",
+            "printf '\\033]133;A\\007$ \\033]133;B\\007\\n'; echo lines_ready; sleep 5"
+        );
+        let profile = profile(Shell::WithArguments {
+            program: "/bin/sh".into(),
+            args: vec!["-c".into(), script.into()],
+        });
+        let mut builder = spawn_with(&TerminalSettings::default(), &profile);
+        let terminal = &mut builder.terminal;
+        wait_for_text(terminal, "lines_ready");
+        terminal.handle_scan_events();
+        assert_eq!(terminal.last_command_line().as_deref(), Some("make all"));
+        let mut patterns = TextPatterns::default();
+        patterns.update(&[TextPattern {
+            regex: r"[\w/]+\.\w+".into(),
+            action: PatternAction::Copy,
+            name: Some("path".into()),
+        }]);
+        // build.log has no line, the first file:line is taken
+        let link = terminal.last_output_location(&mut patterns).unwrap();
+        assert_eq!(link.target, "src/main.rs:12:5");
+        assert_eq!(link.name.as_deref(), Some("path"));
     }
 
     #[test]

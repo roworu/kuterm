@@ -15,6 +15,7 @@ import shutil
 import signal
 import subprocess
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -74,7 +75,7 @@ def unique_theme(seed: int) -> dict:
     colors = iter(f"#{seed:02x}{i * 37 % 256:02x}{(i * 91 + 50) % 256:02x}" for i in range(1, 60))
     keys = ["tab_bar_background", "tab_active_background", "border", "text", "text_muted",
             "terminal_background", "terminal_foreground", "cursor", "selection", "scrollbar",
-            "bright_foreground", "dim_foreground", "danger_button", "danger_button_text"]
+            "bright_foreground", "dim_foreground", "danger_button", "danger_button_text", "attention"]
     theme = {key: next(colors) for key in keys}
     theme["ansi"] = [next(colors) for _ in range(16)]
     theme["ansi_dim"] = [next(colors) for _ in range(8)]
@@ -314,6 +315,45 @@ class Portal:
         self.proc.stdin.write(f"{scheme}\n")
         self.proc.stdin.flush()
         assert self.proc.stdout.readline().strip() == "ok"
+
+    def stop(self) -> None:
+        if self.proc.poll() is None:
+            self.proc.stdin.close()
+            try:
+                self.proc.wait(5)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+                self.proc.wait()
+
+
+class Notifications:
+    """fake desktop notification service recording what apps show, see fake_notifications.py"""
+
+    def __init__(self) -> None:
+        self.proc = subprocess.Popen(
+            ["python3", str(Path(__file__).with_name("fake_notifications.py"))],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=True,
+            env={**session_env(), "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+        line = self.proc.stdout.readline().strip()
+        assert line == "ready", f"fake notifications failed to start: {line!r}"
+        self.shown: list = []
+        threading.Thread(target=self._read, daemon=True).start()
+
+    def _read(self) -> None:
+        for line in self.proc.stdout:
+            self.shown.append(json.loads(line))
+
+    def wait(self, check, msg: str = "a notification", timeout: float = 15) -> dict:
+        """first notification shown that check accepts"""
+        return wait_until(lambda: next((n for n in list(self.shown) if check(n)), None), timeout=timeout, msg=msg)
+
+    def invoke(self, nid: int, key: str) -> None:
+        """click the button with this key"""
+        self.proc.stdin.write(f"invoke {nid} {key}\n")
+        self.proc.stdin.flush()
 
     def stop(self) -> None:
         if self.proc.poll() is None:

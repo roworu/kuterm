@@ -10,6 +10,9 @@ use super::config;
 pub struct IconGroup {
     pub icon: String,
     pub commands: Vec<String>,
+    /// ai agents, watched for waiting on the user
+    #[serde(default)]
+    pub agents: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -49,12 +52,11 @@ impl TabIcons {
         cx.global::<Self>()
     }
 
-    /// icon of the first group listing `command`
-    pub fn icon(&self, command: &str) -> Option<&str> {
+    /// first group listing `command`
+    pub fn group(&self, command: &str) -> Option<&IconGroup> {
         self.groups
             .iter()
             .find(|group| group.commands.iter().any(|name| name == command))
-            .map(|group| group.icon.as_str())
     }
 }
 
@@ -63,6 +65,10 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
+
+    fn icon<'a>(icons: &'a TabIcons, command: &str) -> Option<&'a str> {
+        icons.group(command).map(|group| group.icon.as_str())
+    }
 
     #[test]
     fn bundled_icons_are_single_nerd_glyphs() {
@@ -88,9 +94,9 @@ mod tests {
     fn user_groups_replace_bundled_ones_whole() {
         let icons =
             TabIcons::parse(r#"{"groups": [{"icon": "H", "commands": ["htop", "mc"]}]}"#).unwrap();
-        assert_eq!(icons.icon("htop"), Some("H"));
-        assert_eq!(icons.icon("mc"), Some("H"));
-        assert_eq!(icons.icon("ssh"), None);
+        assert_eq!(icon(&icons, "htop"), Some("H"));
+        assert_eq!(icon(&icons, "mc"), Some("H"));
+        assert_eq!(icon(&icons, "ssh"), None);
         // left out keys keep their defaults
         assert_eq!(icons.interpreters, TabIcons::default().interpreters);
     }
@@ -101,8 +107,8 @@ mod tests {
             r#"{"groups": [{"icon": "A", "commands": ["x"]}, {"icon": "B", "commands": ["x", "y"]}]}"#,
         )
         .unwrap();
-        assert_eq!(icons.icon("x"), Some("A"));
-        assert_eq!(icons.icon("y"), Some("B"));
+        assert_eq!(icon(&icons, "x"), Some("A"));
+        assert_eq!(icon(&icons, "y"), Some("B"));
     }
 
     #[test]

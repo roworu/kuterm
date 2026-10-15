@@ -172,6 +172,15 @@
     //   "unfocused" - only while the tab is not in front of a focused window
     //   "never"     - never
     "from_programs": "unfocused",
+    // notify once when an ai agent, like claude code or codex, stops working without
+    // finishing and waits for you, like at a permission prompt. its tab is marked until you
+    // type into it. agents are the programs of a group with "agents": true in
+    // "icons.dynamic_app_icons", they must report being busy with osc 9;4
+    "agent_waiting": true,
+    // buttons on desktop notifications: "show" switches to the tab, a finished command adds
+    // "run again", and "open first error" when it failed and "hints.patterns" find a
+    // file:line in its output, which runs the action of that pattern. linux only
+    "actions": true,
   },
 
   // ---------------------------------------------------------------------------------------
@@ -230,6 +239,9 @@
     // notify when a command took longer than this many seconds and its tab is not in front,
     // 0 never notifies
     "notify_after": 10,
+    // a click on the command line you are typing moves the shell's cursor there, by
+    // sending it arrow keys. needs the prompt marks of shell integration
+    "click_moves_cursor": true,
   },
 
   // a popup of completions for the command line: programs, subcommands, options and their
@@ -401,6 +413,8 @@
         // buttons that destroy something, like "close" in the dialog asking to close a busy tab
         "danger_button": "#be5046",
         "danger_button_text": "#ffffff",
+        // mark of a tab whose ai agent waits for you
+        "attention": "#d19a66",
 
         // terminal: default background and text color, used where programs set no color
         "terminal_background": "#282c34",
@@ -447,6 +461,8 @@
         // buttons that destroy something, like "close" in the dialog asking to close a busy tab
         "danger_button": "#e45649",
         "danger_button_text": "#ffffff",
+        // mark of a tab whose ai agent waits for you
+        "attention": "#c18401",
 
         // terminal: default background and text color, used where programs set no color
         "terminal_background": "#fafafa",
@@ -781,6 +797,11 @@
     // move the active tab, its programs still running, into a window of its own.
     // dragging a tab out of the window does it too
     "move_tab_to_new_window": null,
+    // switch to the tab whose ai agent has waited longest for you, see
+    // "notifications.agent_waiting"
+    "next_attention_tab": null,
+    // list the tabs running an ai agent with how long each has waited, pick one to switch
+    "pick_agent_tab": null,
     // scroll to the prompt above or below, needs shell integration
     "jump_to_prev_prompt": "ctrl-shift-up",
     "jump_to_next_prompt": "ctrl-shift-down",
@@ -910,6 +931,9 @@
   //   "prev_tab"                         - switch to the tab on the left
   //   { "activate_tab": 2 }              - switch to the tab at this 1 based position
   //   "pick_tab"                         - list the open tabs in the palette, pick one to switch to it
+  //   "next_attention_tab"               - switch to the tab whose ai agent has waited longest
+  //   "pick_agent_tab"                   - list the tabs running an ai agent and how long each
+  //                                        has waited, pick one to switch to it
   //   "copy"                             - copy the active tab's selection to the clipboard
   //   "paste"                            - paste the clipboard into the active tab
   //   "search"                           - open the search bar of the active tab
@@ -976,6 +1000,8 @@
     { "name": "switch to left", "category": "tabs", "actions": ["prev_tab"] },
     { "name": "switch to right", "category": "tabs", "actions": ["next_tab"] },
     { "name": "go to tab", "category": "tabs", "actions": ["pick_tab"] },
+    { "name": "go to waiting agent", "category": "tabs", "actions": ["next_attention_tab"] },
+    { "name": "agent tabs", "category": "tabs", "actions": ["pick_agent_tab"] },
 
     { "name": "scroll to top", "category": "view", "actions": ["scroll_top"] },
     { "name": "scroll to bottom", "category": "view", "actions": ["scroll_bottom"] },
@@ -1041,8 +1067,9 @@
           "commands": ["curl", "wget", "aria2c", "xh", "http"],
         },
         {
-          // ai and agents
+          // ai and agents, "agents" marks them for "notifications.agent_waiting"
           "icon": "󰚩",
+          "agents": true,
           "commands": ["claude", "opencode", "pi", "codex", "gemini", "aider", "crush", "goose", "amp", "cursor-agent", "copilot", "qwen", "llama-cli", "llama-server", "llama-bench", "ollama", "llm", "droid", "kiro-cli"],
         },
         {

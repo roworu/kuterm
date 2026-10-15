@@ -192,6 +192,8 @@ impl TerminalBuilder {
             reported_cwd: None,
             progress: None,
             command_started: None,
+            inputs: 0,
+            last_command: None,
             graphics,
             cell_size,
             #[cfg(unix)]

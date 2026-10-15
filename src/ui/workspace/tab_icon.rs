@@ -3,29 +3,32 @@
 use std::path::Path;
 
 use crate::{
-    settings::{TabIconSettings, TabIcons},
+    settings::{IconGroup, TabIconSettings, TabIcons},
     terminal::{ForegroundProcess, children, process_info},
 };
 
 // sudo runs the command under a second sudo, a few levels cover every wrapper chain seen in practice
 const MAX_WRAPPER_DEPTH: usize = 4;
 
-/// icon of a tab running `process` in the foreground, may block on /proc reads
+/// icon of a tab running `process` in the foreground and whether that is an ai agent, may
+/// block on /proc reads
 pub(super) fn tab_icon(
     settings: &TabIconSettings,
     icons: &TabIcons,
     profile_icon: Option<&str>,
     process: Option<ForegroundProcess>,
-) -> String {
-    if let Some(icon) = profile_icon {
-        return icon.to_owned();
-    }
-    process
-        .filter(|_| settings.dynamic)
+) -> (String, bool) {
+    let group = process
         .map(|process| unwrap(icons, process))
-        .and_then(|process| program_icon(icons, &process))
-        .unwrap_or(&settings.default)
-        .to_owned()
+        .and_then(|process| program_group(icons, &process));
+    let agent = group.is_some_and(|group| group.agents);
+    let icon = match profile_icon {
+        Some(icon) => icon,
+        None => group
+            .filter(|_| settings.dynamic)
+            .map_or(&settings.default, |group| &group.icon),
+    };
+    (icon.to_owned(), agent)
 }
 
 // the command a wrapper runs is its child, found through /proc rather than by parsing
@@ -44,7 +47,7 @@ fn unwrap(icons: &TabIcons, mut process: ForegroundProcess) -> ForegroundProcess
     process
 }
 
-fn program_icon<'a>(icons: &'a TabIcons, process: &ForegroundProcess) -> Option<&'a str> {
+fn program_group<'a>(icons: &'a TabIcons, process: &ForegroundProcess) -> Option<&'a IconGroup> {
     // scripts run by an interpreter show as "node" or "python", so their script name is tried first
     let script = icons
         .interpreters
@@ -56,7 +59,7 @@ fn program_icon<'a>(icons: &'a TabIcons, process: &ForegroundProcess) -> Option<
     script
         .iter()
         .chain([&process.name])
-        .find_map(|name| icons.icon(name))
+        .find_map(|name| icons.group(name))
 }
 
 #[cfg(test)]
@@ -68,6 +71,10 @@ mod tests {
 
     fn settings(json: &str) -> TabIconSettings {
         Settings::parse(json).unwrap().icons
+    }
+
+    fn program_icon<'a>(icons: &'a TabIcons, process: &ForegroundProcess) -> Option<&'a str> {
+        program_group(icons, process).map(|group| group.icon.as_str())
     }
 
     fn icon_of(icons: &TabIcons, command: &str) -> String {
@@ -162,11 +169,11 @@ mod tests {
         let settings = settings("{}");
         let pid = std::process::id();
         assert_eq!(
-            tab_icon(&settings, &icons, None, foreground_process(pid)),
+            tab_icon(&settings, &icons, None, foreground_process(pid)).0,
             "X"
         );
         assert_eq!(
-            tab_icon(&settings, &icons, Some("P"), foreground_process(pid)),
+            tab_icon(&settings, &icons, Some("P"), foreground_process(pid)).0,
             "P"
         );
         assert_eq!(
@@ -175,7 +182,8 @@ mod tests {
                 &icons,
                 Some("P"),
                 foreground_process(u32::MAX - 1)
-            ),
+            )
+            .0,
             "P"
         );
     }
@@ -189,7 +197,8 @@ mod tests {
                 &icons_for_self("X"),
                 None,
                 foreground_process(std::process::id())
-            ),
+            )
+            .0,
             "D"
         );
     }
@@ -203,9 +212,33 @@ mod tests {
                 &TabIcons::default(),
                 None,
                 foreground_process(u32::MAX - 1)
-            ),
+            )
+            .0,
             "D"
         );
+    }
+
+    #[test]
+    fn programs_of_agent_groups_are_agents() {
+        let process = foreground_process(std::process::id()).unwrap();
+        let json = |agents: bool| {
+            format!(
+                r#"{{"groups": [{{"icon": "A", "agents": {agents}, "commands": ["{}"]}}]}}"#,
+                process.name
+            )
+        };
+        let settings = settings("{}");
+        let pid = std::process::id();
+        for agents in [true, false] {
+            let icons = TabIcons::parse(&json(agents)).unwrap();
+            // a profile icon or icons turned off keep telling agents apart
+            for profile_icon in [None, Some("P")] {
+                let (_, agent) = tab_icon(&settings, &icons, profile_icon, foreground_process(pid));
+                assert_eq!(agent, agents);
+            }
+        }
+        let (_, agent) = tab_icon(&settings, &icons(), None, foreground_process(u32::MAX - 1));
+        assert!(!agent);
     }
 
     fn icons_with_wrappers(wrappers: &str) -> TabIcons {

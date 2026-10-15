@@ -29,8 +29,12 @@ const MAX_APC: usize = 96 << 20;
 pub enum ScanEvent {
     /// the shell is about to draw its prompt
     PromptStart,
-    /// a command started running, its output follows
-    CommandStart,
+    /// a command started running, its output follows. carries the numbers of the marks of
+    /// its prompt, none when no prompt was marked, and of its output
+    CommandStart {
+        prompt: Option<usize>,
+        output: usize,
+    },
     /// the command finished, with its exit code when the shell told it
     CommandEnd(Option<i32>),
     /// the shell is in this folder
@@ -76,6 +80,8 @@ pub struct Scanner {
     /// marked prompt or output cells are being printed
     open_mark: bool,
     next_mark: usize,
+    /// number of the last prompt mark
+    last_prompt: Option<usize>,
     /// graphics command being read, none while it is too long to keep
     apc: Option<Vec<u8>>,
     graphics: Option<GraphicsParser>,
@@ -99,6 +105,7 @@ impl Scanner {
             overflow: false,
             open_mark: false,
             next_mark: 0,
+            last_prompt: None,
             apc: None,
             graphics,
         }
@@ -258,6 +265,7 @@ impl Scanner {
                 match parts.next() {
                     Some("A") => {
                         self.close_mark(out);
+                        self.last_prompt = Some(self.next_mark);
                         self.open_mark(PROMPT_MARK, out);
                         events.push(ScanEvent::PromptStart);
                     }
@@ -265,8 +273,11 @@ impl Scanner {
                     Some("B") => self.close_mark(out),
                     Some("C") => {
                         self.close_mark(out);
+                        events.push(ScanEvent::CommandStart {
+                            prompt: self.last_prompt,
+                            output: self.next_mark,
+                        });
                         self.open_mark(OUTPUT_MARK, out);
-                        events.push(ScanEvent::CommandStart);
                     }
                     Some("D") => {
                         self.close_mark(out);
@@ -495,7 +506,10 @@ mod tests {
             events,
             [
                 ScanEvent::PromptStart,
-                ScanEvent::CommandStart,
+                ScanEvent::CommandStart {
+                    prompt: Some(0),
+                    output: 1
+                },
                 ScanEvent::CommandEnd(Some(2))
             ]
         );

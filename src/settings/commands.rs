@@ -66,6 +66,10 @@ pub enum CommandAction {
     ActivateTab(usize),
     /// list the open tabs in the palette, picking one switches to it
     PickTab,
+    /// switch to the tab whose ai agent has waited longest for the user
+    NextAttentionTab,
+    /// list the tabs running an ai agent in the palette with how long each waits
+    PickAgentTab,
     /// copy the active tab's selection into the clipboard
     Copy,
     /// paste the clipboard into the active tab

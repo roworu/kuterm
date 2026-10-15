@@ -395,6 +395,7 @@ impl Workspace {
             (None, false) => (title, tab_state.icon_at.clone(), tab_state.ports_at.clone()),
         };
         let bell = tab_state.bell;
+        let waiting = tab_state.attention.waiting(terminal.inputs()).is_some();
         let flash = tab_state
             .view
             .read(cx)
@@ -507,6 +508,16 @@ impl Workspace {
                         .flex_none()
                         .text_color(theme.text)
                         .child(BELL_ICON),
+                )
+            })
+            .when(waiting, |tab| {
+                tab.child(
+                    div()
+                        .debug_selector(move || format!("tab-attention-{ix}"))
+                        .flex_none()
+                        .size(rems(0.5))
+                        .rounded_full()
+                        .bg(theme.attention),
                 )
             })
             .when(settings.show_tab_close_button && !pinned, |tab| {

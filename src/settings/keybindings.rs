@@ -154,6 +154,10 @@ fn binding(action: &str, keys: &str, when: Option<&str>) -> Option<KeyBinding> {
         "rename_tab" => KeyBinding::new(keys, RunAction(CommandAction::RenameTab), when),
         "pin_tab" => KeyBinding::new(keys, RunAction(CommandAction::PinTab), when),
         "duplicate_tab" => KeyBinding::new(keys, RunAction(CommandAction::DuplicateTab), when),
+        "next_attention_tab" => {
+            KeyBinding::new(keys, RunAction(CommandAction::NextAttentionTab), when)
+        }
+        "pick_agent_tab" => KeyBinding::new(keys, RunAction(CommandAction::PickAgentTab), when),
         "move_tab_to_new_window" => {
             KeyBinding::new(keys, RunAction(CommandAction::MoveTabToNewWindow), when)
         }

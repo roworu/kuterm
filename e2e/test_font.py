@@ -191,6 +191,21 @@ def test_other_installed_font(app_factory):
     assert (shots[0] != shots[1]).any()
 
 
+def test_ligatures_follow_calt(app_factory):
+    """with +calt a ligature font joins -> != => across cells, -calt draws each char alone"""
+    shots = []
+    for feature in ["-calt", "+calt"]:
+        app = app_factory({"theme": {"mode": "dark"},
+                           "terminal": {"font_family": "Fira Code", "font_size": 24, "font_features": [feature]}},
+                          script="printf '%s\\n' '-> != =>'\n")
+        app.wait(lambda: text_width(app, 300) > 100, msg="text")
+        x0, y0, x1, y1 = app.cell_rect(0, 0, 8)
+        shots.append(app.wait_still("text drawn")[y0:y1, x0:x1].copy())
+        app.snap(f"Fira Code {feature}")
+        app.close()
+    assert (shots[0] != shots[1]).any()
+
+
 @pytest.mark.parametrize("key", ["terminal", "ui"])
 def test_unknown_font_family_uses_bundled_font(app_factory, key):
     """a font that is not installed falls back to the bundled font, not a proportional system one"""

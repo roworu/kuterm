@@ -32,7 +32,7 @@ pub use options::{
 };
 pub use pins::Pins;
 pub use status_bar_state::StatusBarState;
-pub use tab_icons::TabIcons;
+pub use tab_icons::{IconGroup, TabIcons};
 pub use window_size::WindowSize;
 
 use crate::cli::Cli;
@@ -104,6 +104,8 @@ pub struct ShellIntegrationSettings {
     /// seconds a command runs before its end is notified while its tab is not seen,
     /// 0 never notifies
     pub notify_after: f32,
+    /// a click on the command line being typed moves the shell's cursor there
+    pub click_moves_cursor: bool,
 }
 
 /// popup of completions for the command line, fed by shell integration
@@ -218,6 +220,10 @@ pub struct NotificationSettings {
     pub paste: bool,
     /// show notifications programs send with osc 9 and osc 777
     pub from_programs: ProgramNotifications,
+    /// notify when an ai agent stops and waits for input
+    pub agent_waiting: bool,
+    /// give desktop notifications buttons, like "run again"
+    pub actions: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]

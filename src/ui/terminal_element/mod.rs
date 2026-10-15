@@ -111,8 +111,8 @@ pub struct TerminalElement {
     scrollbar_visible: bool,
     /// fading bell flash painted over the terminal
     bell_flash: Option<Hsla>,
-    /// cells of the link under the mouse, underlined
-    link: Option<Match>,
+    /// cells of every part of the link under the mouse, underlined
+    link: Vec<Match>,
     /// hint labels and the cell each one starts at
     hints: Vec<(AlacPoint, String)>,
 }
@@ -128,7 +128,7 @@ impl TerminalElement {
         cursor_on: bool,
         scrollbar_visible: bool,
         bell_flash: Option<Hsla>,
-        link: Option<Match>,
+        link: Vec<Match>,
         hints: Vec<(AlacPoint, String)>,
     ) -> Self {
         Self {
@@ -306,6 +306,7 @@ impl Element for TerminalElement {
         let (rects, batched_text_runs, box_glyphs) = layout_grid(
             &content.cells,
             content.display_offset,
+            (content.cursor.shape != CursorShape::Hidden).then_some(content.cursor.point),
             content.selection,
             SearchHighlights {
                 matches: &content.search_matches,
@@ -377,9 +378,9 @@ impl Element for TerminalElement {
 
         let link_underlines = self
             .link
-            .as_ref()
-            .map(|link| link_underlines(link, content.display_offset, &dimensions))
-            .unwrap_or_default();
+            .iter()
+            .flat_map(|link| link_underlines(link, content.display_offset, &dimensions))
+            .collect();
         let link_color = theme.terminal_foreground;
         let images = content
             .images

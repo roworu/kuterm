@@ -48,6 +48,30 @@ def test_ctrl_click_opens_url(app_factory):
     assert out.read_text() == "https://kuterm.test/page"
 
 
+def test_ctrl_click_on_the_second_half_of_a_cut_url_opens_all_of_it(app_factory):
+    """a url hard wrapped at the right edge, like by a program printing to 80 columns, is one link:
+    ctrl and click on its second row opens the whole url, hovering underlines both rows"""
+    script, out = opener()
+    # the first half ends right at the last column, then a newline cuts it
+    cut = ('cols=$(stty size | cut -d" " -f2); head=https://kuterm.test/wrapped/; '
+           'printf "%$((cols - ${#head}))s%s\\n%s\\n" "" "$head" "second/half"\n')
+    app = app_factory({"theme": {"mode": "dark"}, "links": {"open_with": str(script)}}, script=cut)
+    app.wait_line(1, 11)
+    x0, y0, x1, y1 = app.cell_rect(3, 1)
+    app.mouse((x0 + x1) // 2, (y0 + y1) // 2)
+    time.sleep(0.3)
+    cols = app.layout_pty()[1]
+    plain = underline_ink(app, 0, cols - 10, 10)
+    with app.hold("ctrl"):
+        app.mouse((x0 + x1) // 2 + 1, (y0 + y1) // 2)
+        app.wait(lambda: underline_ink(app, 0, cols - 10, 10) > plain + 50, msg="underline under the first half")
+        app.snap("ctrl held over the second half, both halves are underlined")
+        app.button(1, True)
+        app.button(1, False)
+    app.wait(out.exists, msg="url opened")
+    assert out.read_text() == "https://kuterm.test/wrapped/second/half"
+
+
 def test_osc8_hyperlink_opens_its_target(app_factory):
     """an osc 8 hyperlink opens its target, not the text it shows"""
     script, out = opener()

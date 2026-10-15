@@ -1,6 +1,7 @@
 //! root view: owns tabs and handles new tab / close tab.
 
 mod app_menu;
+mod attention;
 mod config_watch;
 mod end_truncated;
 #[cfg(target_os = "linux")]
@@ -122,6 +123,8 @@ struct TabTitle {
     icon_at: Vec<usize>,
     ports_at: Vec<(Range<usize>, u16)>,
     icon: String,
+    /// an ai agent runs in front of the shell
+    agent: bool,
 }
 
 struct Tab {
@@ -151,6 +154,10 @@ struct Tab {
     custom_title: Option<String>,
     /// kept small at the front of its pane, with no close button
     pinned: bool,
+    /// an ai agent ran in front of the shell on the last title refresh
+    agent: bool,
+    /// the agent stopped working and waits for the user
+    attention: attention::Attention,
     _subscriptions: [Subscription; 2],
 }
 
@@ -759,7 +766,7 @@ impl Workspace {
                                     });
                             let (title, icon_at, ports_at) =
                                 tab_title::build_title(blocks, &inputs, process.as_ref());
-                            let icon = tab_icon::tab_icon(
+                            let (icon, agent) = tab_icon::tab_icon(
                                 icon_settings,
                                 icons,
                                 inputs.profile_icon.as_deref(),
@@ -778,6 +785,7 @@ impl Workspace {
                                 icon_at,
                                 ports_at,
                                 icon,
+                                agent,
                             };
                             (id, title, window_title, status)
                         })
@@ -1071,8 +1079,11 @@ impl Workspace {
                     this.ask_clipboard(&view, *id, text.clone(), cx)
                 }
                 Event::CommandFinished { duration, exit } => {
+                    this.attention_ended(&view, cx);
                     this.command_finished(&view, *duration, *exit, window, cx)
                 }
+                Event::BusyChanged(true) => this.attention_ended(&view, cx),
+                Event::BusyChanged(false) => this.agent_stopped(&view, window, cx),
                 Event::Notify { title, body } => {
                     this.program_notification(&view, title, body, window, cx)
                 }
@@ -1121,6 +1132,8 @@ impl Workspace {
             temp_file: None,
             custom_title: None,
             pinned: false,
+            agent: false,
+            attention: Default::default(),
             _subscriptions: [subscription, clipboard_subscription],
         });
         let ix = pane.tabs.len() - 1;
@@ -2048,6 +2061,11 @@ impl Workspace {
                     }
                 }
                 CommandAction::PickTab => self.open_tab_picker(window, cx),
+                CommandAction::NextAttentionTab => {
+                    self.next_attention_tab(window, cx);
+                    target = None;
+                }
+                CommandAction::PickAgentTab => self.open_agent_picker(window, cx),
                 CommandAction::Copy => {
                     let selection = copied_text(self.terminal_at(pane, ix, cx).read(cx), cx);
                     match selection {
@@ -2471,6 +2489,11 @@ impl Workspace {
                 .pane_mut(pane_id)
                 .expect("pane id comes from the layout")
                 .tabs[ix];
+            tab.agent = built.agent;
+            // input does not redraw the tab bar, so the mark of an answered wait goes here
+            changed |= tab
+                .attention
+                .forget_answered(tab.view.read(cx).terminal().read(cx).inputs());
             if tab.title != built.title
                 || tab.icon_at != built.icon_at
                 || tab.ports_at != built.ports_at

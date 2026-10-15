@@ -25,6 +25,7 @@ pub struct Theme {
     pub search_match_active: Hsla,
     pub danger_button: Hsla,
     pub danger_button_text: Hsla,
+    pub attention: Hsla,
     /// 8 normal colors followed by 8 bright colors
     pub ansi: [Hsla; 16],
     pub ansi_dim: [Hsla; 8],

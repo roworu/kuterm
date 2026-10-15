@@ -7,7 +7,7 @@ use gpui::{AnyElement, Context, Entity, Task, Window, deferred, div, prelude::*,
 use super::{Workspace, tab_bar::STATUS_BAR_HEIGHT};
 use crate::{
     settings::{ProgramNotifications, Settings},
-    terminal::foreground_process,
+    terminal::{Link, foreground_process},
     theme::Theme,
     ui::terminal_view::TerminalView,
 };
@@ -58,6 +58,50 @@ impl NotificationButton {
             run: Rc::new(run),
         }
     }
+}
+
+/// button of a desktop notification, run on the tab it tells about
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum SystemAction {
+    /// switch to the tab
+    Show,
+    /// type this command line into the tab and run it
+    RunAgain(String),
+    /// run the action of the hint pattern that found this `file:line`
+    OpenError(Link),
+}
+
+impl SystemAction {
+    fn key(&self) -> &'static str {
+        match self {
+            // servers run "default" on a click on the notification itself
+            SystemAction::Show => "default",
+            SystemAction::RunAgain(_) => "run-again",
+            SystemAction::OpenError(_) => "open-error",
+        }
+    }
+
+    fn label(&self) -> &'static str {
+        match self {
+            SystemAction::Show => "show",
+            SystemAction::RunAgain(_) => "run again",
+            SystemAction::OpenError(_) => "open first error",
+        }
+    }
+}
+
+/// buttons for a finished command: show, run again when its line is known, and open first
+/// error when it failed and printed a `file:line`
+pub(super) fn finished_actions(
+    exit: Option<i32>,
+    line: Option<String>,
+    location: Option<Link>,
+) -> Vec<SystemAction> {
+    let failed = exit.is_some_and(|code| code != 0);
+    let mut actions = vec![SystemAction::Show];
+    actions.extend(line.map(SystemAction::RunAgain));
+    actions.extend(location.filter(|_| failed).map(SystemAction::OpenError));
+    actions
 }
 
 impl Workspace {
@@ -226,7 +270,7 @@ impl Workspace {
     }
 
     /// true when the tab of `view` is the one in front of the focused window
-    fn tab_seen(&self, view: &Entity<TerminalView>, window: &Window) -> bool {
+    pub(super) fn tab_seen(&self, view: &Entity<TerminalView>, window: &Window) -> bool {
         window.is_window_active()
             && self.find_view(view).is_some_and(|(pane, ix)| {
                 pane == self.focused && self.pane(pane).is_some_and(|pane| pane.active == ix)
@@ -252,9 +296,80 @@ impl Workspace {
             Some(code) => format!("command failed with {code} in tab {tab}"),
         };
         if !window.is_window_active() {
-            system_notification("kuterm", &text);
+            if Settings::get(cx).notifications.actions {
+                let terminal = view.read(cx).terminal().clone();
+                let line = terminal.read(cx).last_command_line();
+                // the output is only searched when the button may be offered
+                let location = exit
+                    .is_some_and(|code| code != 0)
+                    .then(|| TerminalView::last_output_location(&terminal, cx))
+                    .flatten();
+                let actions = finished_actions(exit, line, location);
+                self.system_notification_with_actions(view, "kuterm", &text, actions, window, cx);
+            } else {
+                system_notification("kuterm", &text);
+            }
         }
         self.show_notification(text, Some(view.clone()), cx);
+    }
+
+    /// desktop notification whose buttons run `actions` on the tab of `view`. other systems
+    /// than linux show it without buttons
+    fn system_notification_with_actions(
+        &self,
+        view: &Entity<TerminalView>,
+        title: &str,
+        body: &str,
+        actions: Vec<SystemAction>,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        #[cfg(target_os = "linux")]
+        {
+            let buttons = actions.iter().map(|a| (a.key(), a.label())).collect();
+            let picked = desktop_notification(title.to_string(), body.to_string(), buttons);
+            let view = view.clone();
+            cx.spawn_in(window, async move |this, cx| {
+                let Ok(key) = picked.await else {
+                    return;
+                };
+                let Some(action) = actions.into_iter().find(|action| action.key() == key) else {
+                    return;
+                };
+                this.update_in(cx, |this, window, cx| {
+                    this.run_system_action(&view, action, window, cx)
+                })
+                .ok();
+            })
+            .detach();
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = (view, actions, window, cx);
+            system_notification(title, body);
+        }
+    }
+
+    /// a button of a desktop notification about the tab of `view` was clicked
+    fn run_system_action(
+        &mut self,
+        view: &Entity<TerminalView>,
+        action: SystemAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        window.activate_window();
+        let Some((pane, ix)) = self.find_view(view) else {
+            return;
+        };
+        self.activate_tab(pane, ix, window, cx);
+        match action {
+            SystemAction::Show => {}
+            SystemAction::RunAgain(line) => {
+                view.update(cx, |view, cx| view.commit_text(&format!("{line}\r"), cx))
+            }
+            SystemAction::OpenError(link) => view.update(cx, |view, cx| view.run_link(&link, cx)),
+        }
     }
 
     /// a notification a program sent, shown as `notifications.from_programs` says
@@ -439,7 +554,7 @@ fn copied_preview(text: &str) -> String {
 }
 
 /// a notification of the desktop, for when the window is not looked at
-fn system_notification(title: &str, body: &str) {
+pub(super) fn system_notification(title: &str, body: &str) {
     let mut command = if cfg!(target_os = "macos") {
         // quoted as applescript strings
         let quote = |text: &str| format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""));
@@ -461,9 +576,115 @@ fn system_notification(title: &str, body: &str) {
     });
 }
 
+/// a desktop notification with `buttons` as (key, label), over dbus. the key of the clicked
+/// one comes back, nothing when it is closed or there is no notification service
+#[cfg(target_os = "linux")]
+fn desktop_notification(
+    title: String,
+    body: String,
+    buttons: Vec<(&'static str, &'static str)>,
+) -> futures::channel::oneshot::Receiver<&'static str> {
+    const NAME: &str = "org.freedesktop.Notifications";
+    let (picked, receiver) = futures::channel::oneshot::channel();
+    std::thread::spawn(move || {
+        let run = || -> zbus::Result<Option<&'static str>> {
+            let connection = zbus::blocking::Connection::session()?;
+            // listening before the notification shows, so a quick click is not missed
+            let rule = zbus::MatchRule::builder()
+                .msg_type(zbus::message::Type::Signal)
+                .interface(NAME)?
+                .build();
+            let signals = zbus::blocking::MessageIterator::for_match_rule(rule, &connection, None)?;
+            let actions: Vec<&str> = buttons
+                .iter()
+                .flat_map(|(key, label)| [*key, *label])
+                .collect();
+            let hints: std::collections::HashMap<&str, zbus::zvariant::Value> = Default::default();
+            let reply = connection.call_method(
+                Some(NAME),
+                "/org/freedesktop/Notifications",
+                Some(NAME),
+                "Notify",
+                &(
+                    "kuterm",
+                    0u32,
+                    "",
+                    title.as_str(),
+                    body.as_str(),
+                    actions,
+                    hints,
+                    -1i32,
+                ),
+            )?;
+            let id: u32 = reply.body().deserialize()?;
+            for message in signals {
+                let message = message?;
+                let header = message.header();
+                match header.member().map(|member| member.as_str()) {
+                    Some("ActionInvoked") => {
+                        let (from, key): (u32, String) = message.body().deserialize()?;
+                        if from == id {
+                            return Ok(buttons.iter().find(|(k, _)| *k == key).map(|(k, _)| *k));
+                        }
+                    }
+                    Some("NotificationClosed") => {
+                        let (from, _): (u32, u32) = message.body().deserialize()?;
+                        if from == id {
+                            return Ok(None);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Ok(None)
+        };
+        // the desktop may have no notification service, that only loses the notification
+        if let Ok(Some(key)) = run() {
+            picked.send(key).ok();
+        }
+    });
+    receiver
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{COPIED_PREVIEW_CHARS, copied_preview};
+    use alacritty_terminal::index::{Column, Line, Point};
+
+    use super::{COPIED_PREVIEW_CHARS, SystemAction, copied_preview, finished_actions};
+    use crate::{settings::PatternAction, terminal::Link};
+
+    #[test]
+    fn finished_commands_offer_what_they_can() {
+        let at = Point::new(Line(0), Column(0));
+        let location = Link {
+            range: at..=at,
+            rest: Vec::new(),
+            target: "src/main.rs:12".into(),
+            action: PatternAction::Copy,
+            name: Some("path".into()),
+        };
+        let line = || Some("make".to_string());
+        let run_again = SystemAction::RunAgain("make".into());
+        // success never offers errors, even when the output names a file
+        assert_eq!(
+            finished_actions(Some(0), line(), Some(location.clone())),
+            [SystemAction::Show, run_again.clone()]
+        );
+        assert_eq!(
+            finished_actions(Some(2), line(), Some(location.clone())),
+            [
+                SystemAction::Show,
+                run_again.clone(),
+                SystemAction::OpenError(location)
+            ]
+        );
+        assert_eq!(
+            finished_actions(Some(2), line(), None),
+            [SystemAction::Show, run_again]
+        );
+        // an unknown command line can't run again
+        assert_eq!(finished_actions(None, None, None), [SystemAction::Show]);
+    }
 
     #[test]
     fn short_text_is_shown_whole() {

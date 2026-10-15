@@ -86,6 +86,9 @@ pub enum Event {
     },
     /// a shell of this tab reported its command line, for completions
     Shell(crate::completion::ShellEvent),
+    /// the program started or stopped reporting progress with osc 9;4. a stop that came
+    /// with the end of its command is not told
+    BusyChanged(bool),
 }
 
 /// clipboard access waiting for the user to allow it
@@ -133,6 +136,10 @@ pub struct Terminal {
     progress: Option<Progress>,
     /// when the running command started, from shell integration marks
     command_started: Option<std::time::Instant>,
+    /// writes of user input so far, so others can tell whether input came since
+    inputs: u64,
+    /// numbers of the prompt and output marks of the last command started
+    last_command: Option<(Option<usize>, usize)>,
     /// images the program showed
     graphics: graphics::SharedGraphics,
     /// cell size for sizing images, shared with the pty thread
@@ -203,6 +210,7 @@ impl Terminal {
 
     /// send user input, dropping any selection and jumping back to bottom of scrollback
     pub fn input(&mut self, input: impl Into<Cow<'static, [u8]>>) {
+        self.inputs += 1;
         self.clear_selection();
         self.events.push(InternalEvent::Scroll(Scroll::Bottom));
         self.write_to_pty(input);
@@ -337,6 +345,11 @@ impl Terminal {
         self.progress
     }
 
+    /// writes of user input so far
+    pub fn inputs(&self) -> u64 {
+        self.inputs
+    }
+
     /// folder the shell reported through shell integration, none when it never did
     pub fn reported_cwd(&self) -> Option<&std::path::Path> {
         self.reported_cwd.as_deref()
@@ -350,10 +363,22 @@ impl Terminal {
         for (at, event) in found {
             match event {
                 ScanEvent::PromptStart => {}
-                ScanEvent::CommandStart => self.command_started = Some(at),
+                ScanEvent::CommandStart { prompt, output } => {
+                    self.command_started = Some(at);
+                    self.last_command = Some((prompt, output));
+                }
                 ScanEvent::CommandEnd(exit) => {
                     // a program killed mid way never takes its progress down
                     self.progress = None;
+                    // an idle right before the end is the program finishing, not waiting
+                    let last = events
+                        .iter()
+                        .rposition(|event| matches!(event, Event::BusyChanged(_)));
+                    if let Some(at) = last
+                        && matches!(events[at], Event::BusyChanged(false))
+                    {
+                        events.remove(at);
+                    }
                     // a prompt drawn without running anything ends nothing
                     if let Some(started) = self.command_started.take() {
                         events.push(Event::CommandFinished {
@@ -364,7 +389,12 @@ impl Terminal {
                 }
                 ScanEvent::Cwd(path) => self.reported_cwd = Some(path),
                 ScanEvent::Notify { title, body } => events.push(Event::Notify { title, body }),
-                ScanEvent::Progress(progress) => self.progress = progress,
+                ScanEvent::Progress(progress) => {
+                    if progress.is_some() != self.progress.is_some() {
+                        events.push(Event::BusyChanged(progress.is_some()));
+                    }
+                    self.progress = progress;
+                }
                 ScanEvent::Reply(bytes) => self.write_to_pty(bytes),
             }
         }
