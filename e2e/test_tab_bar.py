@@ -575,3 +575,46 @@ def test_rename_menu_and_pin(app_factory):
     # the pinned tab holds only its icon and title, so it is narrower than a full tab
     app.wait(lambda: borders(app)[0] < before[0], msg="pinned tab shrinks")
     app.snap("first tab pinned")
+
+
+def test_tab_overview_picks_a_tab_by_click(app_factory):
+    """the overview shows a preview of every tab, a click on the third switches to it"""
+    app = bar_app(app_factory, keybindings={"tab_overview": "ctrl-shift-o"})
+    for i, word in enumerate(["first", "second", "third"]):
+        if i:
+            app.key("ctrl+shift+t")
+            app.wait_title(str(i + 1))
+        app.run(f"echo tab_{word}")
+    app.key("ctrl+shift+o")
+    # the overview covers the window in the tab bar color
+    app.wait(lambda: near(app.shot()[400:450, 300:600], C["tab_bar_background"], 10).mean() > 0.5,
+             msg="overview open")
+    app.snap("overview of three tabs, two to a row")
+    # three tabs make two columns, the third is the first cell of the second row
+    app.click(120, 380)
+    app.wait_title("3")
+    app.wait(lambda: not near(app.shot()[400:450, 300:600], C["tab_bar_background"], 10).any(), msg="overview closed")
+
+
+def chip_pixels(app: App) -> int:
+    """pixels of the tab bar in one of the group colors"""
+    bar = app.shot()[: app.bar_height()]
+    return max(int(near(bar, C["ansi"][i], 2).sum()) for i in range(1, 7))
+
+
+def test_tabs_are_grouped_by_project_and_closed_together(app_factory):
+    """two tabs in the same git project get a chip, closing the project closes both"""
+    app = bar_app(app_factory, hide_bar_for_one_tab=False, tab_groups={"by_project": True})
+    (app.file("proj") / ".git").mkdir(parents=True)
+    app.run("cd")
+    app.key("ctrl+shift+t")
+    app.wait_title("2")
+    app.run("cd $T2_TMP/proj")
+    app.key("ctrl+shift+t")
+    app.wait_title("3")
+    app.run("cd $T2_TMP/proj")
+    app.wait(lambda: chip_pixels(app) > 200, msg="group chip")
+    app.snap("tabs 2 and 3 grouped under the chip of their project")
+    app.palette("close all tabs of this project")
+    app.wait_title("1")
+    app.wait(lambda: chip_pixels(app) == 0, msg="chip gone with its tabs")

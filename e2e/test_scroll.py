@@ -216,3 +216,35 @@ def test_selection_dropped_from_history_clears(app_factory):
     assert get_clipboard() == "before"
     assert app.alive()
     app.snap("MARK left the history, nothing is selected")
+
+
+def test_drag_holds_the_frame_until_release(app_factory):
+    """while the mouse button is down over fast output, the frame the drag started on stays,
+    the copied text is the line that was shown, and the view catches up on release"""
+    app = app_factory({"theme": {"mode": "dark"}, "terminal": {"select_to_copy": True, "cursor_blink": "off"},
+                       "selection": {"hold_frame": True}},
+                      script='i=0; while :; do echo "count $i"; i=$((i+1)); sleep 0.05; done\n')
+    rows = app.expected_pty(900, 600)[0]
+    # the screen is full and scrolling
+    bottom = app.cell_rect(0, rows - 2, 10)
+    app.wait(lambda: near(app.shot()[bottom[1]:bottom[3], bottom[0]:bottom[2]], DARK["terminal_foreground"], 30).any(),
+             msg="screen full")
+    x0, y0, _, y1 = app.cell_rect(0, 3)
+    _, _, x1, _ = app.cell_rect(10, 3)
+    middle = (y0 + y1) // 2
+    app.mouse(x0 + 1, middle)
+    app.button(1, True)
+    app.mouse(x1 - 1, middle)
+    # the rows above the moving cursor row
+    top = app.cell_rect(0, rows - 3)[3]
+    held = app.wait_still("the drag drawn")[:top]
+    time.sleep(0.3)
+    assert np.array_equal(app.shot()[:top], held)
+    app.snap("output keeps coming, the frame is held while dragging")
+    app.button(1, False)
+    app.wait(lambda: get_clipboard().startswith("count "), msg=f"clipboard, got {get_clipboard()!r}")
+    copied = int(get_clipboard().split()[1])
+    # the view moves on again
+    app.wait(lambda: not np.array_equal(app.shot()[:top], held), msg="view caught up")
+    later = app.shot()[:top]
+    assert copied >= 0 and not np.array_equal(later, held)

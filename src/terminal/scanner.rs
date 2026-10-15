@@ -37,6 +37,8 @@ pub enum ScanEvent {
     },
     /// the command finished, with its exit code when the shell told it
     CommandEnd(Option<i32>),
+    /// the command line about to run, sent by the shell with osc 133;E
+    CommandLine(String),
     /// the shell is in this folder
     Cwd(PathBuf),
     Notify {
@@ -284,6 +286,11 @@ impl Scanner {
                         let exit = parts.next().and_then(|code| code.parse().ok());
                         events.push(ScanEvent::CommandEnd(exit));
                     }
+                    Some("E") => {
+                        // the line itself has no ';', they come escaped
+                        let line = rest.strip_prefix("E;").unwrap_or_default();
+                        events.push(ScanEvent::CommandLine(unescape(line)));
+                    }
                     _ => {}
                 }
             }
@@ -325,6 +332,35 @@ impl Scanner {
             out.extend_from_slice(CLOSE_MARK);
         }
     }
+}
+
+/// a command line escaped like vs code's osc 633;E: `\\` for a backslash and `\xNN` for a
+/// byte, like `\x3b` for ';' and `\x0a` for a newline
+fn unescape(line: &str) -> String {
+    let mut bytes = Vec::with_capacity(line.len());
+    let mut rest = line.as_bytes();
+    while let Some((&byte, tail)) = rest.split_first() {
+        rest = tail;
+        if byte != b'\\' {
+            bytes.push(byte);
+            continue;
+        }
+        match rest {
+            [b'\\', tail @ ..] => {
+                bytes.push(b'\\');
+                rest = tail;
+            }
+            [b'x', a, b, tail @ ..] if a.is_ascii_hexdigit() && b.is_ascii_hexdigit() => {
+                let hex = [*a, *b];
+                let hex = std::str::from_utf8(&hex).unwrap_or("00");
+                bytes.push(u8::from_str_radix(hex, 16).unwrap_or(0));
+                rest = tail;
+            }
+            // a lone backslash stays as it is
+            _ => bytes.push(byte),
+        }
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 /// progress of an osc 9;4 `state;percent` report, none when it takes the progress down
@@ -519,6 +555,17 @@ mod tests {
             "\x1b]133;A\x07\x1b]8;id=kuterm-prompt-0;kuterm:\x1b\\$ \x1b]133;B\x07\x1b]8;;\x1b\\ls\r\n\
              \x1b]133;C\x07\x1b]8;id=kuterm-output-1;kuterm:\x1b\\file\r\n\x1b]133;D;2\x1b\\\x1b]8;;\x1b\\"
         );
+    }
+
+    #[test]
+    fn command_lines_are_unescaped() {
+        let (_, events) = scan(&[b"\x1b]133;E;echo a\\x3b b \\\\n\\x0aecho \\x1b \xc3\xa9\x07"]);
+        assert_eq!(
+            events,
+            [ScanEvent::CommandLine("echo a; b \\n\necho \x1b é".into())]
+        );
+        assert_eq!(super::unescape("a\\"), "a\\");
+        assert_eq!(super::unescape("\\xzz"), "\\xzz");
     }
 
     #[test]

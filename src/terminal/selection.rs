@@ -58,6 +58,13 @@ impl Terminal {
 
     /// start a new selection at a window position, replacing the old one
     pub fn start_selection(&mut self, position: Point<Pixels>, ty: SelectionType) {
+        if let Some(frozen) = &mut self.frozen {
+            let (point, side) = grid_point(position, &self.last_content.terminal_bounds, 0);
+            frozen.term.selection = Some(Selection::new(ty, point, side));
+            frozen.anchor = Some((point, side));
+            self.show_frozen_selection();
+            return;
+        }
         let (point, side) = self.mouse_point(position);
         self.term.lock().selection = Some(Selection::new(ty, point, side));
         self.dirty.store(true, Ordering::Release);
@@ -65,6 +72,18 @@ impl Terminal {
 
     /// move the free end of the selection to a window position
     pub fn extend_selection(&mut self, position: Point<Pixels>) {
+        if let Some(frozen) = &mut self.frozen {
+            // the held frame has no history, its rows are lines from 0
+            let (point, side) = grid_point(position, &self.last_content.terminal_bounds, 0);
+            match frozen.term.selection.as_mut() {
+                Some(selection) => selection.update(point, side),
+                None => {
+                    frozen.term.selection = Some(Selection::new(SelectionType::Simple, point, side))
+                }
+            }
+            self.show_frozen_selection();
+            return;
+        }
         let (point, side) = self.mouse_point(position);
         let mut term = self.term.lock();
         match term.selection.as_mut() {
@@ -92,6 +111,10 @@ impl Terminal {
 
     /// drop the selection, if any
     pub fn clear_selection(&mut self) {
+        if let Some(frozen) = &mut self.frozen {
+            frozen.term.selection = None;
+            self.last_content.selection = None;
+        }
         if self.term.lock().selection.take().is_some() {
             self.dirty.store(true, Ordering::Release);
         }
@@ -99,6 +122,13 @@ impl Terminal {
 
     /// selected text, none when nothing is selected
     pub fn selection_text(&self) -> Option<String> {
+        // what was seen, not what scrolled in under it since
+        if let Some(frozen) = &self.frozen {
+            return frozen
+                .term
+                .selection_to_string()
+                .filter(|text| !text.is_empty());
+        }
         self.term
             .lock()
             .selection_to_string()

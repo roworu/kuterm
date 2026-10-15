@@ -1,0 +1,26 @@
+// Catppuccin Mocha, from github.com/catppuccin/catppuccin (MIT licence).
+// terminal colors are the upstream palette, the ui colors are picked from it
+{
+  "tab_bar_background": "#181825",
+  "tab_active_background": "#1e1e2e",
+  "border": "#313244",
+  "text": "#cdd6f4",
+  "text_muted": "#a6adc8",
+  "danger_button": "#f38ba8",
+  "danger_button_text": "#1e1e2e",
+  "attention": "#fab387",
+  "terminal_background": "#1e1e2e",
+  "terminal_foreground": "#cdd6f4",
+  "cursor": "#f5e0dc",
+  "selection": "#45475a",
+  "scrollbar": "#585b70",
+  "search_match": "#605955",
+  "search_match_active": "#a1947b",
+  "bright_foreground": "#ffffff",
+  "dim_foreground": "#7e839b",
+  "ansi": [
+    "#45475a", "#f38ba8", "#a6e3a1", "#f9e2af", "#89b4fa", "#f5c2e7", "#94e2d5", "#bac2de",
+    "#585b70", "#f38ba8", "#a6e3a1", "#f9e2af", "#89b4fa", "#f5c2e7", "#94e2d5", "#a6adc8",
+  ],
+  "ansi_dim": ["#37394b", "#a8657d", "#769e79", "#ac9d82", "#6480b3", "#aa89a6", "#6b9d9b", "#8389a0"],
+}

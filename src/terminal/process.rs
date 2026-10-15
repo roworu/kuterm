@@ -31,6 +31,36 @@ pub fn foreground_process(shell_pid: u32) -> Option<ForegroundProcess> {
     process_info(pid)
 }
 
+/// true when the terminal of process `pid` shows what is typed, false while a program reads
+/// a secret with echo off. none when that can't be read
+#[cfg(target_os = "linux")]
+pub fn tty_echoes(pid: u32) -> Option<bool> {
+    use std::os::{fd::AsRawFd, unix::fs::OpenOptionsExt};
+
+    let tty = std::fs::read_link(format!("/proc/{pid}/fd/0")).ok()?;
+    // opening the tty must not make it ours or wait on it
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOCTTY | libc::O_NONBLOCK)
+        .open(tty)
+        .ok()?;
+    let mut termios = std::mem::MaybeUninit::<libc::termios>::uninit();
+    // SAFETY: the fd is open for the call and termios is written by it before being read
+    let termios = unsafe {
+        if libc::tcgetattr(file.as_raw_fd(), termios.as_mut_ptr()) != 0 {
+            return None;
+        }
+        termios.assume_init()
+    };
+    Some(termios.c_lflag & libc::ECHO != 0)
+}
+
+/// echo can only be read on linux
+#[cfg(not(target_os = "linux"))]
+pub fn tty_echoes(_pid: u32) -> Option<bool> {
+    None
+}
+
 /// name, arguments and folder of any process, none when it is gone
 #[cfg(not(target_os = "macos"))]
 pub fn process_info(pid: u32) -> Option<ForegroundProcess> {

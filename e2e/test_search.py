@@ -46,3 +46,22 @@ def test_search_scrolls_to_history(app_factory):
     app.snap("view scrolled up to row_7")
     # whole words only, so row_70 and the others are not matches
     assert highlighted(app, "search_match") == 0
+
+
+def test_find_in_all_tabs_goes_to_a_hidden_tab(app_factory):
+    """find in all tabs lists a match of a tab in the background, picking it switches there and selects it"""
+    app = app_factory({"theme": {"mode": "dark"}, "window_title": ["number"]})
+    app.run("clear; echo hidden_needle_42")
+    app.wait_line(0, 16)
+    app.key("ctrl+shift+t")
+    app.wait_title("2")
+    app.run("echo something else")
+    app.palette("find in all tabs")
+    app.type("needle_42")
+    # the match is highlighted in its row of the list
+    app.wait(lambda: highlighted(app, "search_match_active") > 30, msg="a match listed")
+    app.snap("matches of needle_42 from the hidden tab")
+    app.key("Return")
+    app.wait_title("1")
+    app.wait(lambda: highlighted(app, "selection") > 30, msg="the match selected")
+    app.snap("the hidden tab is shown with the match selected")

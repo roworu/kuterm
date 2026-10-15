@@ -1,5 +1,7 @@
 mod cli;
 mod completion;
+mod events_bus;
+mod mcp;
 mod remote;
 mod settings;
 mod terminal;
@@ -22,8 +24,8 @@ use crate::{
         text_input,
         windows::open_workspace_window,
         workspace::{
-            Hide, HideOthers, NewTab, Quit, ShowAll, app_menus, dock_menu, open_urls, watch_config,
-            with_workspace,
+            Hide, HideOthers, NewTab, Quit, ShowAll, app_menus, dock_menu, open_urls,
+            parse_run_link, watch_config, with_workspace,
         },
     },
 };
@@ -117,6 +119,7 @@ fn main() {
             println!("{USAGE}");
             return;
         }
+        Ok(Cli { mcp: true, .. }) => std::process::exit(mcp::run()),
         Ok(Cli {
             msg: Some(args), ..
         }) => {
@@ -128,6 +131,11 @@ fn main() {
         }
         Ok(cli) => {
             // a running kuterm takes over, this process has nothing left to do
+            if let Some(url) = &cli.url
+                && remote::send(&Request::OpenUrl { url: url.clone() }).is_ok_and(|reply| reply.ok)
+            {
+                return;
+            }
             if cli.single_instance {
                 let request = Request::NewWindow {
                     cwd: std::env::current_dir().ok(),
@@ -169,8 +177,19 @@ fn main() {
         })
         .detach();
 
-        if open_workspace_window(None, cx).is_none() {
+        // a run link opens the first tab in its folder with its command typed
+        let link = Cli::get().url.as_deref().and_then(parse_run_link);
+        let Some(window) =
+            open_workspace_window(link.as_ref().and_then(|link| link.cwd.clone()), cx)
+        else {
             std::process::exit(1);
+        };
+        if let Some(link) = link {
+            window
+                .update(cx, |workspace, _, cx| {
+                    workspace.send_text(&link.command, cx)
+                })
+                .ok();
         }
         cx.activate(true);
     });

@@ -19,7 +19,15 @@ if [[ -o interactive ]]; then
   }
   __kuterm_preexec() {
     __kuterm_ran=1
-    print -n "\e]133;C\a"
+    # the command line for osc 133;E, \ and ; and control chars escaped as \\, \x3b, \xNN
+    local c=$1
+    c=${c//\\/\\\\}
+    c=${c//;/\\x3b}
+    c=${c//$'\n'/\\x0a}
+    c=${c//$'\r'/\\x0d}
+    c=${c//$'\e'/\\x1b}
+    c=${c//$'\a'/\\x07}
+    print -rn -- $'\e]133;E;'"$c"$'\a\e]133;C\a'
   }
   add-zsh-hook precmd __kuterm_precmd
   add-zsh-hook preexec __kuterm_preexec

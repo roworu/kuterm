@@ -282,10 +282,10 @@ fn tab_with(
 
 /// a tab picked up with the mouse, drawn as its own preview while dragging
 #[derive(Clone)]
-struct DraggedTab {
+pub(super) struct DraggedTab {
     /// pane the tab was dragged out of
-    pane: usize,
-    ix: usize,
+    pub(super) pane: usize,
+    pub(super) ix: usize,
     title: String,
     icon: String,
     icon_at: Vec<usize>,
@@ -395,6 +395,7 @@ impl Workspace {
             (None, false) => (title, tab_state.icon_at.clone(), tab_state.ports_at.clone()),
         };
         let bell = tab_state.bell;
+        let tab_color = tab_state.color;
         let waiting = tab_state.attention.waiting(terminal.inputs()).is_some();
         let flash = tab_state
             .view
@@ -432,7 +433,21 @@ impl Workspace {
             None => title_with_icons(ix, &title, &icon, &icon_at, &ports_at).into_any_element(),
         };
         let drag = settings.drag_tabs && self.renaming.is_none();
+        let group_color = self.group_color_of(pane, ix, cx);
         tab_with(ix, content, pinned, settings)
+            .relative()
+            // a line in the group color under the tabs of a group
+            .when_some(group_color, |tab, color| {
+                tab.child(
+                    div()
+                        .absolute()
+                        .bottom_0()
+                        .left_0()
+                        .right_0()
+                        .h(px(2.))
+                        .bg(color),
+                )
+            })
             .group("tab")
             .border_r_1()
             .border_color(theme.border)
@@ -443,6 +458,8 @@ impl Workspace {
             .when(is_active && profile_theme.is_none(), |tab| {
                 tab.bg(theme.tab_active_background)
             })
+            // a color set from outside, like a script marking its tab
+            .when_some(tab_color, |tab, color| tab.bg(color))
             .when_some(flash, |tab, flash| tab.bg(background.blend(flash)))
             .text_color(if is_active {
                 theme.text
@@ -596,7 +613,13 @@ impl Workspace {
             && !settings.expand_tabs;
         let tab_row = tab_row(&pane.tab_scroll)
             .when(hug_tabs, |row| row.flex_initial())
-            .children((0..pane.tabs.len()).map(|ix| self.render_tab(pane_id, ix, cx)));
+            .children((0..pane.tabs.len()).flat_map(|ix| {
+                // a group's chip goes before its first tab, a collapsed group hides its tabs
+                let chip = self.render_group_chip(pane_id, ix, cx);
+                let tab = (!self.hidden_in_group(pane_id, ix))
+                    .then(|| self.render_tab(pane_id, ix, cx).into_any_element());
+                chip.into_iter().chain(tab)
+            }));
         let new_tab = self.render_new_tab_button(pane_id, cx);
         let drag_area = (!framed).then(|| self.render_drag_area(pane_id, cx));
         let bar = div()
@@ -668,6 +691,29 @@ impl Workspace {
             })
             .when_some(zone, |terminal, side| {
                 terminal.child(drop_overlay(side, theme))
+            })
+            // joined panes say so loudly, typing here reaches the others too
+            .when(self.broadcasts(pane_id), |terminal| {
+                terminal.child(
+                    div()
+                        .debug_selector(move || format!("pane-broadcast-{pane_id}"))
+                        .absolute()
+                        .inset_0()
+                        .border_2()
+                        .border_color(theme.danger_button)
+                        .child(
+                            div()
+                                .absolute()
+                                .top_0()
+                                .right_0()
+                                .px_2()
+                                .rounded_bl_md()
+                                .bg(theme.danger_button)
+                                .text_color(theme.danger_button_text)
+                                .text_sm()
+                                .child("⇶ broadcast"),
+                        ),
+                )
             })
             .when(dim > 0., |terminal| {
                 // deferred, since the cached terminal view would otherwise paint over it
@@ -899,6 +945,10 @@ impl Workspace {
 
     /// command palette, about page, close tab or paste dialog, centered near the top like in zed
     fn render_overlay(&self, cx: &App) -> Option<AnyElement> {
+        // the tab overview covers the whole window
+        if let Some(overview) = &self.overview {
+            return Some(deferred(overview.clone()).into_any_element());
+        }
         let view = match (
             &self.palette,
             &self.about,
@@ -1028,6 +1078,7 @@ impl Render for Workspace {
             })
             .children(self.render_profile_menu(cx))
             .children(self.render_tab_menu(cx))
+            .children(self.render_group_menu(cx))
             .children(self.render_notifications(cx))
             .children(self.render_overlay(cx))
             .child(canvas(

@@ -10,6 +10,8 @@ use crate::settings::{Pins, Settings, StatusBarState, ThemeMode, WindowSize};
 
 pub const USAGE: &str = "usage: kuterm [options]
        kuterm msg <command>        drive a running kuterm, see kuterm msg --help
+       kuterm mcp                  serve the model context protocol on stdin and stdout, so
+                                   agents read panes and run commands the user allows
 
 options:
   --recreate-confs            delete config files and write defaults
@@ -21,6 +23,9 @@ options:
   --theme-mode <mode>         system, dark or light, overrides settings
   --single-instance           open a window in the running kuterm when there is one
   -h, --help                  print this help
+
+a kuterm://run?cwd=<dir>&cmd=<command> link as the argument opens a tab with the command
+typed but not run, in the running kuterm when its socket is on
 
 --single-instance reaches a running kuterm through its socket, it needs
 \"remote_control\": \"socket\" in its settings";
@@ -38,6 +43,10 @@ pub struct Cli {
     pub single_instance: bool,
     /// arguments of `kuterm msg`, none when not run as a client
     pub msg: Option<Vec<String>>,
+    /// a `kuterm://` link to open
+    pub url: Option<String>,
+    /// run as an mcp server for agents
+    pub mcp: bool,
 }
 
 static CLI: OnceLock<Cli> = OnceLock::new();
@@ -51,6 +60,10 @@ impl Cli {
         if args.peek().is_some_and(|arg| arg == "msg") {
             args.next();
             cli.msg = Some(args.map(|arg| arg.to_string_lossy().into_owned()).collect());
+            return Ok(cli);
+        }
+        if args.peek().is_some_and(|arg| arg == "mcp") {
+            cli.mcp = true;
             return Ok(cli);
         }
         while let Some(arg) = args.next() {
@@ -72,6 +85,7 @@ impl Cli {
                             .map_err(|_| format!("unknown theme mode {mode:?}"))?,
                     );
                 }
+                url if url.starts_with("kuterm://") => cli.url = Some(url.to_string()),
                 _ => return Err(format!("unknown option {arg:?}")),
             }
         }
@@ -155,6 +169,13 @@ mod tests {
             "--light-theme-file" => cli.light_theme_file.clone(),
             _ => unreachable!(),
         }
+    }
+
+    #[test]
+    fn kuterm_links_are_taken_as_the_url_to_open() {
+        let cli = Cli::parse(["--single-instance".into(), "kuterm://run?cmd=ls".into()]).unwrap();
+        assert_eq!(cli.url.as_deref(), Some("kuterm://run?cmd=ls"));
+        assert!(Cli::parse(["https://example.com".into()]).is_err());
     }
 
     #[test]

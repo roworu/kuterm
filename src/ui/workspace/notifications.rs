@@ -23,6 +23,8 @@ const DONE_IDLE_POLLS: u32 = 4;
 const DONE_IDLE_POLLS_AFTER_START: u32 = 2;
 // copied text longer than this many chars is cut, so it and its label fit one notification line
 const COPIED_PREVIEW_CHARS: usize = 28;
+// a longer detail, like a command to allow, goes on a line of its own and wraps
+const INLINE_DETAIL_CHARS: usize = 40;
 
 pub(super) struct Notification {
     id: usize,
@@ -466,6 +468,27 @@ impl Workspace {
         let theme = Theme::get(cx);
         let notifications = self.notifications.iter().map(|notification| {
             let id = notification.id;
+            let stacked = notification
+                .detail
+                .as_ref()
+                .is_some_and(|detail| detail.chars().count() > INLINE_DETAIL_CHARS);
+            let buttons = notification.buttons.iter().enumerate().map(|(ix, button)| {
+                div()
+                    .id(("notification-button", ix))
+                    .debug_selector(move || format!("notification-{id}-button-{ix}"))
+                    .flex_none()
+                    .px_2()
+                    .rounded_sm()
+                    .border_1()
+                    .border_color(theme.border)
+                    .hover(|item| item.bg(theme.tab_bar_background))
+                    .child(button.label)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        cx.stop_propagation();
+                        this.click_notification_button(id, ix, window, cx);
+                    }))
+            });
+            let buttons: Vec<_> = buttons.collect();
             div()
                 .id(("notification", id))
                 .debug_selector(move || format!("notification-{id}"))
@@ -485,7 +508,8 @@ impl Workspace {
                 .cursor_pointer()
                 .hover(|item| item.bg(theme.tab_active_background))
                 .flex()
-                .items_center()
+                .when(stacked, |item| item.flex_col().items_start())
+                .when(!stacked, |item| item.items_center())
                 .gap_2()
                 // long text wraps, so the buttons after it stay inside the max width
                 .child(div().min_w_0().child(notification.text.clone()))
@@ -493,27 +517,19 @@ impl Workspace {
                 .children(notification.detail.clone().map(|detail| {
                     div()
                         .px_1()
+                        .min_w_0()
                         .rounded_sm()
                         .bg(theme.terminal_background)
                         .text_color(theme.terminal_foreground)
                         .child(detail)
                 }))
-                .children(notification.buttons.iter().enumerate().map(|(ix, button)| {
-                    div()
-                        .id(("notification-button", ix))
-                        .debug_selector(move || format!("notification-{id}-button-{ix}"))
-                        .flex_none()
-                        .px_2()
-                        .rounded_sm()
-                        .border_1()
-                        .border_color(theme.border)
-                        .hover(|item| item.bg(theme.tab_bar_background))
-                        .child(button.label)
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            cx.stop_propagation();
-                            this.click_notification_button(id, ix, window, cx);
-                        }))
-                }))
+                .map(|item| {
+                    if stacked {
+                        item.child(div().flex().gap_2().children(buttons))
+                    } else {
+                        item.children(buttons)
+                    }
+                })
                 .on_click(
                     cx.listener(move |this, _, window, cx| this.click_notification(id, window, cx)),
                 )

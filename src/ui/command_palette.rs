@@ -1,6 +1,8 @@
 //! command palette, the about page it opens and the close tab and paste dialogs, all float over
 //! the terminal
 
+use std::ops::Range;
+
 use gpui::{
     App, Bounds, Context, DismissEvent, Entity, EntityId, EventEmitter, FocusHandle, Focusable,
     KeyDownEvent, Pixels, ScrollHandle, Subscription, Window, canvas, div, fill, point, prelude::*,
@@ -9,6 +11,7 @@ use gpui::{
 
 use crate::{
     settings::{Command, Pins},
+    terminal::paste_check,
     theme::Theme,
     ui::text_input::{Changed, TextInput},
 };
@@ -86,11 +89,23 @@ pub struct CommandPalette {
     recent: Vec<String>,
     /// tab picker keeps the given order and has no pins
     is_tab_picker: bool,
+    /// the list comes from outside for each query, like matches in every tab
+    finder: bool,
+    /// chars of each command's name to highlight, by index into `commands`
+    highlights: Vec<Option<Range<usize>>>,
     _input_subscription: Subscription,
 }
 
+/// query typed into a palette opened with `finder`
+pub struct FinderQuery(pub String);
+
+/// command the selection moved to, for pickers that show a preview
+pub struct Highlighted(pub Command);
+
 impl EventEmitter<DismissEvent> for CommandPalette {}
 impl EventEmitter<Command> for CommandPalette {}
+impl EventEmitter<FinderQuery> for CommandPalette {}
+impl EventEmitter<Highlighted> for CommandPalette {}
 
 impl CommandPalette {
     /// palette listing `commands` with an empty query
@@ -100,7 +115,31 @@ impl CommandPalette {
 
     /// palette listing one command per tab, in tab order
     pub fn tab_picker(tabs: Vec<Command>, cx: &mut Context<Self>) -> Self {
-        Self::build(tabs, Vec::new(), "go to tab...", true, cx)
+        Self::picker(tabs, "go to tab...", cx)
+    }
+
+    /// palette listing `items` in the given order, with no pins
+    pub fn picker(items: Vec<Command>, placeholder: &'static str, cx: &mut Context<Self>) -> Self {
+        Self::build(items, Vec::new(), placeholder, true, cx)
+    }
+
+    /// palette whose list is set with `set_results` for each typed query
+    pub fn finder(placeholder: &'static str, cx: &mut Context<Self>) -> Self {
+        let mut palette = Self::build(Vec::new(), Vec::new(), placeholder, true, cx);
+        palette.finder = true;
+        palette
+    }
+
+    /// show `rows` in place of the list, each with the chars of its name to highlight
+    pub fn set_results(
+        &mut self,
+        rows: Vec<(Command, Option<Range<usize>>)>,
+        cx: &mut Context<Self>,
+    ) {
+        (self.commands, self.highlights) = rows.into_iter().unzip();
+        self.update_matches(cx);
+        self.select(0);
+        cx.notify();
     }
 
     fn build(
@@ -112,11 +151,17 @@ impl CommandPalette {
     ) -> Self {
         let input = cx.new(|cx| TextInput::new(placeholder, cx));
         // a new query means a new best match
-        let _input_subscription = cx.subscribe(&input, |this: &mut Self, _, _: &Changed, cx| {
-            this.update_matches(cx);
-            this.select(0);
-            cx.notify();
-        });
+        let _input_subscription =
+            cx.subscribe(&input, |this: &mut Self, input, _: &Changed, cx| {
+                if this.finder {
+                    cx.emit(FinderQuery(input.read(cx).content().to_string()));
+                    return;
+                }
+                this.update_matches(cx);
+                this.select(0);
+                this.emit_highlighted(cx);
+                cx.notify();
+            });
         let mut palette = Self {
             input,
             commands,
@@ -125,13 +170,16 @@ impl CommandPalette {
             scroll: ScrollHandle::new(),
             recent,
             is_tab_picker,
+            finder: false,
+            highlights: Vec::new(),
             _input_subscription,
         };
         palette.update_matches(cx);
         palette
     }
 
-    /// commands matching the typed query, in display order
+    /// commands matching the typed query, in display order, exposed for tests
+    #[cfg(test)]
     pub fn matches(&self) -> impl Iterator<Item = &Command> {
         self.matches.iter().map(|&ix| &self.commands[ix])
     }
@@ -141,7 +189,7 @@ impl CommandPalette {
         let query = self.input.read(cx).content();
         let pins = Pins::get(cx);
         let mut matches: Vec<usize> = (0..self.commands.len())
-            .filter(|&ix| fuzzy_match(&self.commands[ix].label(), query))
+            .filter(|&ix| self.finder || fuzzy_match(&self.commands[ix].label(), query))
             .collect();
         // cached so each label is built once instead of on every comparison
         if !self.is_tab_picker {
@@ -182,6 +230,12 @@ impl CommandPalette {
     fn select(&mut self, ix: usize) {
         self.selected = ix;
         self.scroll.scroll_to_item(ix);
+    }
+
+    fn emit_highlighted(&self, cx: &mut Context<Self>) {
+        if let Some(&ix) = self.matches.get(self.selected) {
+            cx.emit(Highlighted(self.commands[ix].clone()));
+        }
     }
 
     /// typed query, exposed for tests
@@ -235,6 +289,7 @@ impl CommandPalette {
             "down" => self.select((self.selected + 1) % self.matches.len().max(1)),
             _ => return,
         }
+        self.emit_highlighted(cx);
         cx.stop_propagation();
         cx.notify();
     }
@@ -251,9 +306,12 @@ impl Render for CommandPalette {
         let theme = Theme::get(cx);
         let pins = Pins::get(cx);
         let items = self
-            .matches()
+            .matches
+            .iter()
             .enumerate()
-            .map(|(ix, command)| {
+            .map(|(ix, &command_ix)| {
+                let command = &self.commands[command_ix];
+                let highlight = self.highlights.get(command_ix).cloned().flatten();
                 let category = command.category.clone();
                 let pinned = pins.is_pinned(command);
                 div()
@@ -274,7 +332,10 @@ impl Render for CommandPalette {
                                 .child(format!("{category}:")),
                         )
                     })
-                    .child(command.name.clone())
+                    .child(match highlight {
+                        Some(range) => highlighted(&command.name, range, theme).into_any_element(),
+                        None => command.name.clone().into_any_element(),
+                    })
                     .when(!self.is_tab_picker, |item| {
                         item.child(
                             div()
@@ -327,7 +388,11 @@ impl Render for CommandPalette {
                     .px_3()
                     .py_2()
                     .text_color(theme.text_muted)
-                    .child("no matching commands")
+                    .child(if self.finder {
+                        "nothing found"
+                    } else {
+                        "no matching commands"
+                    })
                     .into_any_element(),
             ]
         } else {
@@ -374,6 +439,27 @@ impl Render for CommandPalette {
                     .child(self.render_scrollbar(theme)),
             )
     }
+}
+
+/// `text` with the chars in `range` on the search match color
+fn highlighted(text: &str, range: Range<usize>, theme: &Theme) -> impl IntoElement {
+    let part = |from: usize, to: usize| -> String {
+        text.chars()
+            .skip(from)
+            .take(to.saturating_sub(from))
+            .collect()
+    };
+    let length = text.chars().count();
+    div()
+        .flex()
+        .child(part(0, range.start))
+        .child(
+            div()
+                .bg(theme.search_match_active)
+                .text_color(theme.terminal_foreground)
+                .child(part(range.start, range.end)),
+        )
+        .child(part(range.end, length))
 }
 
 /// page with the version and links, closed by any key or a click outside
@@ -610,8 +696,11 @@ pub struct PasteConfirmed;
 /// asks before pasting text that would run right away or has control characters
 pub struct ConfirmPaste {
     focus_handle: FocusHandle,
-    /// first lines of the text, control characters made visible
-    preview: Vec<String>,
+    /// first lines of the text, control characters made visible, hidden and lookalike
+    /// characters as marked pieces
+    preview: Vec<Vec<PreviewPiece>>,
+    /// the text has hidden or lookalike characters
+    flagged: bool,
     /// lines not in the preview
     more_lines: usize,
     /// true while "paste" is the button enter presses, false for "cancel"
@@ -627,6 +716,7 @@ impl ConfirmPaste {
         let (preview, more_lines) = paste_preview(text);
         Self {
             focus_handle: cx.focus_handle(),
+            flagged: preview.iter().flatten().any(|piece| piece.marked),
             preview,
             more_lines,
             // enter right after the paste key must not paste by habit
@@ -636,8 +726,8 @@ impl ConfirmPaste {
 
     /// shown lines, exposed for tests
     #[cfg(test)]
-    pub(crate) fn preview(&self) -> &[String] {
-        &self.preview
+    pub(crate) fn preview(&self) -> Vec<String> {
+        self.preview.iter().map(|line| preview_text(line)).collect()
     }
 
     fn key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
@@ -651,32 +741,57 @@ impl ConfirmPaste {
     }
 }
 
+/// part of a previewed line, marked ones are hidden or lookalike characters
+#[derive(Clone, Debug, PartialEq)]
+struct PreviewPiece {
+    text: String,
+    marked: bool,
+}
+
+#[cfg(test)]
+fn preview_text(line: &[PreviewPiece]) -> String {
+    line.iter().map(|piece| piece.text.as_str()).collect()
+}
+
 /// first lines of a paste with control characters in caret notation, like ^[ for escape,
-/// and how many lines are left out
-fn paste_preview(text: &str) -> (Vec<String>, usize) {
+/// hidden and lookalike characters as marked <U+200B>, and how many lines are left out
+fn paste_preview(text: &str) -> (Vec<Vec<PreviewPiece>>, usize) {
     let lines: Vec<&str> = text.lines().collect();
     let preview = lines
         .iter()
         .take(PASTE_PREVIEW_LINES)
         .map(|line| {
-            let mut shown = String::new();
-            for c in line.chars() {
-                match c {
-                    '\t' => shown.push_str("    "),
-                    c if (c as u32) < 0x20 => {
-                        shown.push('^');
-                        shown.push(char::from(c as u8 + b'@'));
-                    }
-                    '\x7f' => shown.push_str("^?"),
-                    c if c.is_control() => shown.push_str(&format!("<{:02x}>", c as u32)),
-                    c => shown.push(c),
+            let flagged = paste_check::flagged(line);
+            let mut pieces: Vec<PreviewPiece> = Vec::new();
+            let mut length = 0;
+            for (at, c) in line.char_indices() {
+                let marked = flagged.contains(&at);
+                let shown = match c {
+                    c if marked => format!("<U+{:04X}>", c as u32),
+                    '\t' => "    ".into(),
+                    c if (c as u32) < 0x20 => format!("^{}", char::from(c as u8 + b'@')),
+                    '\x7f' => "^?".into(),
+                    c if c.is_control() => format!("<{:02x}>", c as u32),
+                    c => c.to_string(),
+                };
+                let count = shown.chars().count();
+                if length + count > PASTE_PREVIEW_CHARS - 1 {
+                    pieces.push(PreviewPiece {
+                        text: "…".into(),
+                        marked: false,
+                    });
+                    break;
+                }
+                length += count;
+                match pieces.last_mut() {
+                    Some(last) if !marked && !last.marked => last.text.push_str(&shown),
+                    _ => pieces.push(PreviewPiece {
+                        text: shown,
+                        marked,
+                    }),
                 }
             }
-            if shown.chars().count() > PASTE_PREVIEW_CHARS {
-                shown = shown.chars().take(PASTE_PREVIEW_CHARS - 1).collect();
-                shown.push('…');
-            }
-            shown
+            pieces
         })
         .collect();
     (preview, lines.len().saturating_sub(PASTE_PREVIEW_LINES))
@@ -713,9 +828,12 @@ impl Render for ConfirmPaste {
             .p_4()
             .gap_2()
             .child("paste this text?")
-            .child(div().text_color(theme.text_muted).child(
-                "it has new lines or control characters, the program gets them as typed keys",
-            ))
+            .child(div().text_color(theme.text_muted).child(if self.flagged {
+                "it has characters that don't show or pass for others, marked below. the text \
+                 may run something else than it seems to"
+            } else {
+                "it has new lines or control characters, the program gets them as typed keys"
+            }))
             .child(
                 div()
                     .px_2()
@@ -725,7 +843,20 @@ impl Render for ConfirmPaste {
                     .text_color(theme.terminal_foreground)
                     .whitespace_nowrap()
                     .overflow_hidden()
-                    .children(self.preview.iter().map(|line| div().child(line.clone())))
+                    .children(self.preview.iter().map(|line| {
+                        div().flex().children(line.iter().map(|piece| {
+                            div()
+                                .when(piece.marked, |badge| {
+                                    badge
+                                        .debug_selector(|| "paste-badge".into())
+                                        .px_0p5()
+                                        .rounded_sm()
+                                        .bg(theme.danger_button)
+                                        .text_color(theme.danger_button_text)
+                                })
+                                .child(piece.text.clone())
+                        }))
+                    }))
                     .when(self.more_lines > 0, |preview| {
                         preview.child(
                             div()
@@ -763,6 +894,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn paste_preview_marks_hidden_characters() {
+        let (preview, _) = paste_preview("ls\u{202e}txt.exe");
+        let marked: Vec<&str> = preview[0]
+            .iter()
+            .filter(|piece| piece.marked)
+            .map(|piece| piece.text.as_str())
+            .collect();
+        assert_eq!(marked, ["<U+202E>"]);
+        assert_eq!(preview_text(&preview[0]), "ls<U+202E>txt.exe");
+    }
+
+    #[test]
     fn fuzzy_match_skips_letters_case_and_spaces() {
         assert!(fuzzy_match("reload settings", ""));
         assert!(fuzzy_match("reload settings", "rel set"));
@@ -792,6 +935,7 @@ mod tests {
     fn paste_preview_shows_control_characters_and_cuts_long_text() {
         let text = "echo \x1b[31mred\t!\n".to_string() + &"x".repeat(200) + "\n3\n4\n5\n6\n7\n8";
         let (preview, more) = super::paste_preview(&text);
+        let preview: Vec<String> = preview.iter().map(|line| preview_text(line)).collect();
         assert_eq!(preview[0], "echo ^[[31mred    !");
         assert_eq!(preview[1].chars().count(), super::PASTE_PREVIEW_CHARS);
         assert!(preview[1].ends_with('…'));

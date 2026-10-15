@@ -4,13 +4,15 @@ Name=kuterm
 GenericName=Terminal
 Comment=highly configurable, gpu accelerated terminal
 TryExec=kuterm
-Exec=kuterm
+Exec=kuterm %U
 Icon=kuterm
 Terminal=false
 Categories=System;TerminalEmulator;
 Keywords=terminal;console;shell;command;command-line;cli;prompt;bash;sh;zsh;fish;tty;pty;
 StartupWMClass=kuterm
 Actions=NewWindow;
+# kuterm://run links open a tab with their command typed, not run
+MimeType=x-scheme-handler/kuterm;
 
 [Desktop Action NewWindow]
 Name=Open New Window

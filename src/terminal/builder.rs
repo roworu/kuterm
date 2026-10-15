@@ -70,6 +70,9 @@ pub(super) fn term_config(settings: &TerminalSettings) -> Config {
     }
 }
 
+// pane ids are unique in the app, `kuterm msg --pane` finds a pane by it
+static NEXT_PANE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
 pub struct TerminalBuilder {
     pub(crate) terminal: Terminal,
     pub(super) events_rx: UnboundedReceiver<AlacTermEvent>,
@@ -100,6 +103,12 @@ impl TerminalBuilder {
             "TERM_PROGRAM_VERSION".to_string(),
             env!("CARGO_PKG_VERSION").to_string(),
         );
+        // `kuterm msg --pane $KUTERM_PANE` and kout reach the pane they run in
+        let pane_id = NEXT_PANE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        env.insert("KUTERM_PANE".to_string(), pane_id.to_string());
+        if let Ok(exe) = std::env::current_exe() {
+            env.insert("KUTERM_BIN".to_string(), exe.to_string_lossy().into_owned());
+        }
         // profile values go last, so they can override ours
         env.extend(profile.env.clone());
 
@@ -181,6 +190,7 @@ impl TerminalBuilder {
             dirty,
             title: String::new(),
             shell_pid,
+            pane_id,
             theme_settings: profile.theme.clone(),
             theme: None,
             clipboard: settings.clipboard,
@@ -194,6 +204,8 @@ impl TerminalBuilder {
             command_started: None,
             inputs: 0,
             last_command: None,
+            frozen: None,
+            blocks: Default::default(),
             graphics,
             cell_size,
             #[cfg(unix)]

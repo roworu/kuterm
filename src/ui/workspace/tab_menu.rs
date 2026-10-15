@@ -32,6 +32,25 @@ impl Workspace {
         });
         input.focus_handle(cx).focus(window, cx);
         self.renaming = Some((id, input));
+        self.renaming_name = false;
+        cx.notify();
+    }
+
+    /// type the name `kuterm msg --pane` finds the active tab by
+    pub(super) fn start_rename_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let pane = self.focused_pane();
+        let Some(tab) = pane.tabs.get(pane.active) else {
+            return;
+        };
+        let (id, name) = (tab.view.entity_id(), tab.name.clone().unwrap_or_default());
+        let input = cx.new(|cx| {
+            let mut input = TextInput::new("pane name", cx);
+            input.set_content(name, cx);
+            input
+        });
+        input.focus_handle(cx).focus(window, cx);
+        self.renaming = Some((id, input));
+        self.renaming_name = true;
         cx.notify();
     }
 
@@ -48,8 +67,14 @@ impl Workspace {
         };
         if keep && let Some((pane, ix)) = self.find_id(id) {
             let text = input.read(cx).content().trim().to_string();
+            let name = self.renaming_name;
             let tab = &mut self.pane_mut(pane).expect("pane of found tab").tabs[ix];
-            tab.custom_title = (!text.is_empty()).then_some(text);
+            let text = (!text.is_empty()).then_some(text);
+            if name {
+                tab.name = text;
+            } else {
+                tab.custom_title = text;
+            }
         }
         // typing goes back to the terminal
         self.focus_pane(self.focused, window, cx);
@@ -128,12 +153,18 @@ impl Workspace {
         let (pane, ix) = self.find_id(id)?;
         let theme = Theme::get(cx);
         let pinned = self.pane(pane)?.tabs[ix].pinned;
-        let rows: [Option<(&str, CommandAction)>; 13] = [
+        let grouped = self.pane(pane)?.tabs[ix].group.is_some();
+        let mut rows: Vec<Option<(&str, CommandAction)>> = vec![
             Some(("rename", CommandAction::RenameTab)),
             Some((if pinned { "unpin" } else { "pin" }, CommandAction::PinTab)),
             Some(("duplicate", CommandAction::DuplicateTab)),
             Some(("copy folder path", CommandAction::CopyFolder)),
             Some(("move to new window", CommandAction::MoveTabToNewWindow)),
+            Some(if grouped {
+                ("remove from group", CommandAction::RemoveTabFromGroup)
+            } else {
+                ("add to new group", CommandAction::NewGroup)
+            }),
             None,
             Some(("split right", CommandAction::SplitRight)),
             Some(("split down", CommandAction::SplitDown)),
@@ -143,6 +174,9 @@ impl Workspace {
             Some(("close tabs to the right", CommandAction::CloseTabsToRight)),
             Some(("close tabs to the left", CommandAction::CloseTabsToLeft)),
         ];
+        if grouped {
+            rows.push(Some(("close group", CommandAction::CloseGroup)));
+        }
         let rows = rows.into_iter().enumerate().map(|(row, item)| {
             let Some((label, action)) = item else {
                 return div().my_1().h(px(1.)).bg(theme.border).into_any_element();

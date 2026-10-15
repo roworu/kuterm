@@ -2,18 +2,24 @@
 
 mod app_menu;
 mod attention;
+mod broadcast;
 mod config_watch;
 mod end_truncated;
+mod find_all;
 #[cfg(target_os = "linux")]
 mod global_menu;
+mod groups;
 mod menu_bar;
 mod notifications;
+mod passwords;
+mod remote_verbs;
 mod session;
 mod tab_bar;
 mod tab_icon;
 mod tab_menu;
 mod tab_title;
 mod tear_off;
+mod theme_picker;
 mod window;
 
 use std::{
@@ -33,18 +39,20 @@ use gpui::{
     actions, prelude::*,
 };
 
-pub use app_menu::{app_menus, dock_menu, open_urls};
+pub use app_menu::{RunLink, app_menus, dock_menu, open_urls, parse_run_link};
 pub use config_watch::watch_config;
 #[cfg(target_os = "linux")]
 pub use global_menu::start as start_global_menu;
 use menu_bar::{MenuBar, MenuPicked};
 use notifications::Notification;
+pub use remote_verbs::PaneMatch;
 use tab_title::{Click, Piece, TitleInputs};
 pub use tear_off::MovedTab;
 pub use window::{background_appearance, startup_bounds, window_decorations};
 
 use crate::{
     cli::Cli,
+    events_bus::{BusEvent, EventBus},
     settings::{
         Command, CommandAction, Commands, Config, ConfigFiles, ConfirmQuit, Profile,
         RestoreSession, Settings, Shell, StatusBarState, TabIconSettings, TabIcons, TabTitleBlock,
@@ -59,7 +67,9 @@ use crate::{
             About, CloseConfirmed, CloseTarget, CommandPalette, ConfirmClose, ConfirmPaste,
             PasteConfirmed,
         },
-        terminal_view::{ClipboardEvent, TerminalView, copied_text, open_link},
+        tab_overview::{OverviewPicked, OverviewTab, TabOverview},
+        terminal_element::ShowHidden,
+        terminal_view::{ClipboardEvent, TerminalView, TypedInput, copied_text, open_link},
         text_input::TextInput,
     },
 };
@@ -114,7 +124,7 @@ type TitleSnapshot = (
     TabIconSettings,
     TabIcons,
     usize,
-    Vec<(EntityId, TitleInputs)>,
+    Vec<(EntityId, TitleInputs, Option<Option<PathBuf>>)>,
 );
 
 /// title of one tab as the background build made it
@@ -125,6 +135,8 @@ struct TabTitle {
     icon: String,
     /// an ai agent runs in front of the shell
     agent: bool,
+    /// git project the tab is in, found while tabs are grouped by project
+    project: Option<PathBuf>,
 }
 
 struct Tab {
@@ -158,7 +170,19 @@ struct Tab {
     agent: bool,
     /// the agent stopped working and waits for the user
     attention: attention::Attention,
-    _subscriptions: [Subscription; 2],
+    /// group the tab is in
+    group: Option<usize>,
+    /// git project of the tab on the last title refresh, while grouped by project
+    project: Option<PathBuf>,
+    /// id of its terminal for remote control
+    pane_id: u64,
+    /// name given with "rename_pane" or `kuterm msg new-tab --name`, `--pane` finds it by it
+    name: Option<String>,
+    /// color the tab is drawn in, set with `kuterm msg set-tab-color`
+    color: Option<gpui::Hsla>,
+    /// remote runs need no asking in this tab, the user allowed them all
+    remote_allowed: bool,
+    _subscriptions: [Subscription; 3],
 }
 
 impl Drop for Tab {
@@ -166,6 +190,7 @@ impl Drop for Tab {
         if let Some(path) = &self.temp_file {
             std::fs::remove_file(path).ok();
         }
+        EventBus::publish(BusEvent::PaneClosed { pane: self.pane_id });
     }
 }
 
@@ -568,6 +593,8 @@ pub struct Workspace {
     tab_drag: Option<(usize, usize)>,
     /// open command palette, none while it is closed
     palette: Option<Entity<CommandPalette>>,
+    /// open tab overview, none while it is closed
+    overview: Option<Entity<TabOverview>>,
     /// open about page, none while it is closed
     about: Option<Entity<About>>,
     /// open close tab dialog, none while it is closed
@@ -578,6 +605,21 @@ pub struct Workspace {
     menu_bar: Entity<MenuBar>,
     _menu_bar_subscriptions: [Subscription; 2],
     _overlay_subscriptions: Vec<Subscription>,
+    /// panes typed into together, none while input goes to the focused pane alone
+    broadcast: Option<std::collections::BTreeSet<usize>>,
+    /// tab groups of the window
+    groups: Vec<groups::Group>,
+    next_group_id: usize,
+    /// the rename field sets the pane name, not the title
+    renaming_name: bool,
+    /// group being renamed and the field its name is typed into
+    renaming_group: Option<(usize, Entity<TextInput>)>,
+    /// group and place its right click menu was opened at, none while it is closed
+    group_menu: Option<(usize, Point<Pixels>)>,
+    /// matches listed by the open find in all tabs palette
+    found: Vec<find_all::Found>,
+    /// search of the last query typed into find in all tabs
+    _find_task: Task<()>,
     /// labels of commands run from the palette, most recent first
     recent_commands: Vec<String>,
     /// shown notifications, oldest first
@@ -741,13 +783,20 @@ impl Workspace {
                 let builds = inputs
                     .into_iter()
                     .enumerate()
-                    .map(|(ix, (id, inputs))| {
+                    .map(|(ix, (id, inputs, cwd))| {
                         let shared = shared.clone();
                         cx.background_executor().spawn(async move {
                             let (blocks, window_blocks, status_blocks, icon_settings, icons) =
                                 &*shared;
                             // read once, the window title, tab title and icon all need it
                             let process = foreground_process(inputs.shell_pid);
+                            // the git project of the folder the shell reported, or of the
+                            // program's folder, only while tabs are grouped by project
+                            let project = cwd.and_then(|cwd| {
+                                cwd.or_else(|| process.as_ref()?.cwd.clone())
+                                    .as_deref()
+                                    .and_then(groups::project_root)
+                            });
                             let window_title = (ix == active).then(|| {
                                 tab_title::build_title(window_blocks, &inputs, process.as_ref())
                             });
@@ -786,6 +835,7 @@ impl Workspace {
                                 ports_at,
                                 icon,
                                 agent,
+                                project,
                             };
                             (id, title, window_title, status)
                         })
@@ -881,12 +931,21 @@ impl Workspace {
             titled_size: (0, 0),
             tab_drag: None,
             palette: None,
+            overview: None,
             about: None,
             confirm_close: None,
             confirm_paste: None,
             menu_bar,
             _menu_bar_subscriptions,
             _overlay_subscriptions: Vec::new(),
+            broadcast: None,
+            groups: Vec::new(),
+            next_group_id: 0,
+            renaming_group: None,
+            renaming_name: false,
+            group_menu: None,
+            found: Vec::new(),
+            _find_task: Task::ready(()),
             recent_commands: Vec::new(),
             notifications: Vec::new(),
             next_notification_id: 0,
@@ -1004,6 +1063,20 @@ impl Workspace {
         self.add_profile_tab(self.focused, &profile, true, window, cx);
     }
 
+    /// open a tab with the command of `link` typed, in its folder when that exists
+    pub fn open_run_link(&mut self, link: RunLink, window: &mut Window, cx: &mut Context<Self>) {
+        let mut profile = Settings::get(cx).default_profile().clone();
+        if let Some(cwd) = link.cwd.filter(|cwd| cwd.is_dir()) {
+            profile.working_directory = Some(cwd);
+        }
+        let pane = self.focused;
+        let before = self.pane(pane).map_or(0, |pane| pane.tabs.len());
+        self.add_profile_tab(pane, &profile, true, window, cx);
+        if self.pane(pane).is_some_and(|pane| pane.tabs.len() > before) {
+            self.input_to(pane, before, link.command.into_bytes(), cx);
+        }
+    }
+
     /// open a tab with `profile` in pane `pane_id`, switching to it when `activate`
     fn add_profile_tab(
         &mut self,
@@ -1058,10 +1131,17 @@ impl Workspace {
     ) {
         let view = cx.new(|cx| TerminalView::new(terminal.clone(), window, cx));
 
+        let remote_id = terminal.read(cx).pane_id;
+        let pane = remote_id;
+        EventBus::publish(BusEvent::PaneOpened { pane });
         let subscription = cx.subscribe_in(&terminal, window, {
             let view = view.clone();
-            move |this, _, event: &Event, window, cx| match event {
-                Event::TitleChanged => this.refresh_titles_later(),
+            move |this, terminal, event: &Event, window, cx| match event {
+                Event::TitleChanged => {
+                    let title = terminal.read(cx).title(&Settings::get(cx).default_title);
+                    EventBus::publish(BusEvent::TitleChanged { pane, title });
+                    this.refresh_titles_later()
+                }
                 // shell exited, so close its tab
                 // TODO: do we need it at all? probably we need a setting, if to keep exited tab..
                 Event::CloseTerminal => {
@@ -1074,22 +1154,64 @@ impl Workspace {
                     this.schedule_ready(&view, window, cx);
                     this.refresh_titles_later();
                 }
-                Event::Bell => this.ring_bell(&view, window, cx),
+                Event::Bell => {
+                    EventBus::publish(BusEvent::Bell { pane });
+                    this.ring_bell(&view, window, cx)
+                }
                 Event::ClipboardAsk { id, text } => {
                     this.ask_clipboard(&view, *id, text.clone(), cx)
                 }
                 Event::CommandFinished { duration, exit } => {
+                    let block = terminal.update(cx, |terminal, _| {
+                        terminal.blocks().back().map(|block| block.id)
+                    });
+                    EventBus::publish(BusEvent::CommandFinished {
+                        pane,
+                        block,
+                        exit: *exit,
+                        seconds: duration.as_secs_f64(),
+                    });
                     this.attention_ended(&view, cx);
                     this.command_finished(&view, *duration, *exit, window, cx)
                 }
-                Event::BusyChanged(true) => this.attention_ended(&view, cx),
-                Event::BusyChanged(false) => this.agent_stopped(&view, window, cx),
+                Event::CommandStarted { block } => {
+                    let command = terminal.update(cx, |terminal, _| {
+                        let blocks = terminal.blocks();
+                        let found = blocks.iter().find(|found| found.id == *block);
+                        found.map(|found| found.command.clone()).unwrap_or_default()
+                    });
+                    EventBus::publish(BusEvent::CommandStarted {
+                        pane,
+                        block: *block,
+                        command,
+                    });
+                }
+                Event::CwdChanged(cwd) => EventBus::publish(BusEvent::CwdChanged {
+                    pane,
+                    cwd: cwd.clone(),
+                }),
+                Event::BusyChanged(busy) => {
+                    EventBus::publish(BusEvent::Progress { pane, busy: *busy });
+                    if *busy {
+                        this.attention_ended(&view, cx)
+                    } else {
+                        this.agent_stopped(&view, window, cx)
+                    }
+                }
                 Event::Notify { title, body } => {
+                    EventBus::publish(BusEvent::Notify {
+                        pane,
+                        title: title.clone(),
+                        body: body.clone(),
+                    });
                     this.program_notification(&view, title, body, window, cx)
                 }
                 // the view shows completions
                 Event::Shell(_) => {}
             }
+        });
+        let input_subscription = cx.subscribe(&view, |this, view, input: &TypedInput, cx| {
+            this.broadcast_input(&view, input, cx)
         });
         let clipboard_subscription = cx.subscribe_in(
             &view,
@@ -1134,7 +1256,13 @@ impl Workspace {
             pinned: false,
             agent: false,
             attention: Default::default(),
-            _subscriptions: [subscription, clipboard_subscription],
+            group: None,
+            project: None,
+            pane_id: remote_id,
+            name: None,
+            color: None,
+            remote_allowed: false,
+            _subscriptions: [subscription, clipboard_subscription, input_subscription],
         });
         let ix = pane.tabs.len() - 1;
         if activate {
@@ -1261,6 +1389,9 @@ impl Workspace {
         self.focused = pane_id;
         // window title follows the active tab, and tab numbers shift after add or close
         self.refresh_titles();
+        EventBus::publish(BusEvent::FocusChanged {
+            pane: view.read(cx).terminal().read(cx).pane_id,
+        });
         view.focus_handle(cx).focus(window, cx);
         cx.notify();
     }
@@ -1296,6 +1427,8 @@ impl Workspace {
                 *active += 1;
             }
         }
+        // a group's tabs stay together, a tab dragged out of its run goes back to it
+        self.regroup(pane_id);
         // titles show the tab number, which changed for the shifted tabs
         self.refresh_titles();
         cx.notify();
@@ -1476,6 +1609,8 @@ impl Workspace {
             .into_iter()
             .flat_map(|pane| {
                 (0..pane.tabs.len()).map(move |ix| crate::remote::TabInfo {
+                    id: pane.tabs[ix].pane_id,
+                    name: pane.tabs[ix].name.clone(),
                     window: window_id,
                     pane: pane.id,
                     number: ix + 1,
@@ -2066,6 +2201,22 @@ impl Workspace {
                     target = None;
                 }
                 CommandAction::PickAgentTab => self.open_agent_picker(window, cx),
+                CommandAction::FindInAllTabs => self.open_finder(window, cx),
+                CommandAction::PickTheme => self.open_theme_picker(window, cx),
+                CommandAction::TabOverview => self.open_tab_overview(window, cx),
+                CommandAction::FillPassword => self.fill_password(window, cx),
+                CommandAction::RenamePane => self.start_rename_pane(window, cx),
+                CommandAction::ShowHiddenText => {
+                    let shown = cx.default_global::<ShowHidden>();
+                    shown.0 = !shown.0;
+                    window.refresh();
+                }
+                CommandAction::NewGroup
+                | CommandAction::AddTabToGroup
+                | CommandAction::RemoveTabFromGroup
+                | CommandAction::CloseGroup => self.run_group_action(action, window, cx),
+                CommandAction::ToggleBroadcastAll => self.toggle_broadcast_all(cx),
+                CommandAction::ToggleBroadcastPane => self.toggle_broadcast_pane(cx),
                 CommandAction::Copy => {
                     let selection = copied_text(self.terminal_at(pane, ix, cx).read(cx), cx);
                     match selection {
@@ -2192,6 +2343,7 @@ impl Workspace {
 
     fn close_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.palette = None;
+        self.overview = None;
         self.about = None;
         self.confirm_close = None;
         self.confirm_paste = None;
@@ -2312,6 +2464,32 @@ impl Workspace {
         commands
     }
 
+    /// grid of previews of every tab, picking one switches to it
+    fn open_tab_overview(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let mut tabs = Vec::new();
+        for pane in self.layout.panes() {
+            for (ix, tab) in pane.tabs.iter().enumerate() {
+                tabs.push(OverviewTab {
+                    id: tab.view.entity_id(),
+                    title: format!("{} {}", ix + 1, self.tab_title(pane.id, ix, cx)),
+                    terminal: tab.view.read(cx).terminal().clone(),
+                    active: pane.id == self.focused && ix == pane.active,
+                });
+            }
+        }
+        let overview = cx.new(|cx| TabOverview::new(tabs, cx));
+        self.open_overlay(&overview, window, cx);
+        self._overlay_subscriptions.push(cx.subscribe_in(
+            &overview,
+            window,
+            |this, _, picked: &OverviewPicked, window, cx| {
+                this.close_overlay(window, cx);
+                this.activate_id(picked.0, window, cx);
+            },
+        ));
+        self.overview = Some(overview);
+    }
+
     /// switch to the tab with this view, wherever it lives
     fn activate_id(&mut self, id: EntityId, window: &mut Window, cx: &mut Context<Self>) {
         if let Some((pane, ix)) = self.find_id(id) {
@@ -2418,6 +2596,7 @@ impl Workspace {
         let clock = tab_title::clock(&status_bar.clock_format);
         let mut inputs = Vec::new();
         let mut active = 0;
+        let by_project = settings.tab_groups.by_project;
         for pane in self.layout.panes() {
             for (ix, tab) in pane.tabs.iter().enumerate() {
                 if pane.id == self.focused && ix == pane.active {
@@ -2440,12 +2619,13 @@ impl Workspace {
                         clock: clock.clone(),
                         size: terminal_size(terminal),
                     },
+                    by_project.then(|| terminal.reported_cwd().map(Path::to_path_buf)),
                 ));
             }
         }
         if sampled {
-            let total = TreeSample::total(inputs.iter().filter_map(|(_, i)| i.sample.as_ref()));
-            for (_, inputs) in &mut inputs {
+            let total = TreeSample::total(inputs.iter().filter_map(|(_, i, _)| i.sample.as_ref()));
+            for (_, inputs, _) in &mut inputs {
                 inputs.total = Some(total.clone());
             }
         }
@@ -2490,6 +2670,7 @@ impl Workspace {
                 .expect("pane id comes from the layout")
                 .tabs[ix];
             tab.agent = built.agent;
+            tab.project = built.project;
             // input does not redraw the tab bar, so the mark of an answered wait goes here
             changed |= tab
                 .attention
@@ -2506,6 +2687,7 @@ impl Workspace {
                 changed = true;
             }
         }
+        changed |= self.group_by_project(cx);
         if changed {
             cx.notify();
         }
@@ -6686,51 +6868,99 @@ mod tests {
 
     #[gpui::test]
     fn remote_requests_open_tabs_type_and_list(cx: &mut TestAppContext) {
-        use crate::remote::Request;
+        use crate::remote::{Reply, Request};
         use crate::ui::windows::handle_request;
+
+        // replies that need no answer from the user come right away
+        fn ask(cx: &mut VisualTestContext, request: Request) -> Reply {
+            let (tx, mut rx) = futures::channel::oneshot::channel();
+            cx.cx.update(|cx| handle_request(request, tx, cx));
+            rx.try_recv().unwrap().expect("no reply yet")
+        }
 
         let (ws, cx) = open(cx, 1);
         cx.update(|window, _| window.activate_window());
-        let reply = cx.cx.update(|cx| {
-            handle_request(
-                Request::NewTab {
-                    cwd: Some(std::env::temp_dir()),
-                    profile: None,
-                },
-                cx,
-            )
-        });
+        let reply = ask(
+            cx,
+            Request::NewTab {
+                cwd: Some(std::env::temp_dir()),
+                profile: None,
+                name: Some("build".into()),
+            },
+        );
         assert!(reply.ok, "{reply:?}");
         cx.run_until_parked();
         assert_eq!(views(&ws, cx).len(), 2);
-        let reply = cx.cx.update(|cx| {
-            handle_request(
-                Request::NewTab {
-                    cwd: None,
-                    profile: Some("missing".into()),
-                },
-                cx,
-            )
-        });
+        let reply = ask(
+            cx,
+            Request::NewTab {
+                cwd: None,
+                profile: Some("missing".into()),
+                name: None,
+            },
+        );
         assert!(!reply.ok);
 
-        let reply = cx.cx.update(|cx| handle_request(Request::ListTabs, cx));
+        let reply = ask(cx, Request::ListTabs);
         assert_eq!(reply.tabs.len(), 2);
         assert!(reply.tabs[1].active && !reply.tabs[0].active);
         assert_eq!(reply.tabs[1].number, 2);
+        assert_eq!(reply.tabs[1].name.as_deref(), Some("build"));
+        assert_ne!(reply.tabs[0].id, reply.tabs[1].id);
+        let first = reply.tabs[0].id.to_string();
 
-        let reply = cx.cx.update(|cx| {
-            handle_request(
-                Request::SendText {
-                    text: "echo remote_$((2*21))\r".into(),
-                },
-                cx,
-            )
+        // the named tab is found while another one is active
+        ws.update_in(cx, |ws, window, cx| {
+            ws.activate_tab(ws.focused, 0, window, cx)
         });
+        let reply = ask(
+            cx,
+            Request::SendText {
+                text: "echo remote_$((2*21))\r".into(),
+                pane: Some("build".into()),
+            },
+        );
         assert!(reply.ok);
         let terminal = terminal(&ws, cx, 1);
+        // the tab is in the background, nothing paints it, so its screen is read here
         wait_until(cx, "sent text never ran", |cx| {
-            terminal.read_with(cx, |t, _| line_starting_with(t, "remote_42").is_some())
+            terminal.update(cx, |t, _| {
+                t.sync();
+                line_starting_with(t, "remote_42").is_some()
+            })
         });
+        let reply = ask(
+            cx,
+            Request::GetText {
+                pane: Some("build".into()),
+                scrollback: false,
+            },
+        );
+        assert!(reply.text.unwrap().contains("remote_42"));
+
+        // by id, and titles set from outside
+        let reply = ask(
+            cx,
+            Request::SetTabTitle {
+                pane: Some(first),
+                title: "from outside".into(),
+            },
+        );
+        assert!(reply.ok);
+        let reply = ask(
+            cx,
+            Request::FocusTab {
+                pane: Some("from outside".into()),
+            },
+        );
+        assert!(reply.ok);
+        assert_eq!(ws.read_with(cx, |ws, _| ws.focused_pane().active), 0);
+        let reply = ask(
+            cx,
+            Request::FocusTab {
+                pane: Some("nothing like it".into()),
+            },
+        );
+        assert!(!reply.ok);
     }
 }

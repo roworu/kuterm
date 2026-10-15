@@ -2,6 +2,7 @@
 
 mod commands;
 mod config;
+pub mod edit;
 mod keybindings;
 mod options;
 mod pins;
@@ -33,6 +34,7 @@ pub use options::{
 pub use pins::Pins;
 pub use status_bar_state::StatusBarState;
 pub use tab_icons::{IconGroup, TabIcons};
+
 pub use window_size::WindowSize;
 
 use crate::cli::Cli;
@@ -64,6 +66,9 @@ pub struct Settings {
     pub focus_follows_mouse: bool,
     pub bell: BellSettings,
     pub search: SearchSettings,
+    pub selection: SelectionSettings,
+    pub tab_groups: TabGroupSettings,
+    pub password_manager: PasswordManagerSettings,
     pub links: LinkSettings,
     pub hints: HintSettings,
     pub panes: PaneSettings,
@@ -161,6 +166,94 @@ pub struct SearchSettings {
     pub case_sensitive: SearchCase,
     pub regex: bool,
     pub whole_word: bool,
+}
+
+/// where "fill_password" gets passwords from
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct PasswordManagerSettings {
+    pub preset: PasswordPreset,
+    /// command printing one entry name per line, in place of the preset's
+    pub list: Option<Vec<String>>,
+    /// command printing the password of `{name}` on its first line, in place of the preset's
+    pub get: Option<Vec<String>>,
+    /// press enter after the password
+    pub enter: bool,
+}
+
+/// password managers kuterm knows how to ask
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum PasswordPreset {
+    /// pass, the standard unix password manager
+    Pass,
+    /// secrets of the desktop keyring, by their service attribute
+    SecretTool,
+    /// bitwarden's cli
+    Bw,
+    /// 1password's cli
+    Op,
+}
+
+impl PasswordManagerSettings {
+    /// commands that list entries and get the password of one, `{name}` stands for the entry
+    pub fn commands(&self) -> (Vec<String>, Vec<String>) {
+        let words = |words: &[&str]| words.iter().map(|word| word.to_string()).collect();
+        let (list, get): (Vec<String>, Vec<String>) = match self.preset {
+            PasswordPreset::Pass => (
+                words(&[
+                    "sh",
+                    "-c",
+                    "cd \"${PASSWORD_STORE_DIR:-$HOME/.password-store}\" && find . -name '*.gpg' | sed 's|^\\./||; s|\\.gpg$||' | sort",
+                ]),
+                words(&["pass", "show", "{name}"]),
+            ),
+            PasswordPreset::SecretTool => (
+                words(&[
+                    "sh",
+                    "-c",
+                    "secret-tool search --all --unlock xdg:schema org.freedesktop.Secret.Generic 2>&1 | sed -n 's/^attribute.service = //p' | sort -u",
+                ]),
+                words(&["secret-tool", "lookup", "service", "{name}"]),
+            ),
+            PasswordPreset::Bw => (
+                words(&["sh", "-c", "bw list items | jq -r '.[].name'"]),
+                words(&["bw", "get", "password", "{name}"]),
+            ),
+            PasswordPreset::Op => (
+                words(&["sh", "-c", "op item list --format json | jq -r '.[].title'"]),
+                words(&[
+                    "op", "item", "get", "{name}", "--fields", "password", "--reveal",
+                ]),
+            ),
+        };
+        (
+            self.list.clone().unwrap_or(list),
+            self.get.clone().unwrap_or(get),
+        )
+    }
+}
+
+/// `command` with `{name}` in its words replaced by the entry name, as one word each, so a name
+/// never reaches a shell
+pub fn with_name(command: &[String], name: &str) -> Vec<String> {
+    command
+        .iter()
+        .map(|word| word.replace("{name}", name))
+        .collect()
+}
+
+/// groups of tabs under a chip in the tab bar
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+pub struct TabGroupSettings {
+    /// group tabs by the git project of their folder
+    pub by_project: bool,
+}
+
+/// how selecting text with the mouse behaves
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+pub struct SelectionSettings {
+    /// keep showing the frame a drag started on until the button is released
+    pub hold_frame: bool,
 }
 
 impl Default for Settings {
@@ -330,6 +423,8 @@ pub struct TerminalSettings {
     pub clipboard: ClipboardSettings,
     /// ask before pasting text that would run right away or has control characters
     pub paste_protection: bool,
+    /// ask before pasting text with hidden or lookalike characters, pointing them out
+    pub paste_check_invisible: bool,
 }
 
 /// what programs may do with the clipboard through osc 52

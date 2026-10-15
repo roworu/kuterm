@@ -53,6 +53,8 @@ pub(super) struct GridStyle<'a> {
     pub(super) minimum_contrast: f32,
     pub(super) dim_opacity: f32,
     pub(super) builtin_box_drawing: bool,
+    /// draw concealed text (sgr 8) anyway
+    pub(super) show_hidden: bool,
 }
 
 /// adjacent cells with same style, shaped and painted as one line
@@ -223,6 +225,10 @@ pub(super) fn layout_grid(
 
         // wide chars take two cells, the spacer is only a placeholder
         if cell.flags.contains(Flags::WIDE_CHAR_SPACER) || is_blank(cell) {
+            continue;
+        }
+        // concealed text keeps its background but not its glyphs
+        if cell.flags.contains(Flags::HIDDEN) && !style.show_hidden {
             continue;
         }
 
@@ -479,6 +485,7 @@ mod tests {
             minimum_contrast: 1.,
             dim_opacity: 0.7,
             builtin_box_drawing: false,
+            show_hidden: false,
         }
     }
 
@@ -623,6 +630,23 @@ mod tests {
             );
             assert!(rects.iter().all(|r| r.line == 0), "{name}");
         }
+    }
+
+    #[test]
+    fn concealed_text_shows_only_when_asked() {
+        let fonts = fonts();
+        let theme = Theme::bundled(true);
+        let (_, runs, _) =
+            layout_styled("a\x1b[8msecret\x1b[0mb", None, &plain_style(&fonts), &theme);
+        let text: String = runs.iter().map(|run| run.text.as_str()).collect();
+        assert_eq!(text, "ab");
+        let shown = GridStyle {
+            show_hidden: true,
+            ..plain_style(&fonts)
+        };
+        let (_, runs, _) = layout_styled("a\x1b[8msecret\x1b[0mb", None, &shown, &theme);
+        let text: String = runs.iter().map(|run| run.text.as_str()).collect();
+        assert_eq!(text, "asecretb");
     }
 
     #[test]

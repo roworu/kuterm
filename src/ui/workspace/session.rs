@@ -20,6 +20,12 @@ pub(super) struct SavedTab {
     pub(super) custom_title: Option<String>,
     #[serde(default)]
     pub(super) pinned: bool,
+    /// name and color of the group the tab was put into by hand
+    #[serde(default)]
+    pub(super) group: Option<(String, usize)>,
+    /// name `kuterm msg --pane` finds the tab by
+    #[serde(default)]
+    pub(super) name: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -72,6 +78,8 @@ impl Workspace {
                             title: tab.title.clone(),
                             custom_title: tab.custom_title.clone(),
                             pinned: tab.pinned,
+                            group: self.saved_group(tab),
+                            name: tab.name.clone(),
                         }
                     })
                     .collect();
@@ -195,6 +203,11 @@ impl Workspace {
                 {
                     last.custom_title = tab.custom_title.clone();
                     last.pinned = tab.pinned;
+                    last.name = tab.name.clone();
+                    if let Some((name, color)) = &tab.group {
+                        let ix = before;
+                        self.restore_group(id, ix, name, *color);
+                    }
                 }
             }
             let Some(pane) = self.pane_mut(id) else {

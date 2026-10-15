@@ -31,6 +31,12 @@ use grid::{
 use input_handler::TerminalInputHandler;
 use scrollbar::ScrollbarLayout;
 
+/// concealed text (sgr 8) is drawn while this is on, so people can see what programs hid
+#[derive(Clone, Copy, Default)]
+pub struct ShowHidden(pub bool);
+
+impl gpui::Global for ShowHidden {}
+
 /// regular terminal font with the features and fallbacks from settings
 fn terminal_font(settings: &TerminalSettings) -> Font {
     let features: Vec<_> = settings
@@ -250,6 +256,7 @@ impl Element for TerminalElement {
             minimum_contrast: settings.minimum_contrast,
             dim_opacity: settings.dim_opacity,
             builtin_box_drawing: settings.builtin_box_drawing,
+            show_hidden: cx.try_global::<ShowHidden>().is_some_and(|shown| shown.0),
         };
         let font_size = px(self.terminal_view.read(cx).font_size(cx));
         let cell = cell_size(font_size, cx);

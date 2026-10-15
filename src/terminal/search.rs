@@ -1,6 +1,11 @@
 //! regex search over scrollback and screen, matches are highlighted and walked one by one
 
-use std::{ops::RangeInclusive, sync::atomic::Ordering};
+use std::{
+    ops::{Range, RangeInclusive},
+    sync::{Arc, atomic::Ordering},
+};
+
+use alacritty_terminal::sync::FairMutex;
 
 use alacritty_terminal::{
     Term,
@@ -110,6 +115,52 @@ fn scan(term: &Term<ZedListener>, regex: &mut RegexSearch) -> Vec<AbsMatch> {
     .collect()
 }
 
+/// one match of a search over every tab, its lines counted from the top of the history
+#[derive(Clone, Debug, PartialEq)]
+pub struct FoundLine {
+    pub start: (usize, Column),
+    pub end: (usize, Column),
+    /// the line the match starts on
+    pub text: String,
+    /// chars of `text` the match covers
+    pub highlight: Range<usize>,
+}
+
+/// up to `cap` matches in `term`, the newest lines first
+fn find_lines<T: alacritty_terminal::event::EventListener>(
+    term: &Term<T>,
+    regex: &mut RegexSearch,
+    cap: usize,
+) -> Vec<FoundLine> {
+    let history = term.grid().history_size();
+    let top = AlacPoint::new(term.topmost_line(), Column(0));
+    let bottom = AlacPoint::new(term.bottommost_line(), term.last_column());
+    let direction = alacritty_terminal::index::Direction::Left;
+    RegexIter::new(bottom, top, direction, term, regex)
+        .take(cap)
+        .map(|m| {
+            let (start, end) = (*m.start(), *m.end());
+            let line_end = AlacPoint::new(start.line, term.last_column());
+            let before = match start.column.0 {
+                0 => String::new(),
+                column => term.bounds_to_string(
+                    AlacPoint::new(start.line, Column(0)),
+                    AlacPoint::new(start.line, Column(column - 1)),
+                ),
+            };
+            let matched = term.bounds_to_string(start, end.min(line_end));
+            let text = term.bounds_to_string(AlacPoint::new(start.line, Column(0)), line_end);
+            let first = before.chars().count();
+            FoundLine {
+                start: to_abs(start, history),
+                end: to_abs(end, history),
+                text: text.trim_end().to_string(),
+                highlight: first..first + matched.trim_end_matches('\n').chars().count(),
+            }
+        })
+        .collect()
+}
+
 /// matches in the visible lines, for highlighting
 pub(super) fn visible_matches(term: &Term<ZedListener>, search: &mut SearchState) -> Vec<Match> {
     let offset = term.grid().display_offset() as i32;
@@ -132,6 +183,39 @@ pub(super) fn active_match(term: &Term<ZedListener>, search: &SearchState) -> Op
 }
 
 impl Terminal {
+    /// a search of this terminal's history for `pattern` to run on another thread, it holds
+    /// the terminal's lock only while it scans. none when the pattern is broken
+    pub fn find_task(
+        &self,
+        pattern: &str,
+        cap: usize,
+    ) -> Option<impl FnOnce() -> Vec<FoundLine> + Send + 'static> {
+        let mut regex = RegexSearch::new(pattern).ok()?;
+        let term: Arc<FairMutex<Term<ZedListener>>> = self.term.clone();
+        Some(move || find_lines(&term.lock_unfair(), &mut regex, cap))
+    }
+
+    /// select a match found by `find_task` and scroll to it, false when it left the history
+    pub fn select_found(&mut self, found: &FoundLine) -> bool {
+        let mut term = self.term.lock();
+        let history = term.grid().history_size();
+        let (start, end) = (to_grid(found.start, history), to_grid(found.end, history));
+        if start.line < term.topmost_line() || end.line > term.bottommost_line() {
+            return false;
+        }
+        let mut selection = alacritty_terminal::selection::Selection::new(
+            alacritty_terminal::selection::SelectionType::Simple,
+            start,
+            alacritty_terminal::index::Side::Left,
+        );
+        selection.update(end, alacritty_terminal::index::Side::Right);
+        term.selection = Some(selection);
+        term.scroll_to_point(start);
+        drop(term);
+        self.dirty.store(true, Ordering::Release);
+        true
+    }
+
     /// look for `query`, picking the match closest above the bottom of the view.
     /// the error tells why the query can't be searched, like a broken regex
     pub fn search(&mut self, query: &SearchQuery) -> Result<SearchStatus, String> {
@@ -261,6 +345,33 @@ impl Terminal {
 #[cfg(test)]
 mod tests {
     use super::{SearchQuery, search_pattern};
+
+    #[test]
+    fn find_lines_lists_newest_matches_first_up_to_the_cap() {
+        use alacritty_terminal::{
+            Term,
+            event::VoidListener,
+            index::Column,
+            term::{Config, search::RegexSearch, test::TermSize},
+            vte::ansi::Processor,
+        };
+        let mut term = Term::new(Config::default(), &TermSize::new(40, 4), VoidListener);
+        let mut parser: Processor = Processor::new();
+        parser.advance(
+            &mut term,
+            b"alpha one\r\nbeta\r\nsay alpha two\r\nalpha three",
+        );
+        let mut regex = RegexSearch::new("alpha").unwrap();
+        let found = super::find_lines(&term, &mut regex, 2);
+        let rows: Vec<(&str, std::ops::Range<usize>)> = found
+            .iter()
+            .map(|found| (found.text.as_str(), found.highlight.clone()))
+            .collect();
+        assert_eq!(rows, [("alpha three", 0..5), ("say alpha two", 4..9)]);
+        assert_eq!(found[1].start, (2, Column(4)));
+        assert_eq!(found[1].end, (2, Column(8)));
+        assert_eq!(super::find_lines(&term, &mut regex, 10).len(), 3);
+    }
     use crate::settings::SearchCase;
 
     fn query(text: &str, regex: bool, whole_word: bool, case: SearchCase) -> SearchQuery {

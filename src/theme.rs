@@ -9,6 +9,40 @@ use serde_json_lenient::Value;
 
 use crate::settings::{Settings, ThemeMode, ThemeSettings, bundled_settings, merge};
 
+/// themes kuterm brings, picked by name like the ones in "themes"
+pub const GALLERY: &[(&str, &str)] = &[
+    (
+        "catppuccin-latte",
+        include_str!("../assets/themes/catppuccin-latte.jsonc"),
+    ),
+    (
+        "catppuccin-mocha",
+        include_str!("../assets/themes/catppuccin-mocha.jsonc"),
+    ),
+    ("dracula", include_str!("../assets/themes/dracula.jsonc")),
+    (
+        "gruvbox-dark",
+        include_str!("../assets/themes/gruvbox-dark.jsonc"),
+    ),
+    (
+        "gruvbox-light",
+        include_str!("../assets/themes/gruvbox-light.jsonc"),
+    ),
+    ("nord", include_str!("../assets/themes/nord.jsonc")),
+    (
+        "solarized-dark",
+        include_str!("../assets/themes/solarized-dark.jsonc"),
+    ),
+    (
+        "solarized-light",
+        include_str!("../assets/themes/solarized-light.jsonc"),
+    ),
+    (
+        "tokyo-night",
+        include_str!("../assets/themes/tokyo-night.jsonc"),
+    ),
+];
+
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct Theme {
     pub tab_bar_background: Hsla,
@@ -148,8 +182,12 @@ impl Theme {
             return Self::read(&path, dark);
         }
         let Some(colors) = settings.themes.get(name) else {
-            return match Self::folder_file(name) {
-                Some(path) => Self::read(&path, dark),
+            if let Some(path) = Self::folder_file(name) {
+                return Self::read(&path, dark);
+            }
+            return match GALLERY.iter().find(|(bundled, _)| *bundled == name) {
+                Some((_, json)) => Self::parse(json, dark)
+                    .map_err(|error| format!("invalid bundled theme {name:?}: {error}")),
                 None => Err(format!(
                     "unknown theme {name:?}, add it to \"theme.themes\" or as {name}.jsonc in the themes folder"
                 )),
@@ -237,7 +275,12 @@ impl Theme {
 
     /// theme picked by settings mode and system appearance
     pub fn for_appearance(settings: &ThemeSettings, appearance: WindowAppearance) -> Self {
-        let dark = match settings.mode {
+        Self::load(settings, Self::is_dark(settings, appearance))
+    }
+
+    /// true when settings mode and system appearance pick the dark theme
+    pub fn is_dark(settings: &ThemeSettings, appearance: WindowAppearance) -> bool {
+        match settings.mode {
             ThemeMode::System => {
                 matches!(
                     appearance,
@@ -246,8 +289,7 @@ impl Theme {
             }
             ThemeMode::Dark => true,
             ThemeMode::Light => false,
-        };
-        Self::load(settings, dark)
+        }
     }
 
     /// active theme
@@ -354,6 +396,19 @@ mod tests {
             theme.convert_color(&Color::Named(NamedColor::DimForeground)),
             theme.dim_foreground
         );
+    }
+
+    #[test]
+    fn gallery_themes_parse_and_are_found_by_name() {
+        let settings = theme_settings("{}");
+        for (name, json) in GALLERY {
+            for dark in [true, false] {
+                let parsed = Theme::parse(json, dark).unwrap_or_else(|e| panic!("{name}: {e}"));
+                // every color is set, so the mode filling gaps changes nothing
+                assert_eq!(parsed, Theme::parse(json, !dark).unwrap(), "{name}");
+                assert_eq!(Theme::named(&settings, name, dark).unwrap(), parsed);
+            }
+        }
     }
 
     #[test]

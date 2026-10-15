@@ -20,12 +20,13 @@ use crate::{
     settings::{BellTarget, PatternAction, Settings, SmoothScrollSettings},
     terminal::{
         Event, KeyEventKind, Link, MouseAction, MouseButton, Terminal, TextPatterns, ViKey,
-        foreground_process,
+        foreground_process, paste_check,
     },
     ui::{
         hints::{HintKey, Hints},
         search_bar::SearchBar,
         terminal_element::TerminalElement,
+        workspace::open_urls,
     },
 };
 
@@ -51,6 +52,16 @@ pub enum ClipboardEvent {
     Pasted,
     /// text that looks unsafe to paste, the workspace asks first
     ConfirmPaste(String),
+}
+
+/// input the view wrote to its terminal, so panes typed into together get the same
+#[derive(Clone, Debug)]
+pub enum TypedInput {
+    /// a key, each terminal turns it into bytes in its own key mode
+    Key(gpui::Keystroke, KeyEventKind),
+    /// text from the input method
+    Text(String),
+    Paste(String),
 }
 
 // alpha of the default bell flash, enough to see without hiding the text
@@ -257,6 +268,7 @@ impl TerminalView {
             self.input_happened(cx);
             self.terminal
                 .update(cx, |term, _| term.input(text.to_string().into_bytes()));
+            cx.emit(TypedInput::Text(text.to_string()));
         }
     }
 
@@ -460,6 +472,7 @@ impl TerminalView {
             // input jumps to the bottom, a running glide would pull the view back up
             self.input_happened(cx);
             cx.stop_propagation();
+            cx.emit(TypedInput::Key(event.keystroke.clone(), kind));
         }
     }
 
@@ -473,6 +486,10 @@ impl TerminalView {
             term.try_keystroke(&event.keystroke, KeyEventKind::Release, option_as_meta)
         }) {
             cx.stop_propagation();
+            cx.emit(TypedInput::Key(
+                event.keystroke.clone(),
+                KeyEventKind::Release,
+            ));
         }
     }
 
@@ -668,6 +685,11 @@ impl TerminalView {
     /// run what a link or hint is for: open, copy, paste or a command
     pub fn run_link(&mut self, link: &Link, cx: &mut Context<Self>) {
         match &link.action {
+            // kuterm's own links open here, after this view is done updating
+            PatternAction::Open if link.target.starts_with("kuterm://") => {
+                let target = link.target.clone();
+                cx.defer(move |cx| open_urls(&[target], cx));
+            }
             PatternAction::Open => open_link(link.target.clone(), cx),
             PatternAction::Copy => {
                 cx.write_to_clipboard(ClipboardItem::new_string(link.target.clone()));
@@ -740,10 +762,14 @@ impl TerminalView {
             2 => SelectionType::Semantic,
             _ => SelectionType::Lines,
         };
+        let hold = Settings::get(cx).selection.hold_frame;
         self.terminal.update(cx, |term, _| {
             if event.modifiers.shift && ty == SelectionType::Simple {
                 term.extend_selection(event.position);
             } else {
+                if hold {
+                    term.freeze();
+                }
                 term.start_selection(event.position, ty);
             }
         });
@@ -787,6 +813,9 @@ impl TerminalView {
     pub fn mouse_up(&mut self, event: &MouseUpEvent, cx: &mut Context<Self>) {
         if self.selecting && Settings::get(cx).terminal.select_to_copy {
             self.copy_selection(cx);
+        }
+        if self.selecting {
+            self.terminal.update(cx, |term, _| term.unfreeze());
         }
         let click = self.selecting
             && event.button == gpui::MouseButton::Left
@@ -834,9 +863,11 @@ impl TerminalView {
 
     /// paste `text`, asking first through the workspace when paste protection finds it unsafe
     pub fn paste_text(&mut self, text: String, cx: &mut Context<Self>) {
-        if Settings::get(cx).terminal.paste_protection
-            && self.terminal.read(cx).paste_is_unsafe(&text)
-        {
+        let settings = &Settings::get(cx).terminal;
+        let unsafe_keys =
+            settings.paste_protection && self.terminal.read(cx).paste_is_unsafe(&text);
+        let hides = settings.paste_check_invisible && !paste_check::flagged(&text).is_empty();
+        if unsafe_keys || hides {
             cx.emit(ClipboardEvent::ConfirmPaste(text));
             return;
         }
@@ -848,6 +879,7 @@ impl TerminalView {
         self.input_happened(cx);
         self.terminal.update(cx, |term, _| term.paste(text));
         cx.emit(ClipboardEvent::Pasted);
+        cx.emit(TypedInput::Paste(text.to_string()));
     }
 
     /// type paths dropped from other apps, quoted for the shell
@@ -918,6 +950,7 @@ fn shell_quote(path: &Path) -> String {
 }
 
 impl EventEmitter<ClipboardEvent> for TerminalView {}
+impl EventEmitter<TypedInput> for TerminalView {}
 
 impl Focusable for TerminalView {
     fn focus_handle(&self, _: &App) -> FocusHandle {

@@ -175,7 +175,10 @@ fn arrows_to<T: EventListener>(term: &Term<T>, mut target: AlacPoint) -> Option<
 }
 
 /// first and last cell marked with the hyperlink id `id`
-fn mark_cells<T: EventListener>(term: &Term<T>, id: &str) -> Option<(AlacPoint, AlacPoint)> {
+pub(super) fn mark_cells<T: EventListener>(
+    term: &Term<T>,
+    id: &str,
+) -> Option<(AlacPoint, AlacPoint)> {
     let mut found: Option<(AlacPoint, AlacPoint)> = None;
     for line in term.topmost_line().0..=term.bottommost_line().0 {
         let row = &term.grid()[Line(line)];
@@ -212,20 +215,38 @@ fn file_line(target: &str, after: &str) -> Option<String> {
     .then(|| text.to_string())
 }
 
+/// the command line typed after prompt mark `prompt`, on its line and the lines it wraps to
+pub(super) fn command_after_prompt<T: EventListener>(
+    term: &Term<T>,
+    prompt: usize,
+) -> Option<String> {
+    let (_, end) = mark_cells(term, &format!("{PROMPT_MARK}{prompt}"))?;
+    let start = next_cell(term, end);
+    let mut last = start.line;
+    while last < term.bottommost_line() && wraps(term, last) {
+        last += 1;
+    }
+    let text = term.bounds_to_string(start, AlacPoint::new(last, term.last_column()));
+    let text = text.trim();
+    (!text.is_empty()).then(|| text.to_string())
+}
+
 impl Terminal {
-    /// command line of the last command started, as typed after its prompt
+    /// command line of the last command started, as the shell sent it or as typed after
+    /// its prompt
     pub fn last_command_line(&self) -> Option<String> {
-        let (prompt, _) = self.last_command?;
-        let term = self.term.lock();
-        let (_, end) = mark_cells(&term, &format!("{PROMPT_MARK}{}", prompt?))?;
-        let start = next_cell(&term, end);
-        let mut last = start.line;
-        while last < term.bottommost_line() && wraps(&term, last) {
-            last += 1;
+        let (prompt, output) = self.last_command?;
+        if let Some(block) = self
+            .blocks
+            .list
+            .iter()
+            .rev()
+            .find(|block| block.mark == output)
+            && !block.command.is_empty()
+        {
+            return Some(block.command.clone());
         }
-        let text = term.bounds_to_string(start, AlacPoint::new(last, term.last_column()));
-        let text = text.trim();
-        (!text.is_empty()).then(|| text.to_string())
+        command_after_prompt(&self.term.lock(), prompt?)
     }
 
     /// first match of `patterns` in the output of the last command that names a line of a
@@ -327,6 +348,22 @@ impl Terminal {
 const BASH_SCRIPT: &str = include_str!("../../assets/shell/kuterm.bash");
 const ZSH_SCRIPT: &str = include_str!("../../assets/shell/zsh/.zshenv");
 const FISH_SCRIPT: &str = include_str!("../../assets/shell/fish/kuterm.fish");
+const KOUT_SCRIPT: &str = include_str!("../../assets/shell/kout");
+
+/// let the helpers in bin/ run, the shell scripts are only read
+#[cfg(unix)]
+fn executable(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    if path.parent().and_then(Path::file_name) != Some("bin".as_ref()) {
+        return Ok(());
+    }
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
+}
+
+#[cfg(not(unix))]
+fn executable(_: &Path) -> std::io::Result<()> {
+    Ok(())
+}
 
 /// folder the integration scripts are written to, none when it can't be written
 fn scripts_dir() -> Option<PathBuf> {
@@ -335,6 +372,7 @@ fn scripts_dir() -> Option<PathBuf> {
         ("kuterm.bash", BASH_SCRIPT),
         ("zsh/.zshenv", ZSH_SCRIPT),
         ("fish/fish/vendor_conf.d/kuterm.fish", FISH_SCRIPT),
+        ("bin/kout", KOUT_SCRIPT),
     ] {
         let path = dir.join(path);
         // rewritten only when kuterm brings a new version
@@ -344,7 +382,8 @@ fn scripts_dir() -> Option<PathBuf> {
         let written = path
             .parent()
             .map_or(Ok(()), std::fs::create_dir_all)
-            .and_then(|()| std::fs::write(&path, contents));
+            .and_then(|()| std::fs::write(&path, contents))
+            .and_then(|()| executable(&path));
         if let Err(error) = written {
             eprintln!("failed to write {}: {error}", path.display());
             return None;
@@ -383,6 +422,7 @@ pub fn with_shell_integration(profile: &Profile) -> Profile {
             .cloned()
             .or_else(|| std::env::var(key).ok())
     };
+    let path = inherited("PATH").unwrap_or_default();
     match name.as_str() {
         // macos starts the system shell through login, which only keeps the environment
         "bash" if !(cfg!(target_os = "macos") && profile.command == Shell::System) => {
@@ -412,6 +452,9 @@ pub fn with_shell_integration(profile: &Profile) -> Profile {
     profile
         .env
         .insert("KUTERM_SHELL_INTEGRATION".into(), "1".into());
+    // kout and other helpers
+    let bin = dir.join("bin").to_string_lossy().into_owned();
+    profile.env.insert("PATH".into(), format!("{bin}:{path}"));
     profile
 }
 
@@ -555,6 +598,7 @@ mod tests {
         let events = terminal.handle_scan_events();
         // the first end has no start, so it ended nothing
         let [
+            Event::CommandStarted { .. },
             Event::CommandFinished { duration, exit },
             Event::Notify { title, body },
         ] = events.as_slice()

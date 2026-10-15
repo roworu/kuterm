@@ -158,6 +158,24 @@ fn binding(action: &str, keys: &str, when: Option<&str>) -> Option<KeyBinding> {
             KeyBinding::new(keys, RunAction(CommandAction::NextAttentionTab), when)
         }
         "pick_agent_tab" => KeyBinding::new(keys, RunAction(CommandAction::PickAgentTab), when),
+        "new_group" => KeyBinding::new(keys, RunAction(CommandAction::NewGroup), when),
+        "add_tab_to_group" => KeyBinding::new(keys, RunAction(CommandAction::AddTabToGroup), when),
+        "remove_tab_from_group" => {
+            KeyBinding::new(keys, RunAction(CommandAction::RemoveTabFromGroup), when)
+        }
+        "rename_pane" => KeyBinding::new(keys, RunAction(CommandAction::RenamePane), when),
+        "show_hidden_text" => KeyBinding::new(keys, RunAction(CommandAction::ShowHiddenText), when),
+        "fill_password" => KeyBinding::new(keys, RunAction(CommandAction::FillPassword), when),
+        "close_group" => KeyBinding::new(keys, RunAction(CommandAction::CloseGroup), when),
+        "tab_overview" => KeyBinding::new(keys, RunAction(CommandAction::TabOverview), when),
+        "pick_theme" => KeyBinding::new(keys, RunAction(CommandAction::PickTheme), when),
+        "find_in_all_tabs" => KeyBinding::new(keys, RunAction(CommandAction::FindInAllTabs), when),
+        "toggle_broadcast_all" => {
+            KeyBinding::new(keys, RunAction(CommandAction::ToggleBroadcastAll), when)
+        }
+        "toggle_broadcast_pane" => {
+            KeyBinding::new(keys, RunAction(CommandAction::ToggleBroadcastPane), when)
+        }
         "move_tab_to_new_window" => {
             KeyBinding::new(keys, RunAction(CommandAction::MoveTabToNewWindow), when)
         }

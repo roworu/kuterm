@@ -1,14 +1,17 @@
 //! terminal model: runs shell and keeps screen state
 
+mod blocks;
 mod bounds;
 mod builder;
 mod content;
 mod events;
+mod frozen;
 mod graphics;
 mod integration;
 mod keys;
 mod links;
 mod mouse;
+pub mod paste_check;
 mod process;
 mod sampler;
 mod scanner;
@@ -37,6 +40,8 @@ use alacritty_terminal::{
 };
 use gpui::{App, ClipboardItem, Context, EventEmitter, Keystroke, Task, WindowAppearance};
 
+#[allow(unused_imports)]
+pub use blocks::Block;
 pub use bounds::TerminalBounds;
 pub use builder::TerminalBuilder;
 pub use content::{Content, IndexedCell};
@@ -45,10 +50,10 @@ pub use links::{Link, TextPatterns};
 pub use mouse::{MouseAction, MouseButton};
 #[cfg(test)]
 pub(crate) use process::tests::{Kill, spawn};
-pub use process::{ForegroundProcess, children, foreground_process, process_info};
+pub use process::{ForegroundProcess, children, foreground_process, process_info, tty_echoes};
 pub use sampler::{CPU_HISTORY, ProcessSampler, TreeSample};
 pub use scanner::{Progress, ScanEvent};
-pub use search::{SearchQuery, SearchStatus};
+pub use search::{FoundLine, SearchQuery, SearchStatus, search_pattern};
 pub use vi::ViKey;
 
 use builder::{ZedListener, term_config};
@@ -74,6 +79,12 @@ pub enum Event {
         id: usize,
         text: Option<String>,
     },
+    /// a command started, block `block` holds it
+    CommandStarted {
+        block: u64,
+    },
+    /// the shell reported another folder
+    CwdChanged(std::path::PathBuf),
     /// a command the shell marked finished, after running this long
     CommandFinished {
         duration: std::time::Duration,
@@ -116,6 +127,8 @@ pub struct Terminal {
     title: String,
     /// pid of the shell running in the pty
     pub shell_pid: u32,
+    /// id of the pane for remote control, its shell has it in $KUTERM_PANE
+    pub pane_id: u64,
     /// color scheme from the profile, global theme when none
     theme_settings: Option<ProfileTheme>,
     theme: Option<Theme>,
@@ -140,6 +153,10 @@ pub struct Terminal {
     inputs: u64,
     /// numbers of the prompt and output marks of the last command started
     last_command: Option<(Option<usize>, usize)>,
+    /// frame held while the mouse selects, none shows the live grid
+    frozen: Option<frozen::Frozen>,
+    /// commands the shell ran
+    blocks: blocks::Blocks,
     /// images the program showed
     graphics: graphics::SharedGraphics,
     /// cell size for sizing images, shared with the pty thread
@@ -366,7 +383,13 @@ impl Terminal {
                 ScanEvent::CommandStart { prompt, output } => {
                     self.command_started = Some(at);
                     self.last_command = Some((prompt, output));
+                    let term = self.term.lock_unfair();
+                    let cwd = self.reported_cwd.clone();
+                    let block = self.blocks.start(&term, prompt, output, cwd, at);
+                    drop(term);
+                    events.push(Event::CommandStarted { block });
                 }
+                ScanEvent::CommandLine(line) => self.blocks.command_line(line),
                 ScanEvent::CommandEnd(exit) => {
                     // a program killed mid way never takes its progress down
                     self.progress = None;
@@ -379,6 +402,7 @@ impl Terminal {
                     {
                         events.remove(at);
                     }
+                    self.blocks.end(exit, at);
                     // a prompt drawn without running anything ends nothing
                     if let Some(started) = self.command_started.take() {
                         events.push(Event::CommandFinished {
@@ -387,7 +411,12 @@ impl Terminal {
                         });
                     }
                 }
-                ScanEvent::Cwd(path) => self.reported_cwd = Some(path),
+                ScanEvent::Cwd(path) => {
+                    if self.reported_cwd.as_ref() != Some(&path) {
+                        events.push(Event::CwdChanged(path.clone()));
+                    }
+                    self.reported_cwd = Some(path);
+                }
                 ScanEvent::Notify { title, body } => events.push(Event::Notify { title, body }),
                 ScanEvent::Progress(progress) => {
                     if progress.is_some() != self.progress.is_some() {
@@ -428,6 +457,10 @@ impl Terminal {
 
     /// apply queued events and refresh the grid snapshot if anything changed
     pub fn sync(&mut self) {
+        // output keeps the dirty flag set, so the view catches up once the frame is let go
+        if self.holds_frame() {
+            return;
+        }
         // many frames are repaints for focus or tab changes, skip the copy for those
         if !self.dirty.swap(false, Ordering::Acquire) && self.events.is_empty() {
             return;

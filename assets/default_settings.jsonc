@@ -328,6 +328,41 @@
     "whole_word": false,
   },
 
+  // groups of tabs: a colored chip in the tab bar before the tabs of a group, a click on it
+  // hides or shows them, a right click renames, recolors, ungroups or closes the group, a tab
+  // dropped on it joins. groups are made with the "new_group" action or the tab menu
+  "tab_groups": {
+    // put each tab into a group of the git project its folder is in, named after the project,
+    // made and changed as the shell moves around. groups made by hand stay as they are
+    "by_project": false,
+  },
+
+  // the "fill_password" action lists the entries of a password manager in the palette and
+  // types the picked one's password into the active tab, without the clipboard. the password
+  // is never shown, logged or notified. the palette warns when the program shows what is
+  // typed, like a shell at its prompt, instead of asking for a secret
+  "password_manager": {
+    // "pass", "secret-tool" (the desktop keyring, entries by their service attribute),
+    // "bw" (bitwarden) or "op" (1password). "bw" and "op" need jq and an unlocked session
+    "preset": "pass",
+    // your own commands in place of the preset's, as program and arguments. "list" prints
+    // one entry name per line, "get" prints the password on its first line, "{name}" in it
+    // is the picked entry, like ["pass", "show", "{name}"]
+    "list": null,
+    "get": null,
+    // press enter after the password
+    "enter": false,
+  },
+
+  // selecting text with the mouse
+  "selection": {
+    // while the mouse button is down, the pane keeps showing what it showed when the drag
+    // started, so text of "kubectl logs -f" or htop doesn't move away under the mouse. the
+    // program keeps running and its output is read, the pane catches up on release, or
+    // after 30 seconds. the copied text is what was shown
+    "hold_frame": true,
+  },
+
   // links in the terminal: osc 8 hyperlinks that programs like ls --hyperlink print, and text
   // matched by "patterns". holding the modifier underlines the link under the mouse, a click
   // with it held runs its action. plain clicks are left for selecting text and for programs
@@ -347,7 +382,7 @@
     //   "paste"                 - type the text into the terminal
     //   { "exec": "code -g \"$KUTERM_MATCH\"" } - run a shell command, the text is in $KUTERM_MATCH
     "patterns": [
-      { "regex": "(https?|ftp|file)://[^\\s<>\"'`(){}\\[\\]]*[^\\s<>\"'`(){}\\[\\].,;:!?]", "action": "open" },
+      { "regex": "(https?|ftp|file|kuterm)://[^\\s<>\"'`(){}\\[\\]]*[^\\s<>\"'`(){}\\[\\].,;:!?]", "action": "open" },
     ],
   },
 
@@ -363,7 +398,7 @@
     // where matches of two patterns overlap, the earlier pattern wins.
     // "\\b" here is written "(?-u:\\b)", the regex engine only knows ascii word boundaries
     "patterns": [
-      { "name": "url", "regex": "(https?|ftp|file)://[^\\s<>\"'`(){}\\[\\]]*[^\\s<>\"'`(){}\\[\\].,;:!?]", "action": "open" },
+      { "name": "url", "regex": "(https?|ftp|file|kuterm)://[^\\s<>\"'`(){}\\[\\]]*[^\\s<>\"'`(){}\\[\\].,;:!?]", "action": "open" },
       { "name": "path", "regex": "(~|\\.{1,2})?(/[\\w.+@-]+)+/?", "action": "copy" },
       { "name": "hash", "regex": "(?-u:\\b)[0-9a-f]{7,40}(?-u:\\b)", "action": "copy" },
       { "name": "ip", "regex": "(?-u:\\b)[0-9]{1,3}(\\.[0-9]{1,3}){3}(:[0-9]+)?(?-u:\\b)", "action": "copy" },
@@ -388,6 +423,9 @@
     //     themes/nord.jsonc (or .json). "themes" wins when both have the name
     //   - a path to a theme file, like "~/mine.jsonc". anything with a slash or a json
     //     extension is a path, relative paths are resolved from this folder
+    //   - a theme kuterm brings: "catppuccin-mocha", "catppuccin-latte", "dracula",
+    //     "gruvbox-dark", "gruvbox-light", "nord", "solarized-dark", "solarized-light",
+    //     "tokyo-night". the "pick_theme" action lists them all with a preview
     // a theme file is an object with the same color keys as the themes below, and is watched
     // like this file. null, or a theme that is missing or broken, uses the bundled theme.
     // --dark-theme-file and --light-theme-file override these from the command line
@@ -686,6 +724,11 @@
     // paste, since a shell runs it right away, or text with control characters like escape.
     // with bracketed paste on, control characters are always removed from pasted text
     "paste_protection": true,
+    // ask before pasting text with characters that hide what it really runs, like
+    // zero-width spaces, bidi overrides that show text in another order, or cyrillic and
+    // greek letters passing for latin ones in a word. a command copied from a web page can
+    // look harmless and run something else. the dialog shows each one as a marked <U+200B>
+    "paste_check_invisible": true,
   },
 
   // ---------------------------------------------------------------------------------------
@@ -761,6 +804,8 @@
     "paste": "ctrl-shift-v",
     // search the history of the active tab
     "search": "ctrl-shift-f",
+    // search the history of every tab of every window, picking a match switches to it
+    "find_in_all_tabs": null,
     // label links, paths, hashes and other "hints.patterns" matches on screen, typing a
     // label runs its action
     "hints": "ctrl-shift-e",
@@ -785,6 +830,11 @@
     "zoom_pane": null,
     // give all panes the same size
     "equalize_panes": null,
+    // type into every pane of the window at once, again to stop. joined panes get a red
+    // frame and a "broadcast" label
+    "toggle_broadcast_all": null,
+    // join the focused pane to the panes typed into together, or take it out
+    "toggle_broadcast_pane": null,
     // type a title of its own for the active tab, empty goes back to "tab_title".
     // a double click on a tab does it too
     "rename_tab": null,
@@ -792,6 +842,24 @@
     "pin_tab": null,
     // open a tab with the active tab's profile and folder next to it
     "duplicate_tab": null,
+    // a grid of live previews of every tab: typing filters them by title, arrows or a click
+    // pick one, escape closes it
+    "tab_overview": null,
+    // put the active tab into a new group, see "tab_groups"
+    "new_group": null,
+    // put the active tab into the group of the tab next to it, or a new one
+    "add_tab_to_group": null,
+    // take the active tab out of its group
+    "remove_tab_from_group": null,
+    // close every tab of the active tab's group, like every tab of its project
+    "close_group": null,
+    // pick an entry of "password_manager" and type its password into the active tab
+    "fill_password": null,
+    // draw text programs concealed (sgr 8), again to hide it. remote control and agents
+    // never get concealed text
+    "show_hidden_text": null,
+    // type the name "kuterm msg --pane" finds the active tab by
+    "rename_pane": null,
     // close every tab of the pane but the active one and pinned ones
     "close_other_tabs": null,
     // move the active tab, its programs still running, into a window of its own.
@@ -852,6 +920,9 @@
     "open_settings": null,
     // read this file and the files it uses again, they are also read on every save
     "reload_config": null,
+    // list the themes, moving through them shows each one, enter keeps it in this file as
+    // the theme of the current mode, escape goes back
+    "pick_theme": null,
     // switch to tab by its position, any "activate_tab_<n>" with n from 1 up can be added
     "activate_tab_1": "alt-1",
     "activate_tab_2": "alt-2",
@@ -902,6 +973,7 @@
   // actions:
   //   "about"                            - show a page with the version and links
   //   "reload_config"                    - read this file, its imports and theme files again
+  //   "pick_theme"                       - list the themes with a preview, enter keeps one
   //   "new_tab"                          - open a tab with the default profile
   //   { "new_tab_with_profile": "dev" }  - open a tab with the named profile
   //   "new_background_tab"               - open a tab without switching to it
@@ -927,16 +999,27 @@
   //                                        _right, _up, _down
   //   "zoom_pane"                        - show the focused pane alone, again to show all
   //   "equalize_panes"                   - give all panes the same size
+  //   "toggle_broadcast_all"             - type into every pane of the window at once, or stop
+  //   "toggle_broadcast_pane"            - join the focused pane to the broadcast, or leave it
   //   "next_tab"                         - switch to the tab on the right
   //   "prev_tab"                         - switch to the tab on the left
   //   { "activate_tab": 2 }              - switch to the tab at this 1 based position
   //   "pick_tab"                         - list the open tabs in the palette, pick one to switch to it
+  //   "tab_overview"                     - a grid of previews of every tab, pick one to switch
+  //   "new_group"                        - put the active tab into a new group
+  //   "add_tab_to_group"                 - put the active tab into the group next to it
+  //   "remove_tab_from_group"            - take the active tab out of its group
+  //   "close_group"                      - close every tab of the active tab's group
+  //   "fill_password"                    - type a password from "password_manager" into the tab
+  //   "show_hidden_text"                 - draw concealed text, or hide it again
+  //   "rename_pane"                      - name the active tab for "kuterm msg --pane"
   //   "next_attention_tab"               - switch to the tab whose ai agent has waited longest
   //   "pick_agent_tab"                   - list the tabs running an ai agent and how long each
   //                                        has waited, pick one to switch to it
   //   "copy"                             - copy the active tab's selection to the clipboard
   //   "paste"                            - paste the clipboard into the active tab
   //   "search"                           - open the search bar of the active tab
+  //   "find_in_all_tabs"                 - search the history of every tab of every window
   //   "hints"                            - label matches of "hints.patterns" on screen
   //   "vi_mode"                          - start or end keyboard selection mode
   //   "jump_to_prev_prompt"              - scroll to the prompt above, needs shell integration
@@ -968,11 +1051,15 @@
 
     { "name": "reload config", "category": "config", "actions": ["reload_config"] },
     { "name": "open settings", "category": "config", "actions": ["open_settings"] },
+    { "name": "pick theme", "category": "config", "actions": ["pick_theme"] },
 
     { "name": "copy selection", "category": "edit", "actions": ["copy"] },
     { "name": "paste", "category": "edit", "actions": ["paste"] },
+    { "name": "fill password", "category": "edit", "actions": ["fill_password"] },
+    { "name": "show or hide concealed text", "category": "view", "actions": ["show_hidden_text"] },
     { "name": "select all", "category": "edit", "actions": ["select_all"] },
     { "name": "search", "category": "edit", "actions": ["search"] },
+    { "name": "find in all tabs", "category": "edit", "actions": ["find_in_all_tabs"] },
     { "name": "hints", "category": "edit", "actions": ["hints"] },
     { "name": "keyboard selection", "category": "edit", "actions": ["vi_mode"] },
     { "name": "copy last output", "category": "edit", "actions": ["copy_last_output"] },
@@ -986,6 +1073,7 @@
     { "name": "close tabs to the left", "category": "tabs", "actions": ["close_tabs_to_left"] },
     { "name": "close other tabs", "category": "tabs", "actions": ["close_other_tabs"] },
     { "name": "rename", "category": "tabs", "actions": ["rename_tab"] },
+    { "name": "name for remote control", "category": "tabs", "actions": ["rename_pane"] },
     { "name": "pin or unpin", "category": "tabs", "actions": ["pin_tab"] },
     { "name": "duplicate", "category": "tabs", "actions": ["duplicate_tab"] },
     { "name": "copy folder path", "category": "tabs", "actions": ["copy_folder"] },
@@ -997,9 +1085,17 @@
     { "name": "close pane", "category": "panes", "actions": ["close_pane"] },
     { "name": "zoom pane", "category": "panes", "actions": ["zoom_pane"] },
     { "name": "equalize panes", "category": "panes", "actions": ["equalize_panes"] },
+    { "name": "broadcast input to all panes", "category": "panes", "actions": ["toggle_broadcast_all"] },
+    { "name": "broadcast input from this pane", "category": "panes", "actions": ["toggle_broadcast_pane"] },
     { "name": "switch to left", "category": "tabs", "actions": ["prev_tab"] },
     { "name": "switch to right", "category": "tabs", "actions": ["next_tab"] },
     { "name": "go to tab", "category": "tabs", "actions": ["pick_tab"] },
+    { "name": "overview", "category": "tabs", "actions": ["tab_overview"] },
+    { "name": "new group", "category": "tabs", "actions": ["new_group"] },
+    { "name": "add to group", "category": "tabs", "actions": ["add_tab_to_group"] },
+    { "name": "remove from group", "category": "tabs", "actions": ["remove_tab_from_group"] },
+    { "name": "close group", "category": "tabs", "actions": ["close_group"] },
+    { "name": "close all tabs of this project", "category": "tabs", "actions": ["close_group"] },
     { "name": "go to waiting agent", "category": "tabs", "actions": ["next_attention_tab"] },
     { "name": "agent tabs", "category": "tabs", "actions": ["pick_agent_tab"] },
 

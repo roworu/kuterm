@@ -1,0 +1,29 @@
+#!/bin/sh
+# kout: print what a command run earlier in this kuterm tab printed, as people saw it.
+# needs "remote_control": "socket" in kuterm's settings
+#   kout         the last command's output
+#   kout 3       the third command still in the history
+#   kout -2      the one before the last
+#   kout -f 3    write it to a temp file and print the file's path
+usage="usage: kout [-f] [n | -n]"
+file=
+if [ "$1" = "-f" ]; then
+  file=1
+  shift
+fi
+block=${1:--1}
+case "$block" in
+  -h | --help) echo "$usage"; exit 0 ;;
+  -[0-9]* | [0-9]*) ;;
+  *) echo "$usage" >&2; exit 2 ;;
+esac
+kuterm=${KUTERM_BIN:-kuterm}
+if [ -z "$file" ]; then
+  exec "$kuterm" msg query --pane "$KUTERM_PANE" --block "$block"
+fi
+out=$(mktemp "${TMPDIR:-/tmp}/kout.XXXXXX") || exit 1
+if ! "$kuterm" msg query --pane "$KUTERM_PANE" --block "$block" > "$out"; then
+  rm -f "$out"
+  exit 1
+fi
+echo "$out"

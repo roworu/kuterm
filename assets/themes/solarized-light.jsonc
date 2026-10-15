@@ -1,0 +1,26 @@
+// Solarized Light, from ethanschoonover.com/solarized (MIT licence).
+// terminal colors are the upstream palette, the ui colors are picked from it
+{
+  "tab_bar_background": "#eee8d5",
+  "tab_active_background": "#fdf6e3",
+  "border": "#93a1a1",
+  "text": "#586e75",
+  "text_muted": "#839496",
+  "danger_button": "#dc322f",
+  "danger_button_text": "#fdf6e3",
+  "attention": "#cb4b16",
+  "terminal_background": "#fdf6e3",
+  "terminal_foreground": "#657b83",
+  "cursor": "#586e75",
+  "selection": "#eee8d5",
+  "scrollbar": "#93a1a1",
+  "search_match": "#e7d59f",
+  "search_match_active": "#d2b55b",
+  "bright_foreground": "#002b36",
+  "dim_foreground": "#a9b2ae",
+  "ansi": [
+    "#073642", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#eee8d5",
+    "#002b36", "#cb4b16", "#586e75", "#657b83", "#839496", "#6c71c4", "#93a1a1", "#fdf6e3",
+  ],
+  "ansi_dim": ["#5d797a", "#e8776e", "#afba4f", "#ceaf4f", "#71b0d8", "#e279a4", "#74bfb2", "#f3edda"],
+}

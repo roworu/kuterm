@@ -70,6 +70,30 @@ pub enum CommandAction {
     NextAttentionTab,
     /// list the tabs running an ai agent in the palette with how long each waits
     PickAgentTab,
+    /// search the history of every tab of every window, picking a match goes there
+    FindInAllTabs,
+    /// list the themes, showing each one while moving through them, enter keeps one
+    PickTheme,
+    /// a grid of previews of every tab, picking one switches to it
+    TabOverview,
+    /// put the active tab into a new group
+    NewGroup,
+    /// put the active tab into the group of the tab next to it
+    AddTabToGroup,
+    /// take the active tab out of its group
+    RemoveTabFromGroup,
+    /// close every tab of the active tab's group
+    CloseGroup,
+    /// list the password manager's entries, type the picked one's password into the tab
+    FillPassword,
+    /// draw text programs concealed, or hide it again
+    ShowHiddenText,
+    /// type the name `kuterm msg --pane` finds the active tab by
+    RenamePane,
+    /// type into every pane of the window at once, or stop
+    ToggleBroadcastAll,
+    /// join the focused pane to the panes typed into together, or take it out
+    ToggleBroadcastPane,
     /// copy the active tab's selection into the clipboard
     Copy,
     /// paste the clipboard into the active tab

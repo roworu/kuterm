@@ -1,0 +1,26 @@
+// Gruvbox Dark, from github.com/morhetz/gruvbox (MIT licence).
+// terminal colors are the upstream palette, the ui colors are picked from it
+{
+  "tab_bar_background": "#1d2021",
+  "tab_active_background": "#282828",
+  "border": "#504945",
+  "text": "#ebdbb2",
+  "text_muted": "#a89984",
+  "danger_button": "#cc241d",
+  "danger_button_text": "#282828",
+  "attention": "#fe8019",
+  "terminal_background": "#282828",
+  "terminal_foreground": "#ebdbb2",
+  "cursor": "#ebdbb2",
+  "selection": "#504945",
+  "scrollbar": "#665c54",
+  "search_match": "#5d4a26",
+  "search_match_active": "#916c24",
+  "bright_foreground": "#fbf1c7",
+  "dim_foreground": "#938a74",
+  "ansi": [
+    "#282828", "#cc241d", "#98971a", "#d79921", "#458588", "#b16286", "#689d6a", "#a89984",
+    "#928374", "#fb4934", "#b8bb26", "#fabd2f", "#83a598", "#d3869b", "#8ec07c", "#ebdbb2",
+  ],
+  "ansi_dim": ["#282828", "#932521", "#71701f", "#9a7123", "#3b6466", "#814e65", "#527453", "#7b7164"],
+}

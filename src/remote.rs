@@ -15,22 +15,136 @@ pub enum Request {
         cwd: Option<PathBuf>,
         #[serde(default)]
         profile: Option<String>,
+        /// name `--pane` finds the tab by
+        #[serde(default)]
+        name: Option<String>,
     },
-    /// type text into the active tab
+    /// type text into a pane, the active tab without one
     SendText {
         text: String,
+        #[serde(default)]
+        pane: Option<String>,
     },
     ListTabs,
+    /// what people see in a pane, the screen or the whole history
+    GetText {
+        #[serde(default)]
+        pane: Option<String>,
+        #[serde(default)]
+        scrollback: bool,
+    },
+    FocusTab {
+        #[serde(default)]
+        pane: Option<String>,
+    },
+    CloseTab {
+        #[serde(default)]
+        pane: Option<String>,
+    },
+    /// split a pane, "right", "left", "up" or "down"
+    Split {
+        #[serde(default)]
+        pane: Option<String>,
+        direction: String,
+    },
+    SetTabTitle {
+        #[serde(default)]
+        pane: Option<String>,
+        title: String,
+    },
+    /// draw a tab in a "#rrggbb" color, none takes it back
+    SetTabColor {
+        #[serde(default)]
+        pane: Option<String>,
+        #[serde(default)]
+        color: Option<String>,
+    },
+    /// run a command palette command by name on a pane
+    RunCommand {
+        #[serde(default)]
+        pane: Option<String>,
+        name: String,
+    },
+    /// the commands a pane ran: the last finished one, or one counted like kout does
+    Query {
+        #[serde(default)]
+        pane: Option<String>,
+        /// 1 based block number, negative counts back from the last finished one
+        #[serde(default)]
+        block: Option<i64>,
+        /// every block instead of one
+        #[serde(default)]
+        all: bool,
+    },
+    /// keep the connection and get one json line per event of these names, all without any
+    Subscribe {
+        #[serde(default)]
+        events: Vec<String>,
+    },
+    /// type a command into a pane and run it, after the user allowed it in the window
+    Run {
+        #[serde(default)]
+        pane: Option<String>,
+        command: String,
+    },
     /// open a new window, used by `--single-instance`
     NewWindow {
         #[serde(default)]
         cwd: Option<PathBuf>,
     },
+    /// open a `kuterm://run` link, used when one is opened while kuterm runs
+    OpenUrl {
+        url: String,
+    },
+}
+
+impl Request {
+    /// the `--pane` the request acts on, none for the active tab or requests about no pane
+    pub fn pane(&self) -> Option<&str> {
+        match self {
+            Request::SendText { pane, .. }
+            | Request::GetText { pane, .. }
+            | Request::FocusTab { pane }
+            | Request::CloseTab { pane }
+            | Request::Split { pane, .. }
+            | Request::SetTabTitle { pane, .. }
+            | Request::SetTabColor { pane, .. }
+            | Request::RunCommand { pane, .. }
+            | Request::Query { pane, .. }
+            | Request::Run { pane, .. } => pane.as_deref(),
+            _ => None,
+        }
+    }
+}
+
+/// one command a pane ran, as `query` tells it
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct BlockInfo {
+    pub id: u64,
+    /// 1 based number among the blocks of its pane still in history
+    pub number: usize,
+    pub command: String,
+    pub exit: Option<i32>,
+    pub cwd: Option<PathBuf>,
+    /// unix time it started, in seconds
+    pub started: f64,
+    /// seconds it ran, none while it runs
+    pub seconds: Option<f64>,
+    /// what people see of its output
+    pub output: Option<String>,
+    /// the output held text people don't see, like concealed text, which was left out
+    pub hidden: bool,
+    /// `kuterm://block/<id>`, a click on it in a pane jumps to the block
+    pub link: String,
 }
 
 /// one open tab, as `list-tabs` tells it
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct TabInfo {
+    /// id `--pane` takes, the tab's shell has it in $KUTERM_PANE
+    pub id: u64,
+    /// name given to the tab, `--pane` takes it too
+    pub name: Option<String>,
     pub window: u64,
     pub pane: usize,
     /// 1 based position in its pane
@@ -49,6 +163,13 @@ pub struct Reply {
     pub error: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tabs: Vec<TabInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blocks: Vec<BlockInfo>,
+    /// the text held text people don't see, which was left out
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
 }
 
 impl Reply {
@@ -87,10 +208,27 @@ pub fn socket_path() -> PathBuf {
 pub const MSG_USAGE: &str = "usage: kuterm msg <command>
 
 commands:
-  new-tab [--cwd <dir>] [--profile <name>]   open a tab in the active window
-  send-text <text>                           type text into the active tab
-  list-tabs [--json]                         print the open tabs
-  new-window [--cwd <dir>]                   open a window
+  new-tab [--cwd <dir>] [--profile <name>] [--name <name>]   open a tab in the active window
+  send-text <text>                    type text into a pane
+  list-tabs [--json]                  print the open tabs
+  new-window [--cwd <dir>]            open a window
+  get-text [--scrollback]             print what is shown in a pane, or its whole history
+  focus-tab                           switch to a pane
+  close-tab                           close a pane, asking first like a click on its x
+  split <right|left|up|down>          split a pane
+  set-tab-title <title>               give a tab a title, empty takes it back
+  set-tab-color [#rrggbb]             draw a tab in a color, none takes it back
+  run-command <name>                  run a command palette command, like \"clear history\"
+  query [--last-output] [--block <n>] [--all] [--json]
+                                      the commands a pane ran: command, exit, folder, times
+                                      and output. --block 3 is the third, --block -2 the one
+                                      before the last finished one
+  subscribe [<event>...] [--json]     print events as they happen, like command_finished or
+                                      bell, all of them without names
+
+commands acting on a pane take --pane <name, title or id>, the active tab without it. ids
+are in list-tabs and in $KUTERM_PANE of the pane's shell. text people don't see, like
+concealed text, is left out of get-text and query.
 
 kuterm needs \"remote_control\": \"socket\" in its settings. $KUTERM_SOCKET picks the
 socket, otherwise the newest running kuterm is used";
@@ -102,7 +240,12 @@ pub fn parse_msg(args: &[String]) -> Result<(Request, bool), String> {
         .ok_or_else(|| "msg needs a command".to_string())?;
     let mut cwd = None;
     let mut profile = None;
+    let mut name = None;
+    let mut pane = None;
     let mut json = false;
+    let mut scrollback = false;
+    let mut block = None;
+    let mut all = false;
     let mut words = Vec::new();
     let mut rest = rest.iter();
     while let Some(arg) = rest.next() {
@@ -117,17 +260,48 @@ pub fn parse_msg(args: &[String]) -> Result<(Request, bool), String> {
                 cwd = Some(std::path::absolute(&dir).map_err(|error| format!("{dir}: {error}"))?);
             }
             "--profile" => profile = Some(value()?),
+            "--name" => name = Some(value()?),
+            "--pane" => pane = Some(value()?),
             "--json" => json = true,
+            "--scrollback" => scrollback = true,
+            "--all" => all = true,
+            "--last-output" => block = Some(-1),
+            "--block" => {
+                let number = value()?;
+                block = Some(
+                    number
+                        .parse()
+                        .map_err(|_| format!("--block takes a number, not {number:?}"))?,
+                );
+            }
             _ => words.push(arg.clone()),
         }
     }
+    let text = words.join(" ");
     let request = match command.as_str() {
-        "new-tab" => Request::NewTab { cwd, profile },
-        "send-text" => Request::SendText {
-            text: words.join(" "),
-        },
+        "new-tab" => Request::NewTab { cwd, profile, name },
+        "send-text" => Request::SendText { text, pane },
         "list-tabs" => Request::ListTabs,
         "new-window" => Request::NewWindow { cwd },
+        "get-text" => Request::GetText { pane, scrollback },
+        "focus-tab" => Request::FocusTab { pane },
+        "close-tab" => Request::CloseTab { pane },
+        "split" => match text.as_str() {
+            "right" | "left" | "up" | "down" => Request::Split {
+                pane,
+                direction: text,
+            },
+            _ => return Err("split takes right, left, up or down".into()),
+        },
+        "set-tab-title" => Request::SetTabTitle { pane, title: text },
+        "set-tab-color" => Request::SetTabColor {
+            pane,
+            color: (!text.is_empty()).then_some(text),
+        },
+        "run-command" if !text.is_empty() => Request::RunCommand { pane, name: text },
+        "run-command" => return Err("run-command needs the name of a command".into()),
+        "query" => Request::Query { pane, block, all },
+        "subscribe" => Request::Subscribe { events: words },
         other => return Err(format!("unknown msg command {other:?}")),
     };
     Ok((request, json))
@@ -177,30 +351,64 @@ mod unix {
         sockets.into_iter().map(|(_, path)| path).collect()
     }
 
-    fn ask(path: &Path, request: &Request) -> std::io::Result<Reply> {
+    fn connect(path: &Path, request: &Request) -> std::io::Result<(Reply, BufReader<UnixStream>)> {
         let mut stream = UnixStream::connect(path)?;
-        stream.set_read_timeout(Some(CLIENT_TIMEOUT))?;
+        // a run waits for the user to allow it, events come whenever they happen
+        let timeout = match request {
+            Request::Run { .. } | Request::Subscribe { .. } => None,
+            _ => Some(CLIENT_TIMEOUT),
+        };
+        stream.set_read_timeout(timeout)?;
         let mut line = serde_json_lenient::to_string(request).map_err(std::io::Error::other)?;
         line.push('\n');
         stream.write_all(line.as_bytes())?;
+        let mut reader = BufReader::new(stream);
         let mut reply = String::new();
-        BufReader::new(stream).read_line(&mut reply)?;
-        serde_json_lenient::from_str(&reply).map_err(std::io::Error::other)
+        reader.read_line(&mut reply)?;
+        let reply = serde_json_lenient::from_str(&reply).map_err(std::io::Error::other)?;
+        Ok((reply, reader))
     }
 
     /// send `request` to the newest running kuterm that answers
     pub fn send(request: &Request) -> Result<Reply, String> {
         for path in candidates() {
-            if let Ok(reply) = ask(&path, request) {
+            if let Ok((reply, _)) = connect(&path, request) {
                 return Ok(reply);
             }
         }
         Err("no running kuterm with \"remote_control\": \"socket\" found".into())
     }
 
-    /// listen on this process's socket, `handle` answers each request on the main thread.
-    /// the socket file is removed when the app quits
-    pub fn listen(cx: &mut App, handle: fn(Request, &mut App) -> Reply) -> Option<PathBuf> {
+    /// subscribe to events and give each json line to `line` until the connection ends or
+    /// `line` returns false
+    pub fn subscribe(request: &Request, mut line: impl FnMut(&str) -> bool) -> Result<(), String> {
+        for path in candidates() {
+            let Ok((reply, mut reader)) = connect(&path, request) else {
+                continue;
+            };
+            if !reply.ok {
+                return Err(reply.error.unwrap_or_else(|| "failed".into()));
+            }
+            let mut text = String::new();
+            loop {
+                text.clear();
+                match reader.read_line(&mut text) {
+                    Ok(0) | Err(_) => return Ok(()),
+                    Ok(_) if !line(text.trim_end()) => return Ok(()),
+                    Ok(_) => {}
+                }
+            }
+        }
+        Err("no running kuterm with \"remote_control\": \"socket\" found".into())
+    }
+
+    /// listen on this process's socket, `handle` answers each request on the main thread,
+    /// right away or later through the sender, like after the user allowed it. the socket file
+    /// is removed when the app quits
+    pub fn listen(
+        cx: &mut App,
+        handle: fn(Request, oneshot::Sender<Reply>, &mut App),
+    ) -> Option<PathBuf> {
         let path = socket_path();
         let _ = std::fs::remove_file(&path);
         let listener = match UnixListener::bind(&path) {
@@ -221,8 +429,7 @@ mod unix {
         });
         cx.spawn(async move |cx| {
             while let Some((request, reply)) = rx.next().await {
-                let answer = cx.update(|cx| handle(request, cx));
-                reply.send(answer).ok();
+                cx.update(|cx| handle(request, reply, cx));
             }
         })
         .detach();
@@ -246,6 +453,11 @@ mod unix {
         }
         let reply = match serde_json_lenient::from_str::<Request>(&line) {
             Err(error) => Reply::failed(format!("bad request: {error}")),
+            // events go out from here, the main thread only publishes them
+            Ok(Request::Subscribe { events }) => {
+                stream_events(writer, &events);
+                return;
+            }
             Ok(request) => {
                 let (reply_tx, reply_rx) = oneshot::channel();
                 if tx.unbounded_send((request, reply_tx)).is_err() {
@@ -260,10 +472,31 @@ mod unix {
             writer.write_all(json.as_bytes()).ok();
         }
     }
+
+    /// write one json line per published event named in `names`, any without names, until
+    /// the client goes away
+    fn stream_events(mut writer: UnixStream, names: &[String]) {
+        let events = crate::events_bus::EventBus::subscribe();
+        if writer.write_all(b"{\"ok\":true}\n").is_err() {
+            return;
+        }
+        for event in futures::executor::block_on_stream(events) {
+            if !names.is_empty() && !names.contains(&event.name()) {
+                continue;
+            }
+            let Ok(mut json) = serde_json_lenient::to_string(&event) else {
+                continue;
+            };
+            json.push('\n');
+            if writer.write_all(json.as_bytes()).is_err() {
+                return;
+            }
+        }
+    }
 }
 
 #[cfg(unix)]
-pub use unix::{listen, send};
+pub use unix::{listen, send, subscribe};
 
 #[cfg(not(unix))]
 pub fn send(_: &Request) -> Result<Reply, String> {
@@ -279,6 +512,25 @@ pub fn run_msg(args: &[String]) -> i32 {
             return 2;
         }
     };
+    if let Request::Subscribe { .. } = &request {
+        #[cfg(unix)]
+        let result = subscribe(&request, |line| {
+            use std::io::Write;
+            let mut stdout = std::io::stdout();
+            writeln!(stdout, "{line}")
+                .and_then(|()| stdout.flush())
+                .is_ok()
+        });
+        #[cfg(not(unix))]
+        let result: Result<(), String> = Err("remote control needs unix sockets".into());
+        return match result {
+            Ok(()) => 0,
+            Err(error) => {
+                eprintln!("{error}");
+                1
+            }
+        };
+    }
     let reply = match send(&request) {
         Ok(reply) => reply,
         Err(error) => {
@@ -302,9 +554,31 @@ pub fn run_msg(args: &[String]) -> i32 {
                 let cwd = tab.cwd.as_deref().map(Path::display);
                 let cwd = cwd.map(|cwd| format!("  {cwd}")).unwrap_or_default();
                 println!(
-                    "{mark} {}:{}:{} {}{cwd}",
-                    tab.window, tab.pane, tab.number, tab.title
+                    "{mark} {} {}:{}:{} {}{cwd}",
+                    tab.id, tab.window, tab.pane, tab.number, tab.title
                 );
+            }
+        }
+    }
+    if let Some(text) = &reply.text {
+        println!("{text}");
+    }
+    if let Request::Query { all, .. } = &request {
+        if json {
+            let blocks = if *all {
+                serde_json_lenient::to_string_pretty(&reply.blocks)
+            } else {
+                serde_json_lenient::to_string_pretty(&reply.blocks.first())
+            };
+            println!("{}", blocks.unwrap_or_default());
+        } else {
+            for block in &reply.blocks {
+                if *all {
+                    let exit = block.exit.map_or("-".into(), |exit| exit.to_string());
+                    println!("{} [{exit}] {}", block.number, block.command);
+                } else if let Some(output) = &block.output {
+                    println!("{output}");
+                }
             }
         }
     }
@@ -324,21 +598,99 @@ mod tests {
     #[test]
     fn msg_arguments_become_requests() {
         assert_eq!(
-            parse_msg(&args("new-tab --cwd /tmp --profile dev")).unwrap(),
+            parse_msg(&args("new-tab --cwd /tmp --profile dev --name build")).unwrap(),
             (
                 Request::NewTab {
                     cwd: Some(PathBuf::from("/tmp")),
-                    profile: Some("dev".into())
+                    profile: Some("dev".into()),
+                    name: Some("build".into()),
                 },
                 false
             )
         );
         assert_eq!(
-            parse_msg(&args("send-text echo hi")).unwrap().0,
+            parse_msg(&args("send-text --pane build echo hi"))
+                .unwrap()
+                .0,
             Request::SendText {
-                text: "echo hi".into()
+                text: "echo hi".into(),
+                pane: Some("build".into()),
             }
         );
+        let pane = || Some("3".to_string());
+        for (line, want) in [
+            (
+                "get-text --pane 3 --scrollback",
+                Request::GetText {
+                    pane: pane(),
+                    scrollback: true,
+                },
+            ),
+            ("focus-tab --pane 3", Request::FocusTab { pane: pane() }),
+            ("close-tab --pane 3", Request::CloseTab { pane: pane() }),
+            (
+                "split down --pane 3",
+                Request::Split {
+                    pane: pane(),
+                    direction: "down".into(),
+                },
+            ),
+            (
+                "set-tab-title --pane 3 my build",
+                Request::SetTabTitle {
+                    pane: pane(),
+                    title: "my build".into(),
+                },
+            ),
+            (
+                "set-tab-color --pane 3 #ff0000",
+                Request::SetTabColor {
+                    pane: pane(),
+                    color: Some("#ff0000".into()),
+                },
+            ),
+            (
+                "set-tab-color --pane 3",
+                Request::SetTabColor {
+                    pane: pane(),
+                    color: None,
+                },
+            ),
+            (
+                "run-command --pane 3 clear history",
+                Request::RunCommand {
+                    pane: pane(),
+                    name: "clear history".into(),
+                },
+            ),
+            (
+                "query --pane 3 --last-output",
+                Request::Query {
+                    pane: pane(),
+                    block: Some(-1),
+                    all: false,
+                },
+            ),
+            (
+                "query --block -2",
+                Request::Query {
+                    pane: None,
+                    block: Some(-2),
+                    all: false,
+                },
+            ),
+            (
+                "subscribe command_finished bell",
+                Request::Subscribe {
+                    events: vec!["command_finished".into(), "bell".into()],
+                },
+            ),
+        ] {
+            assert_eq!(parse_msg(&args(line)).unwrap().0, want, "{line}");
+        }
+        assert!(parse_msg(&args("split sideways")).is_err());
+        assert!(parse_msg(&args("run-command")).is_err());
+        assert!(parse_msg(&args("query --block x")).is_err());
         assert_eq!(
             parse_msg(&args("list-tabs --json")).unwrap(),
             (Request::ListTabs, true)
@@ -352,5 +704,16 @@ mod tests {
     fn requests_are_one_json_object() {
         let json = serde_json_lenient::to_string(&Request::NewWindow { cwd: None }).unwrap();
         assert_eq!(json, r#"{"cmd":"new_window","cwd":null}"#);
+        let json = serde_json_lenient::to_string(&Request::Run {
+            pane: Some("2".into()),
+            command: "ls".into(),
+        })
+        .unwrap();
+        assert_eq!(json, r#"{"cmd":"run","pane":"2","command":"ls"}"#);
+        // replies leave out what they don't carry
+        assert_eq!(
+            serde_json_lenient::to_string(&super::Reply::done()).unwrap(),
+            r#"{"ok":true}"#
+        );
     }
 }

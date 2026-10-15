@@ -1,0 +1,26 @@
+// Tokyo Night, from github.com/folke/tokyonight.nvim (Apache-2.0 licence).
+// terminal colors are the upstream palette, the ui colors are picked from it
+{
+  "tab_bar_background": "#16161e",
+  "tab_active_background": "#1a1b26",
+  "border": "#292e42",
+  "text": "#c0caf5",
+  "text_muted": "#a9b1d6",
+  "danger_button": "#f7768e",
+  "danger_button_text": "#1a1b26",
+  "attention": "#ff9e64",
+  "terminal_background": "#1a1b26",
+  "terminal_foreground": "#c0caf5",
+  "cursor": "#c0caf5",
+  "selection": "#283457",
+  "scrollbar": "#414868",
+  "search_match": "#55473a",
+  "search_match_active": "#91744e",
+  "bright_foreground": "#ffffff",
+  "dim_foreground": "#757b98",
+  "ansi": [
+    "#15161e", "#f7768e", "#9ece6a", "#e0af68", "#7aa2f7", "#bb9af7", "#7dcfff", "#a9b1d6",
+    "#414868", "#f7768e", "#9ece6a", "#e0af68", "#7aa2f7", "#bb9af7", "#7dcfff", "#c0caf5",
+  ],
+  "ansi_dim": ["#171821", "#aa566a", "#708f52", "#9b7b51", "#5873ae", "#836eae", "#5a90b3", "#777c98"],
+}
