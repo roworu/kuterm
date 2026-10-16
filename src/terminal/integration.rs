@@ -291,7 +291,7 @@ impl Terminal {
         };
         drop(term);
         if !keys.is_empty() {
-            self.input(keys.into_bytes());
+            self.input(super::InputSource::Keyboard, keys.into_bytes());
         }
         true
     }
@@ -700,7 +700,10 @@ mod tests {
         assert_eq!(args[0], "--rcfile");
         let mut builder = spawn_with(&TerminalSettings::default(), &integrated);
         let terminal = &mut builder.terminal;
-        terminal.input(b"cd /tmp && echo integ_$((40+2))\r".to_vec());
+        terminal.input(
+            crate::terminal::InputSource::Keyboard,
+            b"cd /tmp && echo integ_$((40+2))\r".to_vec(),
+        );
         wait_for_text(terminal, "integ_42");
         let deadline = Instant::now() + Duration::from_secs(15);
         let mut finished = false;
@@ -714,6 +717,20 @@ mod tests {
             std::thread::sleep(Duration::from_millis(50));
         }
         assert_eq!(terminal.last_output_text().as_deref(), Some("integ_42"));
+    }
+
+    #[test]
+    fn incognito_bash_keeps_no_history_file() {
+        let mut bash = profile(Shell::Program("/bin/bash".into()));
+        bash.incognito = true;
+        let integrated = with_shell_integration(&bash);
+        let mut builder = spawn_with(&TerminalSettings::default(), &integrated);
+        let terminal = &mut builder.terminal;
+        terminal.input(
+            crate::terminal::InputSource::Keyboard,
+            b"echo hist=$HISTFILE=$KUTERM_INCOGNITO\r".to_vec(),
+        );
+        wait_for_text(terminal, "hist==1");
     }
 
     /// next message from a shell `matches` takes, skipping the others
@@ -771,7 +788,10 @@ mod tests {
         wait_shell(&mut events, "PATH", |m| {
             matches!(m, ShellMessage::Env { .. })
         });
-        terminal.input(b"echo comp_".to_vec());
+        terminal.input(
+            crate::terminal::InputSource::Keyboard,
+            b"echo comp_".to_vec(),
+        );
         let typed = wait_shell(
             &mut events,
             "the typed line",
@@ -794,7 +814,7 @@ mod tests {
         );
 
         // the completed line runs as typed
-        terminal.input(b"\r".to_vec());
+        terminal.input(crate::terminal::InputSource::Keyboard, b"\r".to_vec());
         wait_shell(&mut events, "the end of the line", |m| {
             *m == ShellMessage::End
         });

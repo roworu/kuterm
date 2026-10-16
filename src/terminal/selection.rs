@@ -236,7 +236,7 @@ mod tests {
         assert_eq!(range.start, AlacPoint::new(Line(0), Column(6)));
         assert_eq!(range.end, AlacPoint::new(Line(1), Column(5)));
 
-        terminal.input(b"x".to_vec());
+        terminal.input(crate::terminal::InputSource::Keyboard, b"x".to_vec());
         assert_eq!(terminal.selection_text(), None);
         terminal.sync();
         assert_eq!(terminal.last_content.selection, None);

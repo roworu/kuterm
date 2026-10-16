@@ -8,7 +8,7 @@ use gpui::{AnyWindowHandle, AppContext, Context, Entity, EntityId, Window};
 use super::Workspace;
 use crate::{
     settings::{Command, CommandAction, Inputs, SearchCase},
-    terminal::{FoundLine, SearchQuery, Terminal, search_pattern},
+    terminal::{FoundLine, SearchQuery, SearchScope, Terminal, search_pattern},
     ui::command_palette::{CommandPalette, FinderQuery},
 };
 
@@ -16,6 +16,7 @@ use crate::{
 const FIND_DEBOUNCE: Duration = Duration::from_millis(150);
 // matches each pane adds to the list, newest first
 const FIND_PER_PANE: usize = 50;
+const FAILED_PREFIX: &str = "failed:";
 
 /// a match in some tab of some window
 pub(super) struct Found {
@@ -27,7 +28,9 @@ pub(super) struct Found {
 impl Workspace {
     /// palette searching every tab of every window as the query is typed
     pub(super) fn open_finder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let palette = cx.new(|cx| CommandPalette::finder("find in all tabs...", cx));
+        let palette = cx.new(|cx| {
+            CommandPalette::finder("find in all tabs... (failed: for failed commands)", cx)
+        });
         self.open_overlay(&palette, window, cx);
         let own = window.window_handle();
         self._overlay_subscriptions.push(cx.subscribe_in(
@@ -61,11 +64,17 @@ impl Workspace {
         palette: Entity<CommandPalette>,
         cx: &mut Context<Self>,
     ) {
+        // "failed:" in front looks only in the output of failed commands
+        let (scope, text) = match text.strip_prefix(FAILED_PREFIX) {
+            Some(text) => (SearchScope::Failed, text.trim_start().to_string()),
+            None => (SearchScope::All, text),
+        };
         let query = SearchQuery {
             text,
             regex: false,
             whole_word: false,
             case: SearchCase::Smart,
+            scope,
         };
         let Ok(pattern) = search_pattern(&query) else {
             self.found.clear();
@@ -97,7 +106,9 @@ impl Workspace {
         let searches: Vec<_> = sources
             .into_iter()
             .filter_map(|(window, tab, title, terminal)| {
-                let task = terminal.read(cx).find_task(&pattern, FIND_PER_PANE)?;
+                let task = terminal.update(cx, |terminal, _| {
+                    terminal.find_task(&pattern, FIND_PER_PANE, scope)
+                })?;
                 Some((window, tab, title, task))
             })
             .collect();

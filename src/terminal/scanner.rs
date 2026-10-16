@@ -29,6 +29,9 @@ const MAX_APC: usize = 96 << 20;
 pub enum ScanEvent {
     /// the shell is about to draw its prompt
     PromptStart,
+    /// the prompt is drawn, what is typed next is the command line. carries the number of
+    /// the prompt's mark
+    PromptEnd(Option<usize>),
     /// a command started running, its output follows. carries the numbers of the marks of
     /// its prompt, none when no prompt was marked, and of its output
     CommandStart {
@@ -272,7 +275,10 @@ impl Scanner {
                         events.push(ScanEvent::PromptStart);
                     }
                     // the prompt is drawn, what is typed next is no part of it
-                    Some("B") => self.close_mark(out),
+                    Some("B") => {
+                        self.close_mark(out);
+                        events.push(ScanEvent::PromptEnd(self.last_prompt));
+                    }
                     Some("C") => {
                         self.close_mark(out);
                         events.push(ScanEvent::CommandStart {
@@ -542,6 +548,7 @@ mod tests {
             events,
             [
                 ScanEvent::PromptStart,
+                ScanEvent::PromptEnd(Some(0)),
                 ScanEvent::CommandStart {
                     prompt: Some(0),
                     output: 1

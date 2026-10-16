@@ -30,6 +30,14 @@ impl Attention {
         true
     }
 
+    /// a program waits for an answer since `now`, kept when it already waited
+    pub(super) fn wait(&mut self, inputs: u64, now: Instant) {
+        if self.waiting(inputs).is_none() {
+            self.since = Some(now);
+            self.inputs = inputs;
+        }
+    }
+
     /// the program is busy again or its command finished
     pub(super) fn clear(&mut self) {
         self.since = None;

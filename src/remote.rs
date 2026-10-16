@@ -90,6 +90,16 @@ pub enum Request {
         #[serde(default)]
         pane: Option<String>,
         command: String,
+        /// "mcp" when an ai agent asks through `kuterm mcp`, so its commands are marked
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        client: Option<String>,
+    },
+    /// type a command into a pane once its prompt comes back, after the ones queued before.
+    /// "@18:00 cmd" waits for that time too
+    Queue {
+        #[serde(default)]
+        pane: Option<String>,
+        command: String,
     },
     /// open a new window, used by `--single-instance`
     NewWindow {
@@ -115,7 +125,8 @@ impl Request {
             | Request::SetTabColor { pane, .. }
             | Request::RunCommand { pane, .. }
             | Request::Query { pane, .. }
-            | Request::Run { pane, .. } => pane.as_deref(),
+            | Request::Run { pane, .. }
+            | Request::Queue { pane, .. } => pane.as_deref(),
             _ => None,
         }
     }
@@ -140,6 +151,9 @@ pub struct BlockInfo {
     pub hidden: bool,
     /// `kuterm://block/<id>`, a click on it in a pane jumps to the block
     pub link: String,
+    /// what typed its command, like ["keyboard"] or ["remote"]
+    #[serde(default)]
+    pub source: Vec<crate::terminal::InputSource>,
 }
 
 /// one open tab, as `list-tabs` tells it
@@ -231,6 +245,8 @@ commands:
                                       before the last finished one
   subscribe [<event>...] [--json]     print events as they happen, like command_finished or
                                       bell, all of them without names
+  queue <command>                     run a command once the prompt is back, after the ones
+                                      queued before. \"@18:00 <command>\" also waits for 18:00
 
 commands acting on a pane take --pane <name, title or id>, the active tab without it. ids
 are in list-tabs and in $KUTERM_PANE of the pane's shell. text people don't see, like
@@ -319,6 +335,11 @@ pub fn parse_msg(args: &[String]) -> Result<(Request, bool), String> {
         },
         "run-command" => return Err("run-command needs the name of a command".into()),
         "query" => Request::Query { pane, block, all },
+        "queue" if !text.is_empty() => Request::Queue {
+            pane,
+            command: text,
+        },
+        "queue" => return Err("queue needs a command".into()),
         "subscribe" => Request::Subscribe { events: words },
         other => return Err(format!("unknown msg command {other:?}")),
     };
@@ -669,6 +690,13 @@ mod tests {
                 },
             ),
             (
+                "queue --pane 3 @18:00 make deploy",
+                Request::Queue {
+                    pane: pane(),
+                    command: "@18:00 make deploy".into(),
+                },
+            ),
+            (
                 "set-tab-color --pane 3",
                 Request::SetTabColor {
                     pane: pane(),
@@ -748,6 +776,7 @@ mod tests {
         let json = serde_json_lenient::to_string(&Request::Run {
             pane: Some("2".into()),
             command: "ls".into(),
+            client: None,
         })
         .unwrap();
         assert_eq!(json, r#"{"cmd":"run","pane":"2","command":"ls"}"#);

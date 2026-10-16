@@ -8,6 +8,7 @@ use gpui::{Context, Entity};
 use super::Workspace;
 use crate::{
     settings::Settings,
+    terminal::InputSource::Broadcast,
     ui::terminal_view::{TerminalView, TypedInput},
 };
 
@@ -81,10 +82,14 @@ impl Workspace {
         for terminal in targets {
             terminal.update(cx, |terminal, _| match input {
                 TypedInput::Key(keystroke, kind) => {
-                    terminal.try_keystroke(keystroke, *kind, option_as_meta);
+                    terminal.try_keystroke(keystroke, *kind, option_as_meta, Broadcast);
                 }
-                TypedInput::Text(text) => terminal.input(text.clone().into_bytes()),
-                TypedInput::Paste(text) => terminal.paste(text),
+                TypedInput::Text(text) => {
+                    terminal.input(Broadcast, text.clone().into_bytes());
+                }
+                TypedInput::Paste(text) => {
+                    terminal.paste(Broadcast, text);
+                }
             });
         }
     }

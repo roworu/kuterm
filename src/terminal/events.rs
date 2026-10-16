@@ -43,6 +43,15 @@ impl Terminal {
             }
             AlacTermEvent::Exit | AlacTermEvent::ChildExit(_) => cx.emit(Event::CloseTerminal),
             AlacTermEvent::Wakeup => {
+                self.last_output = std::time::Instant::now();
+                // output comes again, so whatever paused it let go. output already read before
+                // the pause comes in for a moment after it
+                if self
+                    .xoff_at
+                    .is_some_and(|at| at.elapsed() > super::pty_state::XOFF_GRACE)
+                {
+                    self.xoff_at = None;
+                }
                 for event in self.handle_scan_events() {
                     cx.emit(event);
                 }

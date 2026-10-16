@@ -28,6 +28,12 @@ pub struct TreeSample {
     pub sent_per_sec: u64,
     /// cpu percent of the last samples, oldest first, up to `CPU_HISTORY`
     pub cpu_history: Vec<f32>,
+    /// ports on this machine the tree has established tcp connections to, sorted
+    pub connected_ports: Vec<u16>,
+    /// unix sockets of the tree with the inode of their peer, the other end
+    pub unix_sockets: Vec<(u64, u64)>,
+    /// bytes the tree read and wrote so far, files, pipes and sockets alike
+    pub io_bytes: u64,
 }
 
 impl TreeSample {
@@ -55,9 +61,14 @@ impl TreeSample {
             total.ports.extend(&sample.ports);
             total.received_per_sec += sample.received_per_sec;
             total.sent_per_sec += sample.sent_per_sec;
+            total.connected_ports.extend(&sample.connected_ports);
+            total.unix_sockets.extend(&sample.unix_sockets);
+            total.io_bytes += sample.io_bytes;
         }
         total.ports.sort_unstable();
         total.ports.dedup();
+        total.connected_ports.sort_unstable();
+        total.connected_ports.dedup();
         total
     }
 }
@@ -136,11 +147,15 @@ impl ProcessSampler {
                     .collect()
             };
             // read outside the lock, panes asking meanwhile get the last numbers
-            let listening = listening_ports();
-            let traffic = tcp_traffic();
+            let tables = Tables {
+                listening: listening_ports(),
+                traffic: tcp_traffic(),
+                established: established_local(),
+                unix_peers: unix_peers(),
+            };
             let measured: Vec<_> = roots
                 .into_iter()
-                .map(|(pid, last)| (pid, measure(pid, last.as_ref(), &listening, &traffic)))
+                .map(|(pid, last)| (pid, measure(pid, last.as_ref(), &tables)))
                 .collect();
             {
                 let mut state = self.state.lock().unwrap();
@@ -168,14 +183,23 @@ impl ProcessSampler {
     }
 }
 
+/// socket tables of the whole machine, read once per tick for every tree
+#[derive(Default)]
+struct Tables {
+    /// inode to listening tcp port
+    listening: HashMap<u64, u16>,
+    /// inode to tcp bytes received and sent
+    traffic: HashMap<u64, (u64, u64)>,
+    /// inode to the port of the local end it is connected to
+    established: HashMap<u64, u16>,
+    /// unix socket inode to the inode of its peer
+    unix_peers: HashMap<u64, u64>,
+}
+
 /// numbers of the tree under `root`, rates measured since `last`, none when it is gone
 #[cfg(target_os = "linux")]
-fn measure(
-    root: u32,
-    last: Option<&Last>,
-    listening: &HashMap<u64, u16>,
-    traffic: &HashMap<u64, (u64, u64)>,
-) -> Option<(TreeSample, Last)> {
+fn measure(root: u32, last: Option<&Last>, tables: &Tables) -> Option<(TreeSample, Last)> {
+    let (listening, traffic) = (&tables.listening, &tables.traffic);
     let now = Instant::now();
     let mut pids = vec![root];
     let mut ix = 0;
@@ -203,7 +227,21 @@ fn measure(
             .and_then(|statm| statm.split_whitespace().nth(1)?.parse::<u64>().ok())
             .map_or(0, |pages| pages * page);
         inodes.extend(socket_inodes(pid));
+        sample.io_bytes += std::fs::read_to_string(format!("/proc/{pid}/io"))
+            .ok()
+            .map_or(0, |io| io_bytes(&io));
     }
+    sample.connected_ports = inodes
+        .iter()
+        .filter_map(|inode| tables.established.get(inode).copied())
+        .collect();
+    sample.connected_ports.sort_unstable();
+    sample.connected_ports.dedup();
+    sample.unix_sockets = inodes
+        .iter()
+        .filter_map(|inode| Some((*inode, *tables.unix_peers.get(inode)?)))
+        .collect();
+    sample.unix_sockets.sort_unstable();
     sample.ports = inodes
         .iter()
         .filter_map(|inode| listening.get(inode).copied())
@@ -242,13 +280,187 @@ fn measure(
 }
 
 #[cfg(not(target_os = "linux"))]
-fn measure(
-    _root: u32,
-    _last: Option<&Last>,
-    _listening: &HashMap<u64, u16>,
-    _traffic: &HashMap<u64, (u64, u64)>,
-) -> Option<(TreeSample, Last)> {
+fn measure(_root: u32, _last: Option<&Last>, _tables: &Tables) -> Option<(TreeSample, Last)> {
     None
+}
+
+/// characters read and written, from a /proc/<pid>/io file
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn io_bytes(io: &str) -> u64 {
+    io.lines()
+        .filter_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            matches!(name, "rchar" | "wchar")
+                .then(|| value.trim().parse::<u64>().ok())
+                .flatten()
+        })
+        .sum()
+}
+
+/// true when the hex address of a /proc/net/tcp row is a loopback one
+fn loopback(address: &str) -> bool {
+    match address.len() {
+        // little endian ipv4, 127.x.x.x has 7F as its last byte
+        8 => address.ends_with("7F"),
+        // ::1, or ::ffff:127.x.x.x mapped
+        32 => {
+            address == "00000000000000000000000001000000"
+                || (address.starts_with("0000000000000000FFFF0000") && address.ends_with("7F"))
+        }
+        _ => false,
+    }
+}
+
+/// (inode, port of the other end) of the established rows of a /proc/net/tcp table whose
+/// other end is on this machine
+fn parse_established(table: &str) -> Vec<(u64, u16)> {
+    // st 01 is TCP_ESTABLISHED
+    const ESTABLISHED: &str = "01";
+    table
+        .lines()
+        .skip(1)
+        .filter_map(|line| {
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            let (local, _) = fields.get(1)?.rsplit_once(':')?;
+            let (remote, port) = fields.get(2)?.rsplit_once(':')?;
+            if *fields.get(3)? != ESTABLISHED || !(loopback(remote) || remote == local) {
+                return None;
+            }
+            Some((
+                fields.get(9)?.parse().ok()?,
+                u16::from_str_radix(port, 16).ok()?,
+            ))
+        })
+        .collect()
+}
+
+/// socket inode to the port of the local server of every established local connection
+fn established_local() -> HashMap<u64, u16> {
+    ["/proc/net/tcp", "/proc/net/tcp6"]
+        .iter()
+        .filter_map(|path| std::fs::read_to_string(path).ok())
+        .flat_map(|table| parse_established(&table))
+        .collect()
+}
+
+/// unix socket inode to its peer's inode, from sock_diag like `ss -x` reads them
+#[cfg(target_os = "linux")]
+fn unix_peers() -> HashMap<u64, u64> {
+    let mut peers = HashMap::new();
+    if let Err(error) = dump_unix(&mut peers) {
+        eprintln!("failed to read unix sockets: {error}");
+    }
+    peers
+}
+
+#[cfg(not(target_os = "linux"))]
+fn unix_peers() -> HashMap<u64, u64> {
+    HashMap::new()
+}
+
+// from linux/unix_diag.h
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+const UDIAG_SHOW_PEER: u32 = 4;
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+const UNIX_DIAG_PEER: u16 = 2;
+
+/// add the peer of every connected unix socket
+#[cfg(target_os = "linux")]
+fn dump_unix(peers: &mut HashMap<u64, u64>) -> std::io::Result<()> {
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+
+    let fd = unsafe {
+        libc::socket(
+            libc::AF_NETLINK,
+            libc::SOCK_DGRAM | libc::SOCK_CLOEXEC,
+            libc::NETLINK_SOCK_DIAG,
+        )
+    };
+    if fd < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+    // nlmsghdr, then unix_diag_req asking for the peers of sockets in any state
+    let mut request = [0u8; NLMSG_HEADER + 24];
+    let len = request.len() as u32;
+    request[0..4].copy_from_slice(&len.to_ne_bytes());
+    request[4..6].copy_from_slice(&SOCK_DIAG_BY_FAMILY.to_ne_bytes());
+    let flags = (libc::NLM_F_REQUEST | libc::NLM_F_DUMP) as u16;
+    request[6..8].copy_from_slice(&flags.to_ne_bytes());
+    request[16] = libc::AF_UNIX as u8;
+    request[20..24].copy_from_slice(&u32::MAX.to_ne_bytes());
+    request[28..32].copy_from_slice(&UDIAG_SHOW_PEER.to_ne_bytes());
+    let mut kernel: libc::sockaddr_nl = unsafe { std::mem::zeroed() };
+    kernel.nl_family = libc::AF_NETLINK as u16;
+    let sent = unsafe {
+        libc::sendto(
+            fd.as_raw_fd(),
+            request.as_ptr().cast(),
+            request.len(),
+            0,
+            (&raw const kernel).cast(),
+            size_of::<libc::sockaddr_nl>() as u32,
+        )
+    };
+    if sent < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let mut buf = vec![0u8; 64 << 10];
+    loop {
+        let read = unsafe { libc::recv(fd.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len(), 0) };
+        if read < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        if parse_unix_messages(&buf[..read as usize], peers)? {
+            return Ok(());
+        }
+    }
+}
+
+/// add (inode, peer) of the unix_diag messages in one netlink read, true once done
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn parse_unix_messages(mut buf: &[u8], peers: &mut HashMap<u64, u64>) -> std::io::Result<bool> {
+    const NLMSG_ERROR: u16 = 2;
+    const NLMSG_DONE: u16 = 3;
+    // unix_diag_msg is 16 bytes, its inode at 4
+    const MSG: usize = 16;
+    while buf.len() >= NLMSG_HEADER {
+        let len = u32::from_ne_bytes(buf[0..4].try_into().unwrap()) as usize;
+        let kind = u16::from_ne_bytes(buf[4..6].try_into().unwrap());
+        if len < NLMSG_HEADER || len > buf.len() {
+            break;
+        }
+        match kind {
+            NLMSG_DONE => return Ok(true),
+            NLMSG_ERROR => return Err(std::io::Error::other("unix_diag dump refused")),
+            SOCK_DIAG_BY_FAMILY => {
+                let msg = &buf[NLMSG_HEADER..len];
+                if let Some(inode) = msg.get(4..8) {
+                    let inode = u32::from_ne_bytes(inode.try_into().unwrap());
+                    let mut attrs = msg.get(MSG..).unwrap_or_default();
+                    while attrs.len() >= 4 {
+                        let attr_len = u16::from_ne_bytes([attrs[0], attrs[1]]) as usize;
+                        let attr = u16::from_ne_bytes([attrs[2], attrs[3]]);
+                        if attr_len < 4 || attr_len > attrs.len() {
+                            break;
+                        }
+                        if attr == UNIX_DIAG_PEER
+                            && let Some(peer) = attrs.get(4..8)
+                        {
+                            let peer = u32::from_ne_bytes(peer.try_into().unwrap());
+                            peers.insert(inode.into(), peer.into());
+                        }
+                        attrs = attrs
+                            .get(attr_len.next_multiple_of(4)..)
+                            .unwrap_or_default();
+                    }
+                }
+            }
+            _ => {}
+        }
+        buf = buf.get(len.next_multiple_of(4)..).unwrap_or_default();
+    }
+    Ok(false)
 }
 
 /// user plus system time from a /proc/<pid>/stat line, in clock ticks
@@ -491,6 +703,7 @@ mod tests {
             received_per_sec: 7,
             sent_per_sec: 9,
             cpu_history: vec![10.],
+            ..TreeSample::default()
         };
         let total = TreeSample::total([&a, &b]);
         assert_eq!(total.cpu_percent, 12.5);
@@ -510,13 +723,11 @@ mod tests {
         // a listening socket held by this process
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
-        let (sample, _) = measure(
-            std::process::id(),
-            None,
-            &listening_ports(),
-            &HashMap::new(),
-        )
-        .unwrap();
+        let tables = Tables {
+            listening: listening_ports(),
+            ..Tables::default()
+        };
+        let (sample, _) = measure(std::process::id(), None, &tables).unwrap();
         assert!(sample.ports.contains(&port), "{port} not in {sample:?}");
         assert!(sample.rss_bytes > 0);
 
@@ -527,15 +738,15 @@ mod tests {
             .spawn()
             .unwrap();
         let root = parent.id();
-        let (_, last) = measure(root, None, &HashMap::new(), &HashMap::new()).unwrap();
+        let (_, last) = measure(root, None, &Tables::default()).unwrap();
         std::thread::sleep(Duration::from_millis(500));
-        let (sample, _) = measure(root, Some(&last), &HashMap::new(), &HashMap::new()).unwrap();
+        let (sample, _) = measure(root, Some(&last), &Tables::default()).unwrap();
         // the busy child goes with its parent's group
         unsafe { libc::kill(-(root as i32), libc::SIGKILL) };
         parent.wait().ok();
         assert!(sample.cpu_percent > 10., "{sample:?}");
         assert!(sample.rss_bytes > 0);
-        assert!(measure(root, None, &HashMap::new(), &HashMap::new()).is_none());
+        assert!(measure(root, None, &Tables::default()).is_none());
     }
 
     #[cfg(target_os = "linux")]
@@ -547,17 +758,89 @@ mod tests {
         let mut client = std::net::TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         let (mut server, _) = listener.accept().unwrap();
         let pid = std::process::id();
-        let (first, last) = measure(pid, None, &HashMap::new(), &tcp_traffic()).unwrap();
+        let tables = || Tables {
+            traffic: tcp_traffic(),
+            ..Tables::default()
+        };
+        let (first, last) = measure(pid, None, &tables()).unwrap();
         // the first measure has nothing to compare with
         assert_eq!((first.received_per_sec, first.sent_per_sec), (0, 0));
         client.write_all(&[7; 100_000]).unwrap();
         let mut got = vec![0; 100_000];
         server.read_exact(&mut got).unwrap();
         std::thread::sleep(Duration::from_millis(100));
-        let (sample, _) = measure(pid, Some(&last), &HashMap::new(), &tcp_traffic()).unwrap();
+        let (sample, _) = measure(pid, Some(&last), &tables()).unwrap();
         // both ends live in this process, other tests may add their own sockets
         assert!(sample.sent_per_sec >= 100_000, "{sample:?}");
         assert!(sample.received_per_sec >= 100_000, "{sample:?}");
+    }
+
+    #[test]
+    fn established_rows_to_this_machine_are_read() {
+        let table = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 00000000:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 4242 1
+   1: 0100007F:A1B2 0100007F:1F90 01 00000000:00000000 00:00000000 00000000  1000        0 4343 1
+   2: 0A00020F:A1B3 0A00020F:0BB8 01 00000000:00000000 00:00000000 00000000  1000        0 4444 1
+   3: 0A00020F:A1B4 5DB8D822:01BB 01 00000000:00000000 00:00000000 00000000  1000        0 4545 1";
+        // the loopback one and the one to its own address, not the one to a far host
+        assert_eq!(parse_established(table), vec![(4343, 8080), (4444, 3000)]);
+        assert!(loopback("0100007F"));
+        assert!(loopback("00000000000000000000000001000000"));
+        assert!(loopback("0000000000000000FFFF00000100007F"));
+        assert!(!loopback("5DB8D822"));
+        assert_eq!(io_bytes("rchar: 10\nwchar: 5\nsyscr: 99\n"), 15);
+    }
+
+    #[test]
+    fn unix_diag_messages_give_inode_and_peer() {
+        let mut msg = vec![0u8; 16];
+        msg[4..8].copy_from_slice(&77u32.to_ne_bytes());
+        msg.extend(8u16.to_ne_bytes());
+        msg.extend(UNIX_DIAG_PEER.to_ne_bytes());
+        msg.extend(88u32.to_ne_bytes());
+        let mut buf = Vec::new();
+        for (kind, body) in [(SOCK_DIAG_BY_FAMILY, &msg[..]), (3, &[0u8; 4][..])] {
+            buf.extend(((NLMSG_HEADER + body.len()) as u32).to_ne_bytes());
+            buf.extend(kind.to_ne_bytes());
+            buf.extend([0u8; 10]);
+            buf.extend(body);
+        }
+        let mut peers = HashMap::new();
+        assert!(parse_unix_messages(&buf, &mut peers).unwrap());
+        assert_eq!(peers, HashMap::from([(77, 88)]));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn local_connections_and_unix_peers_of_a_tree_are_found() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let _client = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        let _server = listener.accept().unwrap();
+        let (a, b) = std::os::unix::net::UnixStream::pair().unwrap();
+        let tables = Tables {
+            established: established_local(),
+            unix_peers: unix_peers(),
+            ..Tables::default()
+        };
+        let (sample, _) = measure(std::process::id(), None, &tables).unwrap();
+        assert!(sample.connected_ports.contains(&port), "{sample:?}");
+        // both ends of the pair are held here, each names the other
+        let inode = |stream: &std::os::unix::net::UnixStream| {
+            use std::os::unix::fs::MetadataExt;
+            std::fs::metadata(format!(
+                "/proc/self/fd/{}",
+                std::os::fd::AsRawFd::as_raw_fd(stream)
+            ))
+            .unwrap()
+            .ino()
+        };
+        assert!(
+            sample.unix_sockets.contains(&(inode(&a), inode(&b))),
+            "{:?}",
+            sample.unix_sockets
+        );
+        assert!(sample.io_bytes > 0);
     }
 
     #[test]

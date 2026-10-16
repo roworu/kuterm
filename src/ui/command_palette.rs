@@ -512,6 +512,12 @@ impl InputPrompt {
         }
     }
 
+    /// start with `text` in the field, like a value being edited
+    pub fn set_text(&self, text: String, cx: &mut Context<Self>) {
+        self.input
+            .update(cx, |input, cx| input.set_content(text, cx));
+    }
+
     /// enter fills the input, escape cancels the whole command
     fn key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
         match event.keystroke.key.as_str() {

@@ -2,6 +2,7 @@ mod cli;
 mod completion;
 mod events_bus;
 mod mcp;
+mod plugins;
 mod remote;
 mod settings;
 mod terminal;
@@ -111,6 +112,7 @@ fn init(portal: PortalAppearance, cx: &mut App) {
     if Settings::get(cx).window.global_menu {
         ui::workspace::start_global_menu(cx);
     }
+    plugins::start(cx);
 }
 
 fn main() {

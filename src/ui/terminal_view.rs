@@ -19,8 +19,9 @@ use gpui::{
 use crate::{
     settings::{BellTarget, PatternAction, Settings, SmoothScrollSettings},
     terminal::{
-        Event, KeyEventKind, Link, MouseAction, MouseButton, Terminal, TextPatterns, ViKey,
-        foreground_process, paste_check,
+        Event, InputSource, KeyEventKind, Link, MouseAction, MouseButton, Popover, Terminal,
+        TextPatterns, ViKey, foreground_process, parse_file_line, paste_check, resolve_file,
+        snippet,
     },
     ui::{
         hints::{HintKey, Hints},
@@ -54,6 +55,10 @@ pub enum ViewEvent {
     ConfirmPaste(String),
     /// hint picked in hints mode, a command asking for `{hint}` runs on it
     HintPicked(String),
+    /// the user scrolled the history this many lines, positive up
+    Scrolled(i32),
+    /// a link names a line of a file, the workspace looks for an editor to open it in
+    OpenFileLine(Link),
 }
 
 /// input the view wrote to its terminal, so panes typed into together get the same
@@ -65,6 +70,11 @@ pub enum TypedInput {
     Text(String),
     Paste(String),
 }
+
+// the mouse rests on a `file:line` this long before its peek shows
+const PEEK_DELAY: Duration = Duration::from_millis(500);
+// lines a peek shows above and below the named one
+const PEEK_AROUND: u32 = 5;
 
 // alpha of the default bell flash, enough to see without hiding the text
 const BELL_FLASH_OPACITY: f32 = 0.2;
@@ -116,6 +126,10 @@ pub struct TerminalView {
     scroll_animation: Option<ScrollAnimation>,
     /// repaints once the scrollbar should hide, replacing it cancels the old timer
     _hide_scrollbar: Task<()>,
+    /// shows the peek of the `file:line` under the mouse once it rests there
+    _peek: Task<()>,
+    /// cell the peek waits on or shows, so moving inside it starts nothing new
+    peek_cell: Option<(i32, usize)>,
     /// false while a blinking cursor is in its hidden phase
     cursor_on: bool,
     /// flips `cursor_on` on every tick, none while the cursor does not blink
@@ -170,6 +184,8 @@ impl TerminalView {
             history_size: 0,
             scroll_animation: None,
             _hide_scrollbar: Task::ready(()),
+            _peek: Task::ready(()),
+            peek_cell: None,
             cursor_on: true,
             blink: None,
             font_size: None,
@@ -271,8 +287,9 @@ impl TerminalView {
     pub fn commit_text(&mut self, text: &str, cx: &mut Context<Self>) {
         if !text.is_empty() {
             self.input_happened(cx);
-            self.terminal
-                .update(cx, |term, _| term.input(text.to_string().into_bytes()));
+            self.terminal.update(cx, |term, _| {
+                term.input(InputSource::Keyboard, text.to_string().into_bytes())
+            });
             cx.emit(TypedInput::Text(text.to_string()));
         }
     }
@@ -282,7 +299,11 @@ impl TerminalView {
         let bar = match &self.search_bar {
             Some((bar, _)) => bar.clone(),
             None => {
-                let bar = cx.new(|cx| SearchBar::new(self.terminal.clone(), cx));
+                let mouse = self.last_mouse.map(|(position, _)| position);
+                let block = self
+                    .terminal
+                    .update(cx, |terminal, _| terminal.block_for_search(mouse));
+                let bar = cx.new(|cx| SearchBar::new(self.terminal.clone(), block, cx));
                 let subscription =
                     cx.subscribe_in(&bar, window, |this, _, _: &DismissEvent, window, cx| {
                         this.close_search(window, cx)
@@ -481,7 +502,12 @@ impl TerminalView {
             KeyEventKind::Press
         };
         if self.terminal.update(cx, |term, _| {
-            term.try_keystroke(&event.keystroke, kind, option_as_meta)
+            term.try_keystroke(
+                &event.keystroke,
+                kind,
+                option_as_meta,
+                InputSource::Keyboard,
+            )
         }) {
             // input jumps to the bottom, a running glide would pull the view back up
             self.input_happened(cx);
@@ -497,7 +523,12 @@ impl TerminalView {
         }
         let option_as_meta = Settings::get(cx).terminal.option_as_meta;
         if self.terminal.update(cx, |term, _| {
-            term.try_keystroke(&event.keystroke, KeyEventKind::Release, option_as_meta)
+            term.try_keystroke(
+                &event.keystroke,
+                KeyEventKind::Release,
+                option_as_meta,
+                InputSource::Keyboard,
+            )
         }) {
             cx.stop_propagation();
             cx.emit(TypedInput::Key(
@@ -525,6 +556,18 @@ impl TerminalView {
                 lines
             }
         };
+        // a block kept at its printed width scrolls sideways
+        if lines != 0 && event.modifiers.shift {
+            let line = self.terminal.read(cx).wide_block_line(event.position);
+            if let Some(line) = line
+                && self.terminal.update(cx, |terminal, _| {
+                    terminal.scroll_wide_block(line, -lines * 4)
+                })
+            {
+                cx.notify();
+                return;
+            }
+        }
         if lines != 0 && event.modifiers.control {
             // one step per event, a wheel notch is several lines
             let size = self.font_size(cx) + lines.signum() as f32;
@@ -565,6 +608,7 @@ impl TerminalView {
             } else {
                 self.terminal.update(cx, |term, _| term.scroll(lines));
             }
+            cx.emit(ViewEvent::Scrolled(lines));
             self.show_scrollbar(cx);
             cx.notify();
         }
@@ -665,12 +709,62 @@ impl TerminalView {
             cx.set_global(LinkPatterns::default());
         }
         let terminal = self.terminal.clone();
+        let mut wanted = Settings::get(cx).links.patterns.clone();
+        wanted.extend(crate::plugins::patterns(cx));
         cx.update_global(|patterns: &mut LinkPatterns, cx| {
-            patterns.0.update(&Settings::get(cx).links.patterns);
+            patterns.0.update(&wanted);
             terminal.update(cx, |terminal, _| {
                 terminal.link_at(position, &mut patterns.0)
             })
         })
+    }
+
+    // the peek shows after the mouse rested on a `file:line`, and goes once it leaves it
+    fn update_peek(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        if !Settings::get(cx).links.peek {
+            return;
+        }
+        let terminal = self.terminal.read(cx);
+        let found = terminal.file_line_at(position);
+        let cell = found
+            .as_ref()
+            .map(|(_, range, _)| (range.start().line.0, range.start().column.0));
+        if cell == self.peek_cell {
+            return;
+        }
+        self.peek_cell = cell;
+        if terminal.decorations().popover.is_some() {
+            self.terminal.update(cx, |terminal, _| {
+                terminal.decorate(|decorations| decorations.popover = None)
+            });
+            cx.notify();
+        }
+        let Some((at, range, cwd)) = found else {
+            self._peek = Task::ready(());
+            return;
+        };
+        let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+        let path = resolve_file(&at.path, cwd.as_deref(), home.as_deref());
+        self._peek = cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(PEEK_DELAY).await;
+            let lines = cx
+                .background_spawn(async move { snippet(&path, at.line, PEEK_AROUND) })
+                .await;
+            let Some(content) = lines else {
+                return;
+            };
+            this.update(cx, |this, cx| {
+                let popover = Popover {
+                    range: (*range.start(), *range.end()),
+                    content,
+                };
+                this.terminal.update(cx, |terminal, _| {
+                    terminal.decorate(|decorations| decorations.popover = Some(popover))
+                });
+                cx.notify();
+            })
+            .ok();
+        });
     }
 
     // underline follows the mouse, the modifier and output moving the text
@@ -698,6 +792,18 @@ impl TerminalView {
 
     /// run what a link or hint is for: open, copy, paste or a command
     pub fn run_link(&mut self, link: &Link, cx: &mut Context<Self>) {
+        if link.action == PatternAction::Open
+            && Settings::get(cx).links.open_in_running_editor
+            && parse_file_line(&link.target).is_some()
+        {
+            cx.emit(ViewEvent::OpenFileLine(link.clone()));
+            return;
+        }
+        self.run_link_here(link, cx);
+    }
+
+    /// run what a link is for in this view, never handing it to another pane
+    pub fn run_link_here(&mut self, link: &Link, cx: &mut Context<Self>) {
         match &link.action {
             // kuterm's own links open here, after this view is done updating
             PatternAction::Open if link.target.starts_with("kuterm://") => {
@@ -711,8 +817,19 @@ impl TerminalView {
             }
             PatternAction::Paste => {
                 self.input_happened(cx);
-                self.terminal
-                    .update(cx, |terminal, _| terminal.paste(&link.target));
+                self.terminal.update(cx, |terminal, _| {
+                    terminal.paste(InputSource::Paste, &link.target)
+                });
+            }
+            PatternAction::Plugin(plugin) => {
+                let pane = self.terminal.read(cx).pane_id;
+                crate::plugins::pattern_clicked(
+                    plugin,
+                    link.name.as_deref(),
+                    &link.target,
+                    pane,
+                    cx,
+                );
             }
             PatternAction::Exec(command) => {
                 let shell_pid = self.terminal.read(cx).shell_pid;
@@ -795,8 +912,16 @@ impl TerminalView {
     /// or report the motion to a program that asked for it
     pub fn mouse_move(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
         self.last_mouse = Some((event.position, event.modifiers));
+        // gutter tooltips follow the mouse, the element reads where it is
+        let terminal = self.terminal.read(cx);
+        if !terminal.decorations().gutter.is_empty()
+            && event.position.x < terminal.last_content.terminal_bounds.bounds.origin.x
+        {
+            cx.notify();
+        }
         if event.pressed_button.is_none() {
             self.update_hovered_link(cx);
+            self.update_peek(event.position, cx);
         }
         if self.selecting {
             self.terminal
@@ -891,7 +1016,8 @@ impl TerminalView {
     /// paste `text` without asking
     pub fn force_paste(&mut self, text: &str, cx: &mut Context<Self>) {
         self.input_happened(cx);
-        self.terminal.update(cx, |term, _| term.paste(text));
+        self.terminal
+            .update(cx, |term, _| term.paste(InputSource::Paste, text));
         cx.emit(ViewEvent::Pasted);
         cx.emit(TypedInput::Paste(text.to_string()));
     }
@@ -910,7 +1036,8 @@ impl TerminalView {
         // a trailing space lets the next dropped path or typed argument follow right away
         text.push(' ');
         self.input_happened(cx);
-        self.terminal.update(cx, |term, _| term.paste(&text));
+        self.terminal
+            .update(cx, |term, _| term.paste(InputSource::Paste, &text));
     }
 }
 
@@ -1216,8 +1343,12 @@ mod tests {
     /// select the whole screen once the shell echoed "picked", and put "before" in the clipboard
     fn select_echoed(view: &Entity<TerminalView>, cx: &mut VisualTestContext) {
         view.update(cx, |view, cx| {
-            view.terminal
-                .update(cx, |term, _| term.input(b"echo picked\r".to_vec()))
+            view.terminal.update(cx, |term, _| {
+                term.input(
+                    crate::terminal::InputSource::Keyboard,
+                    b"echo picked\r".to_vec(),
+                )
+            })
         });
         let deadline = Instant::now() + Duration::from_secs(15);
         while !view.update(cx, |view, cx| {
@@ -1337,7 +1468,10 @@ mod tests {
         // a tab leaves a tab cell behind, so alacritty copies it with the space before it
         view.update(cx, |view, cx| {
             view.terminal.update(cx, |term, _| {
-                term.input(b"printf 'padded \\t\\n'\r".to_vec())
+                term.input(
+                    crate::terminal::InputSource::Keyboard,
+                    b"printf 'padded \\t\\n'\r".to_vec(),
+                )
             })
         });
         let deadline = Instant::now() + Duration::from_secs(15);

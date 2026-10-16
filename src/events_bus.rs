@@ -64,6 +64,13 @@ pub enum BusEvent {
     PaneOpened {
         pane: u64,
     },
+    /// tty settings of the pane changed, like echo going off for a password prompt
+    PtyModesChanged {
+        pane: u64,
+        echo: bool,
+        icanon: bool,
+        ixon: bool,
+    },
     PaneClosed {
         pane: u64,
     },
@@ -160,6 +167,12 @@ mod tests {
                 text: "error".into(),
             },
             BusEvent::PaneOpened { pane: 1 },
+            BusEvent::PtyModesChanged {
+                pane: 1,
+                echo: false,
+                icanon: true,
+                ixon: true,
+            },
             BusEvent::PaneClosed { pane: 1 },
             BusEvent::FocusChanged { pane: 1 },
         ];

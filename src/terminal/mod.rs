@@ -4,7 +4,10 @@ mod blocks;
 mod bounds;
 mod builder;
 mod content;
+mod context;
+mod decorations;
 mod events;
+mod file_links;
 mod frozen;
 mod graphics;
 mod integration;
@@ -13,12 +16,19 @@ mod links;
 mod mouse;
 pub mod paste_check;
 mod process;
+mod prompt;
+mod pty_state;
+mod queue;
 mod sampler;
+mod sandbox;
 mod scanner;
 mod scrollback;
 mod search;
 mod selection;
+mod sleep;
+mod sources;
 mod vi;
+mod wide_blocks;
 
 use std::{
     borrow::Cow,
@@ -45,15 +55,25 @@ pub use blocks::Block;
 pub use bounds::TerminalBounds;
 pub use builder::TerminalBuilder;
 pub use content::{Content, IndexedCell};
+pub use context::PaneContext;
+pub use decorations::{Decorations, GutterMark, Popover};
+pub use file_links::{FileLine, parse_file_line, resolve as resolve_file, snippet};
 pub use integration::with_shell_integration;
 pub use links::{Link, TextPatterns};
 pub use mouse::{MouseAction, MouseButton};
 #[cfg(test)]
 pub(crate) use process::tests::{Kill, spawn};
-pub use process::{ForegroundProcess, children, foreground_process, process_info, tty_echoes};
+pub use process::{
+    ForegroundProcess, PtyModes, StoppedJob, children, foreground_process, process_info, pty_modes,
+    stopped_jobs, tty_echoes,
+};
+pub use prompt::{GhostText, HintLine};
+pub use pty_state::{PtyState, Question};
+pub use queue::{CommandQueue, parse_entry as parse_queue_entry};
 pub use sampler::{CPU_HISTORY, ProcessSampler, TreeSample};
 pub use scanner::{Progress, ScanEvent};
-pub use search::{FoundLine, SearchQuery, SearchStatus, search_pattern};
+pub use search::{FoundLine, SearchQuery, SearchScope, SearchStatus, search_pattern};
+pub use sources::{InputSource, Sources};
 pub use vi::ViKey;
 
 use builder::{ZedListener, term_config};
@@ -100,6 +120,28 @@ pub enum Event {
     /// the program started or stopped reporting progress with osc 9;4. a stop that came
     /// with the end of its command is not told
     BusyChanged(bool),
+    /// the queue typed its next command, or a failure paused it
+    QueueChanged,
+    /// a command failed with `exit` while commands were queued, the queue waits
+    QueuePaused {
+        exit: Option<i32>,
+    },
+}
+
+/// a source that wrote input, first and last time since the prompt
+#[derive(Clone, Copy, Debug)]
+struct TypedSource {
+    first: std::time::Instant,
+    last: std::time::Instant,
+    source: InputSource,
+}
+
+/// `typed` without what was written before `at`
+fn typed_after(typed: &mut Vec<TypedSource>, at: std::time::Instant) {
+    typed.retain(|typed| typed.last > at);
+    for typed in typed {
+        typed.first = typed.first.max(at);
+    }
 }
 
 /// clipboard access waiting for the user to allow it
@@ -129,6 +171,10 @@ pub struct Terminal {
     pub shell_pid: u32,
     /// id of the pane for remote control, its shell has it in $KUTERM_PANE
     pub pane_id: u64,
+    /// keeps no history, is never saved or read from outside, wiped when dropped
+    pub incognito: bool,
+    /// the shell runs in a sandbox
+    pub sandboxed: bool,
     /// color scheme from the profile, global theme when none
     theme_settings: Option<ProfileTheme>,
     theme: Option<Theme>,
@@ -157,6 +203,39 @@ pub struct Terminal {
     frozen: Option<frozen::Frozen>,
     /// commands the shell ran
     blocks: blocks::Blocks,
+    /// the shell shows its prompt, between the `A` and `C` marks
+    at_prompt: bool,
+    /// number of the mark of the prompt shown, set at `B`
+    prompt_mark: Option<usize>,
+    /// the shell marks the end of its prompts with `B`
+    saw_prompt_end: bool,
+    /// drawn after the cursor until the next command
+    ghost_text: Option<GhostText>,
+    /// drawn under the prompt line until the next command
+    hint_line: Option<HintLine>,
+    /// commands typed at the next prompts
+    queue: CommandQueue,
+    /// a failed command pauses the queue
+    queue_stop_on_failure: bool,
+    /// tty settings and stopped jobs from the last title refresh
+    pty_state: PtyState,
+    /// marks, chips and popovers drawn with the grid
+    decorations: Decorations,
+    /// history packed away while the tab sleeps
+    slept: Option<sleep::Slept>,
+    /// finished blocks drawn at the width they were printed at, by block id
+    wide_blocks: HashMap<u64, wide_blocks::WideBlock>,
+    /// narrowing keeps finished blocks at their width
+    keep_block_width: bool,
+    /// when ctrl+s paused output, none once something let it go
+    xoff_at: Option<std::time::Instant>,
+    /// ctrl+s from the keyboard may pause output
+    send_xoff: bool,
+    /// when the program last printed something
+    last_output: std::time::Instant,
+    /// what wrote input and when, since the prompt was drawn. timed, since the marks of the
+    /// prompt may be handled after input already came
+    typed_sources: Vec<TypedSource>,
     /// images the program showed
     graphics: graphics::SharedGraphics,
     /// cell size for sizing images, shared with the pty thread
@@ -217,6 +296,9 @@ impl Terminal {
     /// apply changed settings, like word separators, to the running terminal
     pub fn apply_settings(&mut self, settings: &TerminalSettings) {
         self.clipboard = settings.clipboard;
+        self.queue_stop_on_failure = settings.queue_stop_on_failure;
+        self.send_xoff = settings.send_xoff;
+        self.keep_block_width = settings.keep_block_width;
         self.term.lock().set_options(term_config(settings));
         self.dirty.store(true, Ordering::Release);
     }
@@ -225,12 +307,22 @@ impl Terminal {
         self.pty_tx.notify(input.into());
     }
 
-    /// send user input, dropping any selection and jumping back to bottom of scrollback
-    pub fn input(&mut self, input: impl Into<Cow<'static, [u8]>>) {
+    /// send input from `source`, dropping any selection and jumping back to bottom of
+    /// scrollback. false when it was refused, like automation typing into a password prompt
+    pub fn input(&mut self, source: InputSource, input: impl Into<Cow<'static, [u8]>>) -> bool {
+        let input = input.into();
+        if !source.may_answer_secret() && self.asking_secret() {
+            return false;
+        }
+        if source == InputSource::Keyboard && self.xoff_filter(&input).is_none() {
+            return false;
+        }
+        self.note_source(source);
         self.inputs += 1;
         self.clear_selection();
         self.events.push(InternalEvent::Scroll(Scroll::Bottom));
         self.write_to_pty(input);
+        true
     }
 
     /// queue a resize, applied on next `sync`
@@ -270,16 +362,35 @@ impl Terminal {
             .push(InternalEvent::Scroll(Scroll::Delta(lines)));
     }
 
-    /// map a keystroke to an escape sequence and write it, returns false if unmapped
+    fn note_source(&mut self, source: InputSource) {
+        let now = std::time::Instant::now();
+        // a long session at one prompt only needs each source once
+        match self
+            .typed_sources
+            .iter_mut()
+            .find(|typed| typed.source == source)
+        {
+            Some(typed) => typed.last = now,
+            None => self.typed_sources.push(TypedSource {
+                first: now,
+                last: now,
+                source,
+            }),
+        }
+    }
+
+    /// map a keystroke from `source` to an escape sequence and write it, returns false if
+    /// unmapped
     pub fn try_keystroke(
         &mut self,
         keystroke: &Keystroke,
         kind: KeyEventKind,
         option_as_meta: bool,
+        source: InputSource,
     ) -> bool {
         let mode = self.last_content.mode;
         if let Some(esc) = to_kitty_str(keystroke, mode, kind) {
-            self.input(esc.into_bytes());
+            self.input(source, esc.into_bytes());
             return true;
         }
         // only kitty's protocol tells about repeats and releases
@@ -287,17 +398,18 @@ impl Terminal {
             return false;
         }
         match to_esc_str(keystroke, mode, option_as_meta) {
-            Some(Cow::Borrowed(esc)) => self.input(esc.as_bytes()),
-            Some(Cow::Owned(esc)) => self.input(esc.into_bytes()),
+            Some(Cow::Borrowed(esc)) => self.input(source, esc.as_bytes()),
+            Some(Cow::Owned(esc)) => self.input(source, esc.into_bytes()),
             None => return false,
-        }
+        };
         true
     }
 
-    /// paste text, wrapping it when program asked for bracketed paste
-    pub fn paste(&mut self, text: &str) {
+    /// paste text from `source`, wrapping it when program asked for bracketed paste. false
+    /// when it was refused
+    pub fn paste(&mut self, source: InputSource, text: &str) -> bool {
         let bracketed = self.last_content.mode.contains(TermMode::BRACKETED_PASTE);
-        self.input(pasted(text, bracketed).into_bytes());
+        self.input(source, pasted(text, bracketed).into_bytes())
     }
 
     /// true when pasting `text` should be confirmed: without bracketed paste a newline runs
@@ -379,13 +491,43 @@ impl Terminal {
         let mut events = Vec::new();
         for (at, event) in found {
             match event {
-                ScanEvent::PromptStart => {}
+                ScanEvent::PromptStart => {
+                    typed_after(&mut self.typed_sources, at);
+                    self.at_prompt = true;
+                    self.prompt_mark = None;
+                    // shells that never mark the prompt's end get the queue at its start,
+                    // the line editor reads what was typed once it is up
+                    if !self.saw_prompt_end && self.run_queue() {
+                        events.push(Event::QueueChanged);
+                    }
+                }
+                ScanEvent::PromptEnd(mark) => {
+                    typed_after(&mut self.typed_sources, at);
+                    self.saw_prompt_end = true;
+                    self.at_prompt = true;
+                    self.prompt_mark = mark;
+                    if self.run_queue() {
+                        events.push(Event::QueueChanged);
+                    }
+                }
                 ScanEvent::CommandStart { prompt, output } => {
+                    self.at_prompt = false;
+                    self.prompt_mark = None;
+                    self.ghost_text = None;
+                    self.hint_line = None;
                     self.command_started = Some(at);
                     self.last_command = Some((prompt, output));
                     let term = self.term.lock_unfair();
                     let cwd = self.reported_cwd.clone();
-                    let block = self.blocks.start(&term, prompt, output, cwd, at);
+                    // what came after the command started is input to the program, not its line
+                    let sources: Sources = self
+                        .typed_sources
+                        .iter()
+                        .filter(|typed| typed.first <= at)
+                        .map(|typed| typed.source)
+                        .collect();
+                    typed_after(&mut self.typed_sources, at);
+                    let block = self.blocks.start(&term, prompt, output, cwd, at, sources);
                     drop(term);
                     events.push(Event::CommandStarted { block });
                 }
@@ -402,7 +544,11 @@ impl Terminal {
                     {
                         events.remove(at);
                     }
-                    self.blocks.end(exit, at);
+                    let columns = self.term.lock_unfair().columns();
+                    self.blocks.end(exit, at, columns);
+                    if self.queue.ended(exit, self.queue_stop_on_failure) {
+                        events.push(Event::QueuePaused { exit });
+                    }
                     // a prompt drawn without running anything ends nothing
                     if let Some(started) = self.command_started.take() {
                         events.push(Event::CommandFinished {
@@ -461,9 +607,20 @@ impl Terminal {
         if self.holds_frame() {
             return;
         }
+        // only shown tabs sync, so a sleeping one wakes when it is shown, and before a
+        // resize reflows its history
+        self.wake();
         // many frames are repaints for focus or tab changes, skip the copy for those
         if !self.dirty.swap(false, Ordering::Acquire) && self.events.is_empty() {
             return;
+        }
+        // wide blocks are copied before alacritty reflows them, and found again after
+        let resize_to = self.events.iter().rev().find_map(|event| match event {
+            InternalEvent::Resize(bounds) => Some(bounds.num_columns()),
+            InternalEvent::Scroll(_) => None,
+        });
+        if let Some(columns) = resize_to {
+            self.keep_wide_blocks(columns);
         }
         let mut term = self.term.lock_unfair();
         for event in self.events.drain(..) {
@@ -475,9 +632,20 @@ impl Terminal {
                 InternalEvent::Scroll(scroll) => term.scroll_display(scroll),
             }
         }
+        if resize_to.is_some() && !self.wide_blocks.is_empty() {
+            drop(term);
+            self.place_wide_blocks();
+            term = self.term.lock_unfair();
+        }
         let graphics = self.graphics.lock().unwrap();
         self.last_content
             .refresh(&term, self.search.as_mut(), &graphics);
+        wide_blocks::replace_rows(
+            &mut self.last_content.cells,
+            &self.wide_blocks,
+            term.grid().history_size(),
+            term.columns(),
+        );
     }
 }
 
@@ -498,6 +666,35 @@ fn pasted(text: &str, bracketed: bool) -> String {
 impl Drop for Terminal {
     fn drop(&mut self) {
         self.pty_tx.0.send(Msg::Shutdown).ok();
+        if self.incognito {
+            self.wipe();
+        }
+    }
+}
+
+impl Terminal {
+    /// overwrite every cell of the history and screen, so the text is gone from memory
+    /// before it is freed. best effort: copies made earlier, like the snapshot, are wiped
+    /// where kuterm still holds them
+    fn wipe(&mut self) {
+        use alacritty_terminal::index::{Column, Line};
+        let mut term = self.term.lock();
+        let (top, bottom, columns) = (
+            term.topmost_line().0,
+            term.bottommost_line().0,
+            term.columns(),
+        );
+        let grid = term.grid_mut();
+        for line in top..=bottom {
+            for column in 0..columns {
+                grid[Line(line)][Column(column)] = Default::default();
+            }
+        }
+        grid.clear_history();
+        drop(term);
+        for cell in &mut self.last_content.cells {
+            cell.cell = Default::default();
+        }
     }
 }
 
@@ -571,18 +768,57 @@ mod tests {
     }
 
     #[test]
+    fn wipe_overwrites_history_and_screen() {
+        let mut builder = spawn_long_output(&TerminalSettings::default());
+        let terminal = &mut builder.terminal;
+        assert!(terminal.visible_screen_text(true).0.contains("line_0"));
+        terminal.wipe();
+        assert_eq!(terminal.visible_screen_text(true).0, "");
+        assert_eq!(terminal.history_size(), 0);
+        assert!(screen_text(terminal).trim().is_empty());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn shells_start_with_no_signal_blocked() {
+        // ui threads block job control signals, the shell must not inherit that
+        let blocked = std::thread::spawn(|| {
+            unsafe {
+                let mut set: libc::sigset_t = std::mem::zeroed();
+                libc::sigemptyset(&mut set);
+                libc::sigaddset(&mut set, libc::SIGTSTP);
+                libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut());
+            }
+            let profile = profile(Shell::WithArguments {
+                program: "/bin/sh".into(),
+                args: vec![
+                    "-c".into(),
+                    "grep SigBlk /proc/self/status | tr -d ' \\t'; sleep 5".into(),
+                ],
+            });
+            let mut builder = spawn_with(&TerminalSettings::default(), &profile);
+            wait_for_text(&mut builder.terminal, "SigBlk:0000000000000000");
+        });
+        blocked.join().unwrap();
+    }
+
+    #[test]
     fn shell_runs_input() {
         let mut builder = spawn(&TerminalSettings::default());
-        builder.terminal.input(b"echo out_$((6*7))\r".to_vec());
+        builder.terminal.input(
+            crate::terminal::InputSource::Keyboard,
+            b"echo out_$((6*7))\r".to_vec(),
+        );
         wait_for_text(&mut builder.terminal, "out_42");
     }
 
     #[test]
     fn term_program_version_is_own() {
         let mut builder = spawn(&TerminalSettings::default());
-        builder
-            .terminal
-            .input(b"echo ver=$TERM_PROGRAM_VERSION=\r".to_vec());
+        builder.terminal.input(
+            crate::terminal::InputSource::Keyboard,
+            b"echo ver=$TERM_PROGRAM_VERSION=\r".to_vec(),
+        );
         wait_for_text(
             &mut builder.terminal,
             &format!("ver={}=", env!("CARGO_PKG_VERSION")),
@@ -684,10 +920,10 @@ mod tests {
         let mut builder = spawn_with(&TerminalSettings::default(), &profile);
         let terminal = &mut builder.terminal;
         assert!(!terminal.last_content.cursor_blinking);
-        terminal.input(b"\r".to_vec());
+        terminal.input(crate::terminal::InputSource::Keyboard, b"\r".to_vec());
         wait_for_text(terminal, "blink_on");
         assert!(terminal.last_content.cursor_blinking);
-        terminal.input(b"\r".to_vec());
+        terminal.input(crate::terminal::InputSource::Keyboard, b"\r".to_vec());
         wait_for_text(terminal, "blink_off");
         assert!(!terminal.last_content.cursor_blinking);
     }
@@ -700,14 +936,19 @@ mod tests {
             px(10.),
             Bounds::new(point(px(0.), px(0.)), size(px(1000.), px(500.))),
         ));
-        builder.terminal.input(b"echo size=$(stty size)\r".to_vec());
+        builder.terminal.input(
+            crate::terminal::InputSource::Keyboard,
+            b"echo size=$(stty size)\r".to_vec(),
+        );
         wait_for_text(&mut builder.terminal, "size=25 100");
     }
 
     #[test]
     fn exit_emits_exit_event() {
         let mut builder = spawn(&TerminalSettings::default());
-        builder.terminal.input(b"exit\r".to_vec());
+        builder
+            .terminal
+            .input(crate::terminal::InputSource::Keyboard, b"exit\r".to_vec());
         let deadline = Instant::now() + Duration::from_secs(15);
         loop {
             while let Some(event) = builder.events_rx.next().now_or_never() {
@@ -725,7 +966,10 @@ mod tests {
     #[test]
     fn foreground_process_follows_shell() {
         let mut builder = spawn(&TerminalSettings::default());
-        builder.terminal.input(b"cd /tmp && sleep 5\r".to_vec());
+        builder.terminal.input(
+            crate::terminal::InputSource::Keyboard,
+            b"cd /tmp && sleep 5\r".to_vec(),
+        );
         let deadline = Instant::now() + Duration::from_secs(15);
         loop {
             let process = foreground_process(builder.terminal.shell_pid);
@@ -755,7 +999,9 @@ mod tests {
         });
         let mut builder = spawn_with(settings, &profile);
         // print only after the resize, growing the screen later pulls lines out of history
-        builder.terminal.input(b"\r".to_vec());
+        builder
+            .terminal
+            .input(crate::terminal::InputSource::Keyboard, b"\r".to_vec());
         wait_for_text(&mut builder.terminal, "long_done");
         builder
     }
@@ -826,6 +1072,7 @@ mod tests {
             regex,
             whole_word,
             case: crate::settings::SearchCase::Smart,
+            scope: Default::default(),
         }
     }
 
@@ -1052,7 +1299,12 @@ mod tests {
                 .contains(TermMode::DISAMBIGUATE_ESC_CODES)
         );
         let ctrl_i = gpui::Keystroke::parse("ctrl-i").unwrap();
-        assert!(terminal.try_keystroke(&ctrl_i, super::KeyEventKind::Press, false));
+        assert!(terminal.try_keystroke(
+            &ctrl_i,
+            super::KeyEventKind::Press,
+            false,
+            super::InputSource::Keyboard
+        ));
         // ESC [ 1 0 5 ; 5 u, ctrl-i is no longer the same as tab
         wait_for_text(terminal, "1b5b3130353b3575=got");
     }
@@ -1069,7 +1321,7 @@ mod tests {
         });
         let mut builder = spawn_with(&TerminalSettings::default(), &profile);
         let terminal = &mut builder.terminal;
-        terminal.input(b"\r".to_vec());
+        terminal.input(crate::terminal::InputSource::Keyboard, b"\r".to_vec());
         let deadline = Instant::now() + Duration::from_secs(15);
         loop {
             // a local change makes `sync` take a snapshot even without new output

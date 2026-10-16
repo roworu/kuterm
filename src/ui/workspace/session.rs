@@ -58,12 +58,16 @@ pub(super) fn load() -> Option<SavedNode> {
 }
 
 impl Workspace {
-    fn save_node(&self, node: &LayoutNode, cx: &gpui::App) -> Option<SavedNode> {
+    pub(super) fn save_node(&self, node: &LayoutNode, cx: &gpui::App) -> Option<SavedNode> {
         match node {
             LayoutNode::Leaf(pane) => {
-                // tabs with their own temp files, like a pager on the history, can't come back
+                // tabs with their own temp files, like a pager on the history, can't come back,
+                // incognito ones must not
                 let kept: Vec<usize> = (0..pane.tabs.len())
-                    .filter(|&ix| pane.tabs[ix].temp_file.is_none())
+                    .filter(|&ix| {
+                        let tab = &pane.tabs[ix];
+                        tab.temp_file.is_none() && !tab.view.read(cx).terminal().read(cx).incognito
+                    })
                     .collect();
                 if kept.is_empty() {
                     return None;

@@ -210,6 +210,8 @@ pub enum CommandAction {
     PinTab,
     /// open a tab with the active tab's profile and folder right next to it
     DuplicateTab,
+    /// open the default profile incognito
+    NewIncognitoTab,
     /// copy the active tab's folder to the clipboard
     CopyFolder,
     /// move the active tab with its running programs into a window of its own
@@ -253,6 +255,8 @@ pub enum CommandAction {
     PickTheme,
     /// a grid of previews of every tab, picking one switches to it
     TabOverview,
+    /// a map of the panes whose programs talk to each other
+    ShowTopology,
     /// put the active tab into a new group
     NewGroup,
     /// put the active tab into the group of the tab next to it
@@ -271,6 +275,14 @@ pub enum CommandAction {
     ToggleBroadcastAll,
     /// join the focused pane to the panes typed into together, or take it out
     ToggleBroadcastPane,
+    /// scroll the focused pane together with the other joined panes, or take it out
+    ToggleScrollSync,
+    /// ask for a command typed into the active tab once its prompt is back
+    QueueCommand,
+    /// list the active tab's queued commands to edit, reorder or drop them
+    EditQueue,
+    /// go on with the queue after a failed command paused it
+    ResumeQueue,
     /// copy the active tab's selection into the clipboard
     Copy,
     /// paste the clipboard into the active tab
@@ -321,6 +333,11 @@ pub enum CommandAction {
     Notify(String),
     /// show a notification with this text once the program running in the tab finishes
     NotifyWhenDone(String),
+    /// a palette command a plugin added
+    Plugin {
+        plugin: String,
+        command: String,
+    },
 }
 
 impl CommandAction {

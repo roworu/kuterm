@@ -10,7 +10,7 @@ use super::{RunAction, Workspace, notifications::NotificationButton};
 use crate::{
     remote::{BlockInfo, Reply, Request},
     settings::{CommandAction, Commands, Values},
-    terminal::Terminal,
+    terminal::{InputSource, Terminal},
     ui::terminal_view::TerminalView,
 };
 
@@ -70,6 +70,7 @@ pub(super) fn query_blocks(
                 output,
                 hidden,
                 link: format!("kuterm://block/{}", block.id),
+                source: block.source.list(),
             }
         })
         .collect()
@@ -144,9 +145,22 @@ impl Workspace {
             return;
         };
         let terminal = self.terminal_at(pane, ix, cx);
+        // a sleeping tab's history is read too
+        if matches!(request, Request::GetText { .. } | Request::Query { .. }) {
+            terminal.update(cx, |terminal, _| terminal.wake());
+        }
+        // nothing outside may read what an incognito tab shows
+        if terminal.read(cx).incognito
+            && matches!(request, Request::GetText { .. } | Request::Query { .. })
+        {
+            reply
+                .send(Reply::failed("the pane is incognito, it can't be read"))
+                .ok();
+            return;
+        }
         let answer = match request {
             Request::SendText { text, .. } => {
-                self.input_to(pane, ix, text.into_bytes(), cx);
+                self.input_to(pane, ix, InputSource::Remote, text.into_bytes(), cx);
                 Reply::done()
             }
             Request::GetText { scrollback, .. } => {
@@ -219,9 +233,27 @@ impl Workspace {
                     }
                 }
             }
-            Request::Run { command, .. } => {
-                self.ask_to_run(pane, ix, command, reply, window, cx);
+            Request::Run {
+                command, client, ..
+            } => {
+                let source = match client.as_deref() {
+                    Some("mcp") => InputSource::Mcp,
+                    _ => InputSource::Remote,
+                };
+                self.ask_to_run(pane, ix, command, source, reply, window, cx);
                 return;
+            }
+            Request::Queue { command, .. } => {
+                match crate::terminal::parse_queue_entry(&command, std::time::SystemTime::now()) {
+                    Some((command, at)) => {
+                        terminal.update(cx, |terminal, _| {
+                            terminal.update_queue(|queue| queue.push(command, at))
+                        });
+                        cx.notify();
+                        Reply::done()
+                    }
+                    None => Reply::failed("queue takes a command, or @HH:MM and a command"),
+                }
             }
             _ => Reply::failed("not a pane request"),
         };
@@ -264,11 +296,13 @@ impl Workspace {
 
     /// type `command` and enter into tab `ix` of `pane` once the user allows it here, or
     /// right away when they allowed every run in this tab before
+    #[allow(clippy::too_many_arguments)]
     fn ask_to_run(
         &mut self,
         pane: usize,
         ix: usize,
         command: String,
+        source: InputSource,
         reply: oneshot::Sender<Reply>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -276,7 +310,7 @@ impl Workspace {
         let tab = &self.pane(pane).expect("pane of found tab").tabs[ix];
         let view = tab.view.clone();
         if tab.remote_allowed {
-            let answer = run_in(self, &view, &command, cx);
+            let answer = run_in(self, &view, &command, source, cx);
             reply.send(answer).ok();
             return;
         }
@@ -297,7 +331,7 @@ impl Workspace {
                 {
                     pane.tabs[ix].remote_allowed = true;
                 }
-                let answer = run_in(this, &view, &command, cx);
+                let answer = run_in(this, &view, &command, source, cx);
                 reply.send(answer).ok();
             })
         };
@@ -323,11 +357,12 @@ fn run_in(
     this: &mut Workspace,
     view: &gpui::Entity<TerminalView>,
     command: &str,
+    source: InputSource,
     cx: &mut Context<Workspace>,
 ) -> Reply {
     match this.find_view(view) {
         Some((pane, ix)) => {
-            this.input_to(pane, ix, format!("{command}\r").into_bytes(), cx);
+            this.input_to(pane, ix, source, format!("{command}\r").into_bytes(), cx);
             Reply::done()
         }
         None => Reply::failed("the pane is gone"),

@@ -12,7 +12,7 @@ use std::{
 
 use crate::{
     settings::{MemoryUnit, TabTitleBlock},
-    terminal::{ForegroundProcess, Progress, TreeSample},
+    terminal::{ForegroundProcess, PaneContext, Progress, TreeSample},
 };
 
 // a hung command would freeze every tab title, so it is abandoned after this
@@ -46,6 +46,18 @@ pub(super) struct TitleInputs {
     pub clock: String,
     /// columns and rows of the terminal
     pub size: (usize, usize),
+    /// where the tab runs, filled off the main thread before the title is built
+    pub context: PaneContext,
+    /// commands waiting in the tab's queue
+    pub queued: usize,
+    /// ctrl+s paused output
+    pub xoff: bool,
+    /// names of programs stopped with ctrl+z
+    pub stopped: Vec<String>,
+    /// text of plugin title blocks by "<plugin>/<block>"
+    pub plugin_blocks: HashMap<String, String>,
+    /// icon shown whatever runs, like the one of an incognito tab
+    pub icon_override: Option<String>,
 }
 
 /// byte range in a title and the port written there
@@ -64,6 +76,8 @@ pub(super) enum Click {
     TotalMemory,
     /// list tcp traffic per tab
     TotalNetwork,
+    /// list the queued commands
+    Queue,
 }
 
 /// text of one block, or of one port of a ports block
@@ -125,6 +139,30 @@ pub(super) fn build_pieces(
             TabTitleBlock::Clock => inputs.clock.clone(),
             TabTitleBlock::Size => format!("{}×{}", inputs.size.0, inputs.size.1),
             TabTitleBlock::Git => cwd.and_then(git).unwrap_or_default(),
+            TabTitleBlock::Kube => inputs.context.kube_context.clone().unwrap_or_default(),
+            TabTitleBlock::Aws => inputs.context.aws_profile.clone().unwrap_or_default(),
+            TabTitleBlock::Venv => inputs.context.venv.clone().unwrap_or_default(),
+            TabTitleBlock::Xoff if inputs.xoff => "paused (ctrl+q)".to_string(),
+            TabTitleBlock::Xoff => String::new(),
+            TabTitleBlock::StoppedJobs => inputs
+                .stopped
+                .iter()
+                .map(|name| format!("{name}, stopped"))
+                .collect::<Vec<_>>()
+                .join(" "),
+            TabTitleBlock::Plugin(key) => {
+                inputs.plugin_blocks.get(key).cloned().unwrap_or_default()
+            }
+            TabTitleBlock::Queue => {
+                if inputs.queued > 0 {
+                    pieces.push(Piece {
+                        text: format!("⧗ {}", inputs.queued),
+                        click: Some(Click::Queue),
+                        ..Piece::default()
+                    });
+                }
+                continue;
+            }
             TabTitleBlock::CpuGraph | TabTitleBlock::TotalCpuGraph => {
                 let (from, click) = if *block == TabTitleBlock::CpuGraph {
                     (sample, None)
@@ -554,6 +592,12 @@ mod tests {
             memory_unit: MemoryUnit::Auto,
             clock: "14:05".into(),
             size: (120, 40),
+            queued: 0,
+            xoff: false,
+            stopped: Vec::new(),
+            plugin_blocks: HashMap::new(),
+            icon_override: None,
+            context: Default::default(),
         };
         build_title(
             blocks,
@@ -561,6 +605,50 @@ mod tests {
             foreground_process(inputs.shell_pid).as_ref(),
         )
         .0
+    }
+
+    #[test]
+    fn context_blocks_show_what_is_known() {
+        let mut inputs = TitleInputs {
+            number: 1,
+            shell_pid: 0,
+            title: String::new(),
+            profile_icon: None,
+            progress: None,
+            sample: None,
+            total: None,
+            memory_unit: MemoryUnit::Auto,
+            clock: String::new(),
+            size: (80, 24),
+            queued: 0,
+            xoff: false,
+            stopped: Vec::new(),
+            plugin_blocks: HashMap::new(),
+            icon_override: None,
+            context: PaneContext {
+                kube_context: Some("prod".into()),
+                venv: Some("venv".into()),
+                ..PaneContext::default()
+            },
+        };
+        let blocks = [
+            TabTitleBlock::Kube,
+            TabTitleBlock::Text("|".into()),
+            TabTitleBlock::Aws,
+            TabTitleBlock::Text("|".into()),
+            TabTitleBlock::Venv,
+        ];
+        assert_eq!(build_title(&blocks, &inputs, None).0, "prod||venv");
+        inputs.context = PaneContext::default();
+        assert_eq!(build_title(&blocks, &inputs, None).0, "||");
+        let pty = [TabTitleBlock::Xoff, TabTitleBlock::StoppedJobs];
+        assert_eq!(build_title(&pty, &inputs, None).0, "");
+        inputs.xoff = true;
+        inputs.stopped = vec!["vim".into()];
+        assert_eq!(
+            build_title(&pty, &inputs, None).0,
+            "paused (ctrl+q)vim, stopped"
+        );
     }
 
     #[test]
@@ -588,6 +676,12 @@ mod tests {
             memory_unit: MemoryUnit::Auto,
             clock: "14:05".into(),
             size: (120, 40),
+            queued: 0,
+            xoff: false,
+            stopped: Vec::new(),
+            plugin_blocks: HashMap::new(),
+            icon_override: None,
+            context: Default::default(),
         };
         let blocks = [
             TabTitleBlock::Icon,
@@ -616,6 +710,12 @@ mod tests {
             memory_unit: MemoryUnit::Auto,
             clock: "14:05".into(),
             size: (120, 40),
+            queued: 0,
+            xoff: false,
+            stopped: Vec::new(),
+            plugin_blocks: HashMap::new(),
+            icon_override: None,
+            context: Default::default(),
         };
         let build = |progress| build_title(&[TabTitleBlock::Progress], &inputs(progress), None).0;
         assert_eq!(build(None), "");
@@ -638,6 +738,12 @@ mod tests {
             memory_unit: MemoryUnit::Auto,
             clock: "14:05".into(),
             size: (120, 40),
+            queued: 0,
+            xoff: false,
+            stopped: Vec::new(),
+            plugin_blocks: HashMap::new(),
+            icon_override: None,
+            context: Default::default(),
         };
         let blocks = [TabTitleBlock::Text("a".into()), TabTitleBlock::Progress];
         let busy = build_title(&blocks, &inputs, None).0;
@@ -736,6 +842,7 @@ mod tests {
                 received_per_sec: 1536,
                 sent_per_sec: 12,
                 cpu_history: Vec::new(),
+                ..TreeSample::default()
             }),
             total: Some(TreeSample {
                 cpu_percent: 150.,
@@ -744,10 +851,17 @@ mod tests {
                 received_per_sec: 5 << 20,
                 sent_per_sec: 1 << 10,
                 cpu_history: Vec::new(),
+                ..TreeSample::default()
             }),
             memory_unit: MemoryUnit::Auto,
             clock: "14:05".into(),
             size: (120, 40),
+            queued: 0,
+            xoff: false,
+            stopped: Vec::new(),
+            plugin_blocks: HashMap::new(),
+            icon_override: None,
+            context: Default::default(),
         }
     }
 

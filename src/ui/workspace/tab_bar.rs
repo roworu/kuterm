@@ -397,6 +397,7 @@ impl Workspace {
         let bell = tab_state.bell;
         let tab_color = tab_state.color;
         let waiting = tab_state.attention.waiting(terminal.inputs()).is_some();
+        let queued = terminal.queue().entries().len();
         let flash = tab_state
             .view
             .read(cx)
@@ -525,6 +526,15 @@ impl Workspace {
                         .flex_none()
                         .text_color(theme.text)
                         .child(BELL_ICON),
+                )
+            })
+            .when(queued > 0, |tab| {
+                tab.child(
+                    div()
+                        .debug_selector(move || format!("tab-queue-{ix}"))
+                        .flex_none()
+                        .text_xs()
+                        .child(format!("⧗{queued}")),
                 )
             })
             .when(waiting, |tab| {
@@ -713,6 +723,24 @@ impl Workspace {
                                 .text_sm()
                                 .child("⇶ broadcast"),
                         ),
+                )
+            })
+            .children(self.render_queue_list(pane, cx))
+            .children(self.render_pty_banner(pane, cx))
+            .children(self.render_profile_frame(pane, cx))
+            .when(self.scroll_synced(pane_id), |terminal| {
+                terminal.child(
+                    div()
+                        .debug_selector(move || format!("pane-scroll-sync-{pane_id}"))
+                        .absolute()
+                        .bottom_0()
+                        .right_0()
+                        .px_2()
+                        .rounded_tl_md()
+                        .bg(theme.tab_active_background)
+                        .text_color(theme.text_muted)
+                        .text_sm()
+                        .child("⇅ synced"),
                 )
             })
             .when(dim > 0., |terminal| {
@@ -948,6 +976,9 @@ impl Workspace {
         // the tab overview covers the whole window
         if let Some(overview) = &self.overview {
             return Some(deferred(overview.clone()).into_any_element());
+        }
+        if let Some(topology) = &self.topology {
+            return Some(deferred(topology.clone()).into_any_element());
         }
         let view = match (
             &self.palette,

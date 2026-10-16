@@ -94,6 +94,7 @@ fn tool_request(name: &str, arguments: &Value) -> Result<Request, String> {
         "run" => Request::Run {
             pane,
             command: string(arguments, "command").ok_or("run needs a command")?,
+            client: Some("mcp".into()),
         },
         other => return Err(format!("unknown tool {other:?}")),
     })
@@ -306,7 +307,8 @@ mod tests {
             sent,
             [Request::Run {
                 pane: None,
-                command: "make".into()
+                command: "make".into(),
+                client: Some("mcp".into()),
             }]
         );
         // a denied run is an error the agent reads

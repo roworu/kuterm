@@ -7,7 +7,7 @@ use gpui::{AppContext, Context, Entity, Window};
 use super::Workspace;
 use crate::{
     settings::{Command, Inputs, Settings, with_name},
-    terminal::{Terminal, tty_echoes},
+    terminal::{InputSource, Terminal, tty_echoes},
     ui::command_palette::CommandPalette,
 };
 
@@ -114,7 +114,10 @@ impl Workspace {
                             if enter {
                                 typed.push('\r');
                             }
-                            terminal.update(cx, |terminal, _| terminal.input(typed.into_bytes()));
+                            terminal.update(cx, |terminal, _| {
+                                // a fill is the user's own answer, like a paste
+                                terminal.input(InputSource::Paste, typed.into_bytes())
+                            });
                         }
                         Err(error) => this.show_error(format!("password manager: {error}"), cx),
                     })

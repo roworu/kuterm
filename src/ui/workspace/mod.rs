@@ -4,7 +4,9 @@ mod app_menu;
 mod attention;
 mod broadcast;
 mod command_inputs;
+mod command_queue;
 mod config_watch;
+mod editor_links;
 mod end_truncated;
 mod find_all;
 #[cfg(target_os = "linux")]
@@ -13,14 +15,19 @@ mod groups;
 mod menu_bar;
 mod notifications;
 mod passwords;
+mod plugin_ui;
+mod private_tabs;
 mod remote_verbs;
+mod scroll_sync;
 mod session;
+mod source_marks;
 mod tab_bar;
 mod tab_icon;
 mod tab_menu;
 mod tab_title;
 mod tear_off;
 mod theme_picker;
+mod waiting;
 mod window;
 
 use std::{
@@ -46,6 +53,7 @@ pub use config_watch::watch_config;
 pub use global_menu::start as start_global_menu;
 use menu_bar::{MenuBar, MenuPicked};
 use notifications::Notification;
+pub use plugin_ui::refresh_all_titles;
 pub use remote_verbs::PaneMatch;
 use tab_title::{Click, Piece, TitleInputs};
 pub use tear_off::MovedTab;
@@ -60,8 +68,9 @@ use crate::{
         TabTitleBlock, Target, Values,
     },
     terminal::{
-        Event, ProcessSampler, Terminal, TerminalBounds, TerminalBuilder, TreeSample,
-        foreground_process, with_shell_integration,
+        Event, InputSource, PaneContext, ProcessSampler, PtyState, Terminal, TerminalBounds,
+        TerminalBuilder, TreeSample, foreground_process, pty_modes, stopped_jobs,
+        with_shell_integration,
     },
     theme::{self, Theme},
     ui::{
@@ -144,6 +153,12 @@ struct TabTitle {
     agent: bool,
     /// git project the tab is in, found while tabs are grouped by project
     project: Option<PathBuf>,
+    /// where the tab runs, as the event bus tells it
+    context: String,
+    /// name of the program in front
+    process: String,
+    /// tty settings and stopped jobs read off the main thread
+    pty: PtyState,
 }
 
 struct Tab {
@@ -163,8 +178,9 @@ struct Tab {
     /// fires after a quiet gap and releases input queued for a still starting shell,
     /// replacing it on newer output drops the old task and restarts the gap
     ready_task: Task<()>,
-    /// input a command queued before the shell was ready
+    /// input a command queued before the shell was ready, and what wrote it last
     pending_input: Vec<u8>,
+    pending_source: InputSource,
     /// the bell rang while the tab was in the background, cleared when it is shown
     bell: bool,
     /// file only this tab uses, like the history its pager shows, removed with the tab
@@ -181,6 +197,14 @@ struct Tab {
     group: Option<usize>,
     /// git project of the tab on the last title refresh, while grouped by project
     project: Option<PathBuf>,
+    /// context and program in front on the last title refresh, changes go on the bus
+    context: String,
+    process: String,
+    /// the question line a program waited on at the last refresh, and whether it was told,
+    /// so it is told once
+    asked: Option<(String, bool)>,
+    /// since when the tab is not shown in its pane, none while it is
+    hidden_since: Option<Instant>,
     /// id of its terminal for remote control
     pane_id: u64,
     /// name given with "rename_pane" or `kuterm msg new-tab --name`, `--pane` finds it by it
@@ -613,6 +637,8 @@ pub struct Workspace {
     palette: Option<Entity<CommandPalette>>,
     /// open tab overview, none while it is closed
     overview: Option<Entity<TabOverview>>,
+    /// open map of the panes talking to each other, none while it is closed
+    topology: Option<Entity<crate::ui::topology::Topology>>,
     /// open about page, none while it is closed
     about: Option<Entity<About>>,
     /// open close tab dialog, none while it is closed
@@ -631,6 +657,10 @@ pub struct Workspace {
     _overlay_subscriptions: Vec<Subscription>,
     /// panes typed into together, none while input goes to the focused pane alone
     broadcast: Option<std::collections::BTreeSet<usize>>,
+    /// panes scrolled together, the active tab of each follows the others
+    scroll_sync: std::collections::BTreeSet<usize>,
+    /// patterns of questions programs wait on, compiled when they change
+    question_patterns: waiting::QuestionPatterns,
     /// tab groups of the window
     groups: Vec<groups::Group>,
     next_group_id: usize,
@@ -807,13 +837,22 @@ impl Workspace {
                 let builds = inputs
                     .into_iter()
                     .enumerate()
-                    .map(|(ix, (id, inputs, cwd))| {
+                    .map(|(ix, (id, mut inputs, cwd))| {
                         let shared = shared.clone();
                         cx.background_executor().spawn(async move {
                             let (blocks, window_blocks, status_blocks, icon_settings, icons) =
                                 &*shared;
                             // read once, the window title, tab title and icon all need it
                             let process = foreground_process(inputs.shell_pid);
+                            inputs.context = PaneContext::read(process.as_ref());
+                            let in_front = process.as_ref().map_or(inputs.shell_pid, |p| p.pid);
+                            let pty = PtyState {
+                                modes: pty_modes(in_front),
+                                shell_in_front: in_front == inputs.shell_pid,
+                                stopped: stopped_jobs(inputs.shell_pid),
+                            };
+                            let process_name =
+                                process.as_ref().map(|p| p.name.clone()).unwrap_or_default();
                             // the git project of the folder the shell reported, or of the
                             // program's folder, only while tabs are grouped by project
                             let project = cwd.and_then(|cwd| {
@@ -839,12 +878,20 @@ impl Workspace {
                                     });
                             let (title, icon_at, ports_at) =
                                 tab_title::build_title(blocks, &inputs, process.as_ref());
+                            let secret = !pty.shell_in_front
+                                && pty.modes.is_some_and(|modes| !modes.echo && modes.icanon);
                             let (icon, agent) = tab_icon::tab_icon(
                                 icon_settings,
                                 icons,
                                 inputs.profile_icon.as_deref(),
                                 process,
                             );
+                            // a lock while a password is asked, then the tab's own icon
+                            let icon = if secret {
+                                waiting::LOCK_ICON.to_string()
+                            } else {
+                                inputs.icon_override.clone().unwrap_or(icon)
+                            };
                             // the window title and status bar are plain text, so their icons go
                             // in as glyphs
                             let window_title = window_title.map(|(text, icon_at, _)| {
@@ -860,6 +907,9 @@ impl Workspace {
                                 icon,
                                 agent,
                                 project,
+                                context: inputs.context.summary(),
+                                process: process_name,
+                                pty,
                             };
                             (id, title, window_title, status)
                         })
@@ -956,6 +1006,7 @@ impl Workspace {
             tab_drag: None,
             palette: None,
             overview: None,
+            topology: None,
             about: None,
             confirm_close: None,
             confirm_paste: None,
@@ -966,6 +1017,8 @@ impl Workspace {
             _menu_bar_subscriptions,
             _overlay_subscriptions: Vec::new(),
             broadcast: None,
+            scroll_sync: Default::default(),
+            question_patterns: Default::default(),
             groups: Vec::new(),
             next_group_id: 0,
             renaming_group: None,
@@ -1100,7 +1153,13 @@ impl Workspace {
         let before = self.pane(pane).map_or(0, |pane| pane.tabs.len());
         self.add_profile_tab(pane, &profile, true, window, cx);
         if self.pane(pane).is_some_and(|pane| pane.tabs.len() > before) {
-            self.input_to(pane, before, link.command.into_bytes(), cx);
+            self.input_to(
+                pane,
+                before,
+                InputSource::Automation,
+                link.command.into_bytes(),
+                cx,
+            );
         }
     }
 
@@ -1203,10 +1262,21 @@ impl Workspace {
                     this.command_finished(&view, *duration, *exit, window, cx)
                 }
                 Event::CommandStarted { block } => {
+                    let mode = Settings::get(cx).shell_integration.mark_sources;
+                    let theme = Theme::get(cx).clone();
                     let command = terminal.update(cx, |terminal, _| {
                         let blocks = terminal.blocks();
                         let found = blocks.iter().find(|found| found.id == *block);
-                        found.map(|found| found.command.clone()).unwrap_or_default()
+                        let (command, sources) = found
+                            .map(|found| (found.command.clone(), found.source))
+                            .unwrap_or_default();
+                        if let Some(mark) =
+                            source_marks::source_mark(sources, &command, mode, &theme)
+                        {
+                            terminal
+                                .decorate(|decorations| decorations.gutter.insert(*block, mark));
+                        }
+                        command
                     });
                     EventBus::publish(BusEvent::CommandStarted {
                         pane,
@@ -1236,6 +1306,16 @@ impl Workspace {
                 }
                 // the view shows completions
                 Event::Shell(_) => {}
+                Event::QueueChanged => cx.notify(),
+                Event::QueuePaused { exit } => {
+                    let code = exit.map_or(String::new(), |exit| format!(" with {exit}"));
+                    this.show_notification(
+                        format!("a command failed{code}, the queue waits for \"resume queue\""),
+                        Some(view.clone()),
+                        cx,
+                    );
+                    cx.notify();
+                }
             }
         });
         let input_subscription = cx.subscribe(&view, |this, view, input: &TypedInput, cx| {
@@ -1251,6 +1331,8 @@ impl Workspace {
                     this.open_confirm_paste(view.clone(), text.clone(), window, cx)
                 }
                 ViewEvent::HintPicked(text) => this.hint_picked(view, text.clone(), window, cx),
+                ViewEvent::Scrolled(delta) => this.sync_scroll(view, *delta, cx),
+                ViewEvent::OpenFileLine(link) => this.open_file_line(view, link, window, cx),
             },
         );
 
@@ -1279,6 +1361,7 @@ impl Workspace {
             ready: false,
             ready_task: Task::ready(()),
             pending_input: Vec::new(),
+            pending_source: InputSource::Macro,
             bell: false,
             temp_file: None,
             custom_title: None,
@@ -1287,6 +1370,10 @@ impl Workspace {
             attention: Default::default(),
             group: None,
             project: None,
+            context: String::new(),
+            process: String::new(),
+            asked: None,
+            hidden_since: None,
             pane_id: remote_id,
             name: None,
             color: None,
@@ -1361,8 +1448,9 @@ impl Workspace {
             return;
         }
         let input = std::mem::take(&mut tab.pending_input);
+        let source = tab.pending_source;
         let terminal = tab.view.read(cx).terminal().clone();
-        terminal.update(cx, |terminal, _| terminal.input(input));
+        terminal.update(cx, |terminal, _| terminal.input(source, input));
     }
 
     /// view of the tab at `ix` in pane `pane_id`
@@ -1384,15 +1472,34 @@ impl Workspace {
     }
 
     /// write input to the tab at `ix` in pane `pane_id`, holding it back until a fresh shell is ready
-    fn input_to(&mut self, pane_id: usize, ix: usize, input: Vec<u8>, cx: &mut Context<Self>) {
+    fn input_to(
+        &mut self,
+        pane_id: usize,
+        ix: usize,
+        source: InputSource,
+        input: Vec<u8>,
+        cx: &mut Context<Self>,
+    ) {
         let tab = &mut self.pane_mut(pane_id).expect("pane from caller").tabs[ix];
         if tab.ready {
             let terminal = tab.view.read(cx).terminal().clone();
-            terminal.update(cx, |terminal, _| terminal.input(input));
+            if !terminal.update(cx, |terminal, _| terminal.input(source, input)) {
+                self.input_refused(source, cx);
+            }
         } else {
             // a shell still starting echoes raw input from the tty, so wait for its first output
             tab.pending_input.extend_from_slice(&input);
+            tab.pending_source = source;
         }
+    }
+
+    /// say why input from `source` went nowhere
+    fn input_refused(&mut self, source: InputSource, cx: &mut Context<Self>) {
+        let text = format!(
+            "{} input was not typed: a program asks for a password",
+            source.label()
+        );
+        self.show_notification(text, None, cx);
     }
 
     fn activate_tab(
@@ -1674,10 +1781,16 @@ impl Workspace {
         Ok(())
     }
 
-    /// type `text` into the active tab
+    /// type `text` of a run link into the active tab
     pub fn send_text(&mut self, text: &str, cx: &mut Context<Self>) {
         let (pane, ix) = (self.focused, self.focused_pane().active);
-        self.input_to(pane, ix, text.as_bytes().to_vec(), cx);
+        self.input_to(
+            pane,
+            ix,
+            InputSource::Automation,
+            text.as_bytes().to_vec(),
+            cx,
+        );
     }
 
     /// write `text` to a temp file and open it with `scrollback_pager` in a new tab
@@ -1746,9 +1859,18 @@ impl Workspace {
     /// name of the program running in the tab at `ix` of pane `pane_id`, none when only the shell is there
     fn running_program(&self, pane_id: usize, ix: usize, cx: &App) -> Option<String> {
         let shell_pid = self.terminal_at(pane_id, ix, cx).read(cx).shell_pid;
-        foreground_process(shell_pid)
+        // a program stopped with ctrl+z is lost with the tab just like a running one
+        let names: Vec<String> = foreground_process(shell_pid)
             .filter(|process| process.pid != shell_pid)
             .map(|process| process.name)
+            .into_iter()
+            .chain(
+                stopped_jobs(shell_pid)
+                    .into_iter()
+                    .map(|job| format!("{} (stopped)", job.name)),
+            )
+            .collect();
+        (!names.is_empty()).then(|| names.join(", "))
     }
 
     /// close the tab at `ix` of `pane_id`, asking first when a program still runs in it
@@ -2091,6 +2213,7 @@ impl Workspace {
         // theme mode and theme files are picked in settings
         self.reload_themes(window, cx);
         self.refresh_titles();
+        crate::plugins::reload(cx);
         self.show_notification("config reloaded", None, cx);
     }
 
@@ -2144,6 +2267,12 @@ impl Workspace {
                 CommandAction::ReloadConfig => self.reload_config(window, cx),
                 CommandAction::NewTab => {
                     self.add_tab(window, cx);
+                    target = None;
+                }
+                CommandAction::NewIncognitoTab => {
+                    let mut profile = Settings::get(cx).default_profile().clone();
+                    profile.incognito = true;
+                    self.add_profile_tab(self.focused, &profile, true, window, cx);
                     target = None;
                 }
                 CommandAction::NewTabWithProfile(name) => {
@@ -2278,6 +2407,11 @@ impl Workspace {
                 | CommandAction::CloseGroup => self.run_group_action(action, window, cx),
                 CommandAction::ToggleBroadcastAll => self.toggle_broadcast_all(cx),
                 CommandAction::ToggleBroadcastPane => self.toggle_broadcast_pane(cx),
+                CommandAction::ToggleScrollSync => self.toggle_scroll_sync(cx),
+                CommandAction::ShowTopology => self.open_topology(window, cx),
+                CommandAction::QueueCommand => self.open_queue_input(None, None, window, cx),
+                CommandAction::EditQueue => self.open_queue_editor(window, cx),
+                CommandAction::ResumeQueue => self.resume_queue(cx),
                 CommandAction::Copy => {
                     let selection = copied_text(self.terminal_at(pane, ix, cx).read(cx), cx);
                     match selection {
@@ -2338,12 +2472,16 @@ impl Workspace {
                     self.open_scrollback(text, window, cx);
                     target = None;
                 }
-                CommandAction::ScrollUp(lines) => self
-                    .terminal_at(pane, ix, cx)
-                    .update(cx, |terminal, _| terminal.scroll(*lines)),
-                CommandAction::ScrollDown(lines) => self
-                    .terminal_at(pane, ix, cx)
-                    .update(cx, |terminal, _| terminal.scroll(-*lines)),
+                CommandAction::ScrollUp(lines) | CommandAction::ScrollDown(lines) => {
+                    let lines = match action {
+                        CommandAction::ScrollUp(_) => *lines,
+                        _ => -*lines,
+                    };
+                    self.terminal_at(pane, ix, cx)
+                        .update(cx, |terminal, _| terminal.scroll(lines));
+                    let view = self.view_at(pane, ix);
+                    self.sync_scroll(&view, lines, cx);
+                }
                 CommandAction::ScrollTop => {
                     self.terminal_at(pane, ix, cx).update(cx, |terminal, _| {
                         terminal.scroll_to(terminal.history_size())
@@ -2363,13 +2501,24 @@ impl Workspace {
                 CommandAction::DecreaseFontSize => self.change_font_size(pane, ix, Some(-1.), cx),
                 CommandAction::ResetFontSize => self.change_font_size(pane, ix, None, cx),
                 CommandAction::OpenSettings => self.open_settings(cx),
-                CommandAction::Type(text) => self.input_to(pane, ix, text.clone().into_bytes(), cx),
+                CommandAction::Type(text) => {
+                    self.input_to(pane, ix, InputSource::Macro, text.clone().into_bytes(), cx)
+                }
                 CommandAction::SendText(text) => {
                     let bytes = text.clone().into_bytes();
-                    self.terminal_at(pane, ix, cx)
-                        .update(cx, |terminal, _| terminal.input(bytes));
+                    let source = InputSource::Macro;
+                    if !self
+                        .terminal_at(pane, ix, cx)
+                        .update(cx, |terminal, _| terminal.input(source, bytes))
+                    {
+                        self.input_refused(source, cx);
+                    }
                 }
                 CommandAction::Notify(text) => self.show_notification(text.clone(), None, cx),
+                CommandAction::Plugin { plugin, command } => {
+                    let pane_id = self.pane(pane).map(|p| p.tabs[ix].pane_id);
+                    crate::plugins::run_command(plugin, command, pane_id, cx);
+                }
                 CommandAction::NotifyWhenDone(text) => {
                     self.notify_when_done(self.view_at(pane, ix), text.clone(), cx);
                 }
@@ -2482,11 +2631,16 @@ impl Workspace {
                 _ => unreachable!("checked above"),
             };
             if typed {
-                self.input_to(pane, ix, text.into_bytes(), cx);
+                self.input_to(pane, ix, InputSource::Macro, text.into_bytes(), cx);
             } else {
                 let bytes = text.into_bytes();
-                self.terminal_at(pane, ix, cx)
-                    .update(cx, |terminal, _| terminal.input(bytes));
+                let source = InputSource::Macro;
+                if !self
+                    .terminal_at(pane, ix, cx)
+                    .update(cx, |terminal, _| terminal.input(source, bytes))
+                {
+                    self.input_refused(source, cx);
+                }
             }
         }
     }
@@ -2571,6 +2725,7 @@ impl Workspace {
     fn close_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.palette = None;
         self.overview = None;
+        self.topology = None;
         self.about = None;
         self.confirm_close = None;
         self.confirm_paste = None;
@@ -2613,6 +2768,7 @@ impl Workspace {
             return;
         }
         let mut commands = Commands::get(cx).commands.clone();
+        commands.extend(crate::plugins::commands(cx));
         let serving = self.serving_commands(cx);
         commands.extend(serving.iter().map(|(command, _)| command.clone()));
         // recency is ignored when disabled, so the palette only sees recent names when it is on
@@ -2720,6 +2876,32 @@ impl Workspace {
         self.overview = Some(overview);
     }
 
+    /// map of the panes whose programs talk to each other, a click on one goes there
+    fn open_topology(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        use crate::ui::topology::{Topology, TopologyNode, TopologyPicked};
+        let mut nodes = Vec::new();
+        for pane in self.layout.panes() {
+            for (ix, tab) in pane.tabs.iter().enumerate() {
+                nodes.push(TopologyNode {
+                    id: tab.view.entity_id(),
+                    title: self.tab_title(pane.id, ix, cx),
+                    shell_pid: tab.view.read(cx).terminal().read(cx).shell_pid,
+                });
+            }
+        }
+        let topology = cx.new(|cx| Topology::new(nodes, cx));
+        self.open_overlay(&topology, window, cx);
+        self._overlay_subscriptions.push(cx.subscribe_in(
+            &topology,
+            window,
+            |this, _, picked: &TopologyPicked, window, cx| {
+                this.close_overlay(window, cx);
+                this.activate_id(picked.0, window, cx);
+            },
+        ));
+        self.topology = Some(topology);
+    }
+
     /// switch to the tab with this view, wherever it lives
     fn activate_id(&mut self, id: EntityId, window: &mut Window, cx: &mut Context<Self>) {
         if let Some((pane, ix)) = self.find_id(id) {
@@ -2741,6 +2923,7 @@ impl Workspace {
             Click::TotalCpu | Click::TotalMemory | Click::TotalNetwork => {
                 self.open_usage_picker(click, window, cx)
             }
+            Click::Queue => self.open_queue_editor(window, cx),
         }
     }
 
@@ -2828,6 +3011,18 @@ impl Workspace {
         let mut inputs = Vec::new();
         let mut active = 0;
         let by_project = settings.tab_groups.by_project;
+        // plugin blocks are kept on the main thread, so their text is taken here
+        let plugin_keys: Vec<&String> = settings
+            .tab_title
+            .iter()
+            .chain(&settings.window_title)
+            .chain(&status_bar.left)
+            .chain(&status_bar.right)
+            .filter_map(|block| match block {
+                TabTitleBlock::Plugin(key) => Some(key),
+                _ => None,
+            })
+            .collect();
         for pane in self.layout.panes() {
             for (ix, tab) in pane.tabs.iter().enumerate() {
                 if pane.id == self.focused && ix == pane.active {
@@ -2849,6 +3044,24 @@ impl Workspace {
                         memory_unit,
                         clock: clock.clone(),
                         size: terminal_size(terminal),
+                        context: Default::default(),
+                        queued: terminal.queue().entries().len(),
+                        xoff: terminal.xoff_paused(),
+                        stopped: terminal
+                            .stopped_jobs()
+                            .iter()
+                            .map(|job| job.name.clone())
+                            .collect(),
+                        icon_override: private_tabs::private_icon(terminal),
+                        plugin_blocks: plugin_keys
+                            .iter()
+                            .map(|key| {
+                                let (plugin, block) = key.split_once('/').unwrap_or((key, ""));
+                                let text =
+                                    crate::plugins::title_block(plugin, block, tab.pane_id, cx);
+                                (key.to_string(), text)
+                            })
+                            .collect(),
                     },
                     by_project.then(|| terminal.reported_cwd().map(Path::to_path_buf)),
                 ));
@@ -2902,6 +3115,35 @@ impl Workspace {
                 .tabs[ix];
             tab.agent = built.agent;
             tab.project = built.project;
+            if tab.context != built.context {
+                tab.context = built.context;
+                EventBus::publish(BusEvent::ContextChanged {
+                    pane: tab.pane_id,
+                    context: tab.context.clone(),
+                });
+            }
+            let tab_pane_id = tab.pane_id;
+            let terminal = tab.view.read(cx).terminal().clone();
+            let modes = built.pty.modes;
+            let modes_changed = terminal.read(cx).pty_modes() != modes;
+            if terminal.update(cx, |terminal, _| terminal.set_pty_state(built.pty)) {
+                changed = true;
+                if modes_changed {
+                    self.publish_pty_modes(tab_pane_id, modes);
+                }
+            }
+            let tab = &mut self
+                .pane_mut(pane_id)
+                .expect("pane id comes from the layout")
+                .tabs[ix];
+            let icon = built.icon;
+            if tab.process != built.process {
+                tab.process = built.process;
+                EventBus::publish(BusEvent::ProcessChanged {
+                    pane: tab.pane_id,
+                    name: tab.process.clone(),
+                });
+            }
             // input does not redraw the tab bar, so the mark of an answered wait goes here
             changed |= tab
                 .attention
@@ -2909,20 +3151,59 @@ impl Workspace {
             if tab.title != built.title
                 || tab.icon_at != built.icon_at
                 || tab.ports_at != built.ports_at
-                || tab.icon != built.icon
+                || tab.icon != icon
             {
                 tab.title = built.title;
                 tab.icon_at = built.icon_at;
                 tab.ports_at = built.ports_at;
-                tab.icon = built.icon;
+                tab.icon = icon;
                 changed = true;
             }
         }
         changed |= self.group_by_project(cx);
+        // timed entries come due without any output, the title refresh is the clock
+        self.tick_queues(cx);
+        self.sleep_hidden_tabs(cx);
+        self.check_waiting(window, cx);
         if changed {
             cx.notify();
         }
         self.start_spinner(window, cx);
+    }
+
+    /// pack away the history of one tab hidden longer than `sleep_tabs_after_minutes`, one
+    /// per refresh so a refresh stays short
+    fn sleep_hidden_tabs(&mut self, cx: &mut Context<Self>) {
+        let minutes = Settings::get(cx).sleep_tabs_after_minutes;
+        let after = (minutes > 0.).then(|| Duration::from_secs_f32(minutes * 60.));
+        let now = Instant::now();
+        let mut sleepy = None;
+        let panes = self.layout.pane_ids();
+        for pane_id in panes {
+            let pane = self
+                .pane_mut(pane_id)
+                .expect("pane id comes from the layout");
+            let active = pane.active;
+            for (ix, tab) in pane.tabs.iter_mut().enumerate() {
+                if ix == active {
+                    tab.hidden_since = None;
+                    continue;
+                }
+                let since = *tab.hidden_since.get_or_insert(now);
+                if let Some(after) = after
+                    && sleepy.is_none()
+                    && now.saturating_duration_since(since) >= after
+                {
+                    let terminal = tab.view.read(cx).terminal().clone();
+                    if !terminal.read(cx).asleep() {
+                        sleepy = Some(terminal);
+                    }
+                }
+            }
+        }
+        if let Some(terminal) = sleepy {
+            terminal.update(cx, |terminal, _| terminal.sleep());
+        }
     }
 
     /// turn busy progress spinners until no title has one
@@ -3730,7 +4011,9 @@ mod tests {
         );
         let ix = current(ws, cx);
         let terminal = terminal(ws, cx, ix);
-        terminal.update(cx, |t, _| t.input(command.into_bytes()));
+        terminal.update(cx, |t, _| {
+            t.input(InputSource::Keyboard, command.into_bytes())
+        });
         wait_until(cx, "reader never started", |_| ready.exists());
         wait_until(cx, "mode never reached the view", |cx| {
             terminal.read_with(cx, |t, _| ready_mode(t.last_content.mode))
@@ -3745,7 +4028,7 @@ mod tests {
 
     fn send_to(ws: &Entity<Workspace>, cx: &mut VisualTestContext, ix: usize, text: &str) {
         let bytes = text.as_bytes().to_vec();
-        terminal(ws, cx, ix).update(cx, |t, _| t.input(bytes));
+        terminal(ws, cx, ix).update(cx, |t, _| t.input(InputSource::Keyboard, bytes));
         pump(cx);
     }
 
@@ -5614,7 +5897,7 @@ mod tests {
         ws.update(cx, |ws, cx| {
             let pane = ws.focused;
             let ix = ws.focused_pane().active;
-            ws.input_to(pane, ix, b"sleep 30\n".to_vec(), cx)
+            ws.input_to(pane, ix, InputSource::Keyboard, b"sleep 30\n".to_vec(), cx)
         });
         wait_until(cx, "sleep never started", |cx| {
             ws.update(cx, |ws, cx| {
@@ -5679,7 +5962,12 @@ mod tests {
         start_program(&ws, cx);
         close_active(&ws, cx);
         // ctrl-c stops sleep, then the shell exits and its tab closes by itself
-        terminal(&ws, cx, 1).update(cx, |terminal, _| terminal.input(b"\x03exit\n".to_vec()));
+        terminal(&ws, cx, 1).update(cx, |terminal, _| {
+            terminal.input(
+                crate::terminal::InputSource::Keyboard,
+                b"\x03exit\n".to_vec(),
+            )
+        });
         wait_until(cx, "tab never exited", |cx| views(&ws, cx).len() == 1);
         cx.run_until_parked();
         assert!(cx.debug_bounds("confirm-close").is_none());
@@ -5746,7 +6034,9 @@ mod tests {
         // ask about the two tabs to the right, then end the shell of the first
         run_actions(&ws, cx, r#""close_tabs_to_right""#);
         assert_eq!(views(&ws, cx), old);
-        terminal(&ws, cx, 1).update(cx, |terminal, _| terminal.input(b"exit\n".to_vec()));
+        terminal(&ws, cx, 1).update(cx, |terminal, _| {
+            terminal.input(crate::terminal::InputSource::Keyboard, b"exit\n".to_vec())
+        });
         wait_until(cx, "tab never exited", |cx| views(&ws, cx).len() == 2);
         cx.run_until_parked();
         // one target is gone, the other still runs, so the dialog stays up
@@ -7079,6 +7369,32 @@ mod tests {
         let text = std::fs::read_to_string(&copy).unwrap();
         assert!(text.contains("remember this line"), "{text:?}");
         std::fs::remove_file(&copy).ok();
+    }
+
+    #[gpui::test]
+    fn topology_lists_every_tab_and_escape_closes_it(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 2);
+        run_actions(&ws, cx, r#""show_topology""#);
+        assert!(ws.read_with(cx, |ws, _| ws.topology.is_some()));
+        assert!(cx.debug_bounds("topology-node-1").is_some());
+        type_keys(cx, "escape");
+        assert!(ws.read_with(cx, |ws, _| ws.topology.is_none()));
+    }
+
+    #[gpui::test]
+    fn incognito_tabs_are_left_out_of_the_session(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 2);
+        terminal(&ws, cx, 1).update(cx, |terminal, _| terminal.incognito = true);
+        let saved = ws.update(cx, |ws, cx| ws.save_node(&ws.layout, cx));
+        match saved {
+            Some(session::SavedNode::Pane { tabs, .. }) => assert_eq!(tabs.len(), 1),
+            other => panic!("not one pane: {other:?}"),
+        }
+        terminal(&ws, cx, 0).update(cx, |terminal, _| terminal.incognito = true);
+        assert!(
+            ws.update(cx, |ws, cx| ws.save_node(&ws.layout, cx))
+                .is_none()
+        );
     }
 
     #[gpui::test]

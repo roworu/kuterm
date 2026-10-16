@@ -88,6 +88,34 @@ fn window_options(bounds: Bounds<Pixels>, cx: &App) -> WindowOptions {
 
 /// the window and tab `spec` names: a tab name first, then a title, then an id from
 /// list-tabs. without one, the active tab of the window in front
+/// put a gutter mark a plugin asked for on a block: `{ "pane": "3", "block": 12, "icon":
+/// "x", "tooltip": "..." }`, the last block of the pane without one
+pub fn decorate_block(params: &serde_json_lenient::Value, cx: &mut App) -> Result<(), String> {
+    use serde_json_lenient::Value;
+    let pane = match params.get("pane") {
+        Some(Value::Number(number)) => Some(number.to_string()),
+        Some(Value::String(text)) => Some(text.clone()),
+        _ => None,
+    };
+    let text = |key: &str| {
+        params
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
+    let (icon, tooltip) = (text("icon"), text("tooltip"));
+    let block = params.get("block").and_then(Value::as_u64);
+    let (handle, id) = resolve_pane(pane.as_deref(), cx).ok_or("no such pane")?;
+    let mut result = Err("the window is gone".to_string());
+    handle
+        .update(cx, |workspace, _, cx| {
+            result = workspace.decorate_tab(id, block, icon, tooltip, cx);
+        })
+        .ok();
+    result
+}
+
 fn resolve_pane(spec: Option<&str>, cx: &mut App) -> Option<(WindowHandle<Workspace>, EntityId)> {
     let workspaces: Vec<WindowHandle<Workspace>> = cx
         .active_window()

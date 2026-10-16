@@ -1,6 +1,8 @@
 # kuterm shell integration for bash, read with --rcfile in place of ~/.bashrc.
 # marks prompts and commands (osc 133) and reports the folder (osc 7)
 if [ -f ~/.bashrc ]; then . ~/.bashrc; fi
+# an incognito tab keeps no history, after .bashrc so it can't set one again
+if [ -n "$KUTERM_INCOGNITO" ]; then unset HISTFILE; fi
 
 __kuterm_status() {
   __kuterm_last=$?

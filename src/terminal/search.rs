@@ -30,6 +30,18 @@ pub struct SearchQuery {
     pub regex: bool,
     pub whole_word: bool,
     pub case: SearchCase,
+    pub scope: SearchScope,
+}
+
+/// which lines a search looks at
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum SearchScope {
+    #[default]
+    All,
+    /// the output of one block
+    Block(u64),
+    /// the output of commands that exited nonzero
+    Failed,
 }
 
 /// a match counted in lines from the top of the history, so it stays put while output
@@ -42,6 +54,7 @@ pub(super) struct SearchState {
     matches: Vec<AbsMatch>,
     /// index into `matches`
     active: Option<usize>,
+    scope: SearchScope,
 }
 
 /// match count and the place of the current one, for the search bar
@@ -98,11 +111,24 @@ fn to_grid((line, column): (usize, Column), history: usize) -> AlacPoint {
     AlacPoint::new(Line(line as i32 - history as i32), column)
 }
 
-/// every match in `term`, top to bottom, cut at the limit
-fn scan(term: &Term<ZedListener>, regex: &mut RegexSearch) -> Vec<AbsMatch> {
+/// true when grid line `line` is in one of `ranges`, every line counts without ranges
+fn in_ranges(line: Line, ranges: Option<&[RangeInclusive<Line>]>) -> bool {
+    ranges.is_none_or(|ranges| ranges.iter().any(|range| range.contains(&line)))
+}
+
+/// every match in `term` starting in `ranges`, top to bottom, cut at the limit
+fn scan(
+    term: &Term<ZedListener>,
+    regex: &mut RegexSearch,
+    ranges: Option<&[RangeInclusive<Line>]>,
+) -> Vec<AbsMatch> {
     let history = term.grid().history_size();
     let start = AlacPoint::new(term.topmost_line(), Column(0));
     let end = AlacPoint::new(term.bottommost_line(), term.last_column());
+    // nothing to look at, and an empty range list would otherwise scan the whole history
+    if ranges.is_some_and(|ranges| ranges.is_empty()) {
+        return Vec::new();
+    }
     RegexIter::new(
         start,
         end,
@@ -110,6 +136,7 @@ fn scan(term: &Term<ZedListener>, regex: &mut RegexSearch) -> Vec<AbsMatch> {
         term,
         regex,
     )
+    .filter(|m| in_ranges(m.start().line, ranges))
     .take(MAX_MATCHES)
     .map(|m| to_abs(*m.start(), history)..=to_abs(*m.end(), history))
     .collect()
@@ -126,17 +153,22 @@ pub struct FoundLine {
     pub highlight: Range<usize>,
 }
 
-/// up to `cap` matches in `term`, the newest lines first
+/// up to `cap` matches in `term` starting in `ranges`, the newest lines first
 fn find_lines<T: alacritty_terminal::event::EventListener>(
     term: &Term<T>,
     regex: &mut RegexSearch,
     cap: usize,
+    ranges: Option<&[RangeInclusive<Line>]>,
 ) -> Vec<FoundLine> {
     let history = term.grid().history_size();
     let top = AlacPoint::new(term.topmost_line(), Column(0));
     let bottom = AlacPoint::new(term.bottommost_line(), term.last_column());
     let direction = alacritty_terminal::index::Direction::Left;
+    if ranges.is_some_and(|ranges| ranges.is_empty()) {
+        return Vec::new();
+    }
     RegexIter::new(bottom, top, direction, term, regex)
+        .filter(|m| in_ranges(m.start().line, ranges))
         .take(cap)
         .map(|m| {
             let (start, end) = (*m.start(), *m.end());
@@ -183,16 +215,55 @@ pub(super) fn active_match(term: &Term<ZedListener>, search: &SearchState) -> Op
 }
 
 impl Terminal {
+    /// output lines a search in `scope` looks at, none for every line
+    fn scope_lines(&mut self, scope: SearchScope) -> Option<Vec<RangeInclusive<Line>>> {
+        let ids: Vec<u64> = match scope {
+            SearchScope::All => return None,
+            SearchScope::Block(id) => vec![id],
+            SearchScope::Failed => self
+                .blocks()
+                .iter()
+                .filter(|block| block.exit.is_some_and(|exit| exit != 0))
+                .map(|block| block.id)
+                .collect(),
+        };
+        Some(
+            ids.into_iter()
+                .filter_map(|id| self.output_range(id))
+                .map(|(start, end)| start.line..=end.line)
+                .collect(),
+        )
+    }
+
+    /// block the "this block" scope searches: the one under `mouse`, else the first one
+    /// shown from the top of the view, else the newest
+    pub fn block_for_search(&mut self, mouse: Option<gpui::Point<gpui::Pixels>>) -> Option<u64> {
+        self.blocks();
+        if let Some(block) = mouse.and_then(|mouse| self.block_at(self.mouse_point(mouse).0.line)) {
+            return Some(block);
+        }
+        let top = -(self.last_content.display_offset as i32);
+        let lines = self.last_content.terminal_bounds.num_lines() as i32;
+        (top..top + lines)
+            .find_map(|line| self.block_at(Line(line)))
+            .or_else(|| self.blocks.list.back().map(|block| block.id))
+    }
+
     /// a search of this terminal's history for `pattern` to run on another thread, it holds
     /// the terminal's lock only while it scans. none when the pattern is broken
     pub fn find_task(
-        &self,
+        &mut self,
         pattern: &str,
         cap: usize,
-    ) -> Option<impl FnOnce() -> Vec<FoundLine> + Send + 'static> {
+        scope: SearchScope,
+    ) -> Option<impl FnOnce() -> Vec<FoundLine> + Send + use<>> {
         let mut regex = RegexSearch::new(pattern).ok()?;
+        // the history of a sleeping tab is searched too
+        self.wake();
+        let ranges = self.scope_lines(scope);
         let term: Arc<FairMutex<Term<ZedListener>>> = self.term.clone();
-        Some(move || find_lines(&term.lock_unfair(), &mut regex, cap))
+        // lines move as output scrolls, so the ranges are only good while nothing printed
+        Some(move || find_lines(&term.lock_unfair(), &mut regex, cap, ranges.as_deref()))
     }
 
     /// select a match found by `find_task` and scroll to it, false when it left the history
@@ -223,8 +294,9 @@ impl Terminal {
             .and_then(|pattern| RegexSearch::new(&pattern).map_err(|error| error.to_string()));
         // stale highlights of the last good query would look like matches of this one
         let mut regex = regex.inspect_err(|_| self.end_search())?;
+        let ranges = self.scope_lines(query.scope);
         let term = self.term.lock_unfair();
-        let matches = scan(&term, &mut regex);
+        let matches = scan(&term, &mut regex, ranges.as_deref());
         let history = term.grid().history_size();
         let bottom = to_abs(
             AlacPoint::new(
@@ -243,6 +315,7 @@ impl Terminal {
             regex,
             matches,
             active,
+            scope: query.scope,
         });
         self.reveal_active_match();
         self.dirty.store(true, Ordering::Release);
@@ -251,6 +324,10 @@ impl Terminal {
 
     /// move to the match above the current one, or below it, wrapping around at the ends
     pub fn search_next(&mut self, up: bool) -> SearchStatus {
+        let Some(scope) = self.search.as_ref().map(|search| search.scope) else {
+            return SearchStatus::default();
+        };
+        let ranges = self.scope_lines(scope);
         let Some(search) = self.search.as_mut() else {
             return SearchStatus::default();
         };
@@ -261,7 +338,7 @@ impl Terminal {
             .and_then(|ix| search.matches.get(ix))
             .map(|m| to_grid(*m.start(), history));
         // output may have added or scrolled away matches since the last scan
-        search.matches = scan(&term, &mut search.regex);
+        search.matches = scan(&term, &mut search.regex, ranges.as_deref());
         drop(term);
         let count = search.matches.len();
         search.active = match current {
@@ -351,7 +428,7 @@ mod tests {
         use alacritty_terminal::{
             Term,
             event::VoidListener,
-            index::Column,
+            index::{Column, Line},
             term::{Config, search::RegexSearch, test::TermSize},
             vte::ansi::Processor,
         };
@@ -362,7 +439,7 @@ mod tests {
             b"alpha one\r\nbeta\r\nsay alpha two\r\nalpha three",
         );
         let mut regex = RegexSearch::new("alpha").unwrap();
-        let found = super::find_lines(&term, &mut regex, 2);
+        let found = super::find_lines(&term, &mut regex, 2, None);
         let rows: Vec<(&str, std::ops::Range<usize>)> = found
             .iter()
             .map(|found| (found.text.as_str(), found.highlight.clone()))
@@ -370,7 +447,24 @@ mod tests {
         assert_eq!(rows, [("alpha three", 0..5), ("say alpha two", 4..9)]);
         assert_eq!(found[1].start, (2, Column(4)));
         assert_eq!(found[1].end, (2, Column(8)));
-        assert_eq!(super::find_lines(&term, &mut regex, 10).len(), 3);
+        assert_eq!(super::find_lines(&term, &mut regex, 10, None).len(), 3);
+        // only matches starting in the given lines count
+        let ranges = [Line(0)..=Line(0), Line(3)..=Line(3)];
+        let found = super::find_lines(&term, &mut regex, 10, Some(&ranges));
+        let texts: Vec<&str> = found.iter().map(|found| found.text.as_str()).collect();
+        assert_eq!(texts, ["alpha three", "alpha one"]);
+        assert!(super::find_lines(&term, &mut regex, 10, Some(&[])).is_empty());
+    }
+
+    #[test]
+    fn ranges_filter_lines() {
+        use alacritty_terminal::index::Line;
+        let ranges = [Line(-5)..=Line(-3), Line(2)..=Line(2)];
+        assert!(super::in_ranges(Line(7), None));
+        assert!(super::in_ranges(Line(-4), Some(&ranges)));
+        assert!(super::in_ranges(Line(2), Some(&ranges)));
+        assert!(!super::in_ranges(Line(-2), Some(&ranges)));
+        assert!(!super::in_ranges(Line(0), Some(&[])));
     }
     use crate::settings::SearchCase;
 
@@ -380,6 +474,7 @@ mod tests {
             regex,
             whole_word,
             case,
+            scope: Default::default(),
         }
     }
 
@@ -402,5 +497,48 @@ mod tests {
             "(?i)Word"
         );
         assert!(search_pattern(&query("", false, false, SearchCase::Smart)).is_err());
+    }
+
+    #[test]
+    fn scopes_limit_search_to_block_output() {
+        use crate::{
+            settings::{Shell, TerminalSettings},
+            terminal::tests::{profile, spawn_with, wait_for_text},
+        };
+        let script = concat!(
+            "printf '\\033]133;A\\007$ \\033]133;B\\007\\033]133;E;ok\\007\\n\\033]133;C\\007'; ",
+            "printf 'foo\\n\\033]133;D;0\\007'; ",
+            "printf '\\033]133;A\\007$ \\033]133;B\\007\\033]133;E;bad\\007\\n\\033]133;C\\007'; ",
+            "printf 'foo\\nfoo\\n\\033]133;D;1\\007'; ",
+            "echo scope_ready; sleep 5"
+        );
+        let profile = profile(Shell::WithArguments {
+            program: "/bin/sh".into(),
+            args: vec!["-c".into(), script.into()],
+        });
+        let mut builder = spawn_with(&TerminalSettings::default(), &profile);
+        let terminal = &mut builder.terminal;
+        wait_for_text(terminal, "scope_ready");
+        terminal.handle_scan_events();
+        let ids: Vec<u64> = terminal.blocks().iter().map(|block| block.id).collect();
+        assert_eq!(ids.len(), 2);
+        let mut search = |scope| {
+            let query = SearchQuery {
+                scope,
+                ..query("foo", false, false, SearchCase::Smart)
+            };
+            terminal.search(&query).unwrap().count
+        };
+        assert_eq!(search(super::SearchScope::All), 3);
+        assert_eq!(search(super::SearchScope::Failed), 2);
+        assert_eq!(search(super::SearchScope::Block(ids[0])), 1);
+        assert_eq!(search(super::SearchScope::Block(u64::MAX)), 0);
+        // the scope holds while walking matches
+        assert_eq!(terminal.search_next(true).count, 0);
+        let pattern = search_pattern(&query("foo", false, false, SearchCase::Smart)).unwrap();
+        let task = terminal
+            .find_task(&pattern, 10, super::SearchScope::Failed)
+            .unwrap();
+        assert_eq!(task().len(), 2);
     }
 }

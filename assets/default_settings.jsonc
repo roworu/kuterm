@@ -87,6 +87,19 @@
   //   "git"                                    - git branch of the folder, "*" when files
   //                                              changed, ↑ and ↓ commits ahead and behind
   //                                              its upstream. read at most every 2 seconds
+  //   "xoff"                                   - "paused (ctrl+q)" while ctrl+s paused output
+  //   "stopped_jobs"                           - programs stopped with ctrl+z, like
+  //                                              "vim, stopped". both also show at the
+  //                                              bottom of the pane, a click there runs fg
+  //   "queue"                                  - commands waiting in the tab's queue, like
+  //                                              "⧗ 2", a click on it lists them
+  //   "kube", "aws", "venv"                    - kube context, aws profile ($AWS_PROFILE) and
+  //                                              python venv of the program in front, read
+  //                                              from its environment and kubeconfig, with
+  //                                              no prompt plugin. empty when unknown. a venv
+  //                                              activated at the prompt shows once a
+  //                                              program runs in it, the shell's own
+  //                                              variables can't be read from outside
   // titles refresh every second. an "exec" command still running after 2 seconds is
   // abandoned and shows nothing, so keep them fast. blocks with nothing to show, like a
   // failing "exec", are left empty.
@@ -105,6 +118,11 @@
   // ask before closing a tab while a program still runs in it, like vim or a long build,
   // so its work is not lost by accident
   "close_running_tab_warn": true,
+  // like browsers discarding background tabs: the history of a tab not shown for this many
+  // minutes is compressed in memory, and put back when the tab is shown, searched or read.
+  // its programs keep running and new output is kept as usual. lets many tabs stay open.
+  // 0 never sleeps
+  "sleep_tabs_after_minutes": 30,
   // ask before quitting or closing the window:
   //   "always"  - every time
   //   "running" - only while a program still runs in some tab
@@ -177,6 +195,24 @@
     // type into it. agents are the programs of a group with "agents": true in
     // "icons.dynamic_app_icons", they must report being busy with osc 9;4
     "agent_waiting": true,
+    // notify once when a program waits for you, and mark its tab until you type into it:
+    // right away when it asks for a password (echo off, like sudo or ssh), or when a running
+    // command goes quiet for 2 seconds with its last line matching "question_patterns", like
+    // apt's "[Y/n]". yes or no questions get "y" and "n" buttons, password prompts "fill
+    // password". while a program asks for a password the tab shows a lock, and broadcast
+    // input, palette commands typing text, run links and remote or mcp clients can't type
+    // into it, the keyboard and paste still can
+    "program_waiting": true,
+    // regexes for the last line of a question, matched with trailing spaces removed
+    "question_patterns": [
+      "\\?$",
+      "\\[[yYnN]/[yYnN]\\]\\s*:?$",
+      "\\([yYnN]/[yYnN]\\)\\s*\\??:?$",
+      "(?i)\\b(yes|no)\\b.*:$",
+      "(?i)press (any|enter|return) key",
+      "(?i)password[^:]*:$",
+      "(?i)passphrase[^:]*:$",
+    ],
     // buttons on desktop notifications: "show" switches to the tab, a finished command adds
     // "run again", and "open first error" when it failed and "hints.patterns" find a
     // file:line in its output, which runs the action of that pattern. linux only
@@ -217,6 +253,20 @@
   // another one, and needs "socket"
   "remote_control": "off",
 
+  // plugins: programs kuterm starts and talks to over stdin and stdout with json-rpc,
+  // framed like lsp, see docs/PLUGINS.md. a plugin adds palette commands, link patterns,
+  // tab title blocks ({ "plugin": "<plugin>/<block>" }), marks next to commands and panels
+  // (its own tui in a tab). a crash only ends the plugin, it is started again after a
+  // growing wait, and every plugin restarts when the config is reloaded. each one asks once
+  // before it first runs, and again when it or its permissions change. an entry is
+  //   { "name": "demo", "command": ["python3", "~/plugins/demo.py"],
+  //     "permissions": { "panes": true, "pty_write": false, "run": false } }
+  // where "panes" lets it see panes, their events and text, "pty_write" type into them and
+  // "run" start programs like its panel, all off unless named. or a git repository with a
+  // kuterm-plugin.json manifest holding those keys, cloned into the data folder:
+  //   "github:user/repo" or "github:user/repo@v1.2"
+  "plugins": [],
+
   // the "open_scrollback" action writes the history of the active tab, colors kept, to a
   // temp file and opens it with this command in a new tab, the file goes last. useful to
   // read long output with the search and keys of a pager or an editor, like
@@ -242,6 +292,14 @@
     // a click on the command line you are typing moves the shell's cursor there, by
     // sending it arrow keys. needs the prompt marks of shell integration
     "click_moves_cursor": true,
+    // a mark left of each command telling what typed it, the mouse over it says more:
+    //   "all"    - every command: a person for typed, a clipboard for pasted
+    //   "others" - only commands something else typed: a palette command or key, broadcast
+    //              input, `kuterm msg`, a run link or the queue, or an ai agent through
+    //              `kuterm mcp`. agents running commands in your shell leave a trail
+    //   "none"   - no marks
+    // the marks take two cells left of the text while any is shown
+    "mark_sources": "others",
   },
 
   // a popup of completions for the command line: programs, subcommands, options and their
@@ -384,6 +442,14 @@
     "patterns": [
       { "regex": "(https?|ftp|file|kuterm)://[^\\s<>\"'`(){}\\[\\]]*[^\\s<>\"'`(){}\\[\\].,;:!?]", "action": "open" },
     ],
+    // a link or hint with the "open" action naming a line of a file, like "src/main.rs:42",
+    // opens in vim, nvim, helix, kakoune or emacs -nw when one runs in a pane of the window,
+    // at that line, and focuses that pane. nvim gets it over its server socket when it has
+    // one. the path is taken from the folder of the command that printed it. without an
+    // editor running it opens as before
+    "open_in_running_editor": true,
+    // resting the mouse on a "file:line" in output shows the lines around it
+    "peek": true,
   },
 
   // hints: the "hints" key (ctrl-shift-e by default) puts a short label on every match of
@@ -729,6 +795,21 @@
     // greek letters passing for latin ones in a word. a command copied from a web page can
     // look harmless and run something else. the dialog shows each one as a marked <U+200B>
     "paste_check_invisible": true,
+    // commands added with "queue_command" while something runs are typed one by one each
+    // time the prompt comes back. a command that fails pauses the rest until "resume_queue",
+    // like `&&` would. needs the prompt marks of shell integration
+    "queue_stop_on_failure": true,
+    // ctrl+s pauses all output of a terminal with flow control on (`stty ixon`, the default)
+    // until ctrl+q, which looks like a frozen terminal. kuterm says so at the bottom of the
+    // pane. false never pauses: ctrl+s then only reaches programs while flow control is off,
+    // like emacs or nano, which turn it off to use the key
+    "send_xoff": true,
+    // experimental: narrowing a pane keeps the output of finished commands at the width it
+    // was printed at, so tables like `kubectl get` or `docker ps` don't rewrap into a mess.
+    // lines cut at the pane edge end in "→", shift+wheel over them scrolls sideways. only
+    // the drawing changes, copy and search see the whole lines; selections show where the
+    // rewrapped text is. needs the command marks of shell integration
+    "keep_block_width": false,
   },
 
   // ---------------------------------------------------------------------------------------
@@ -773,6 +854,21 @@
       // extra environment variables for the program, added to the ones kuterm got,
       // like { "EDITOR": "vim" }
       "env": {},
+      // like a private browser window: the shell keeps no history (bash, zsh and fish
+      // with shell integration), the tab never comes back with the session, `kuterm msg
+      // get-text` and `query` (and mcp agents) can't read it, and its text is wiped from
+      // memory when it closes. it gets a purple frame. "new_incognito_tab" opens the
+      // default profile this way
+      "incognito": false,
+      // run the shell in a sandbox, for ai agents, scripts from the internet or a
+      // `curl | sh` you don't trust yet, like
+      //   { "network": false, "write": ["cwd", "~/.cache"], "tmp": "private" }
+      // "network" false cuts it off, "write" lists the only folders it may change ("cwd"
+      // is the folder it starts in, the rest is read only), "tmp" is "private" for an
+      // empty /tmp of its own or "shared" for the system's, read only. linux needs
+      // bubblewrap (bwrap) installed, the tab refuses to open without it; macos uses
+      // sandbox-exec. the tab shows a shield. null runs it as usual
+      "sandbox": null,
     },
   ],
 
@@ -835,6 +931,17 @@
     "toggle_broadcast_all": null,
     // join the focused pane to the panes typed into together, or take it out
     "toggle_broadcast_pane": null,
+    // scroll the focused pane together with the other joined panes, like vim's scrollbind,
+    // or take it out. joined panes get a "synced" label
+    "toggle_scroll_sync": null,
+    // ask for a command typed into the active tab once its prompt is back, after the ones
+    // queued before. "@18:00 make deploy" also waits for 18:00. the tab shows how many wait
+    "queue_command": null,
+    // list the queued commands of the active tab: pick one to edit it (empty drops it), to
+    // run it first, or to resume or clear the queue
+    "edit_queue": null,
+    // go on with the queue after a failed command paused it
+    "resume_queue": null,
     // type a title of its own for the active tab, empty goes back to "tab_title".
     // a double click on a tab does it too
     "rename_tab": null,
@@ -842,9 +949,16 @@
     "pin_tab": null,
     // open a tab with the active tab's profile and folder next to it
     "duplicate_tab": null,
+    // open the default profile incognito: no shell history, no session restore, no
+    // remote reading, a purple frame
+    "new_incognito_tab": null,
     // a grid of live previews of every tab: typing filters them by title, arrows or a click
     // pick one, escape closes it
     "tab_overview": null,
+    // a map of the panes whose programs talk to each other: a server in one and the tests
+    // calling it in another, a database and its client. lines pulse while bytes move, a
+    // click on a pane goes there. linux only, from the sockets of each pane's programs
+    "show_topology": null,
     // put the active tab into a new group, see "tab_groups"
     "new_group": null,
     // put the active tab into the group of the tab next to it, or a new one
@@ -993,6 +1107,7 @@
   //   "rename_tab"                       - type a title of its own for the active tab
   //   "pin_tab"                          - pin the active tab, or unpin it
   //   "duplicate_tab"                    - open a tab with the active tab's profile and folder
+  //   "new_incognito_tab"                - open the default profile incognito
   //   "copy_folder"                      - copy the active tab's folder to the clipboard
   //   "move_tab_to_new_window"           - move the active tab, its programs still running,
   //                                        into a window of its own
@@ -1008,6 +1123,11 @@
   //   "equalize_panes"                   - give all panes the same size
   //   "toggle_broadcast_all"             - type into every pane of the window at once, or stop
   //   "toggle_broadcast_pane"            - join the focused pane to the broadcast, or leave it
+  //   "toggle_scroll_sync"               - scroll the focused pane with the other joined ones
+  //   "show_topology"                    - map of the panes whose programs talk to each other
+  //   "queue_command"                    - type a command into the tab once its prompt is back
+  //   "edit_queue"                       - edit, reorder or drop the queued commands
+  //   "resume_queue"                     - go on with the queue after a failure paused it
   //   "next_tab"                         - switch to the tab on the right
   //   "prev_tab"                         - switch to the tab on the left
   //   { "activate_tab": 2 }              - switch to the tab at this 1 based position
@@ -1105,6 +1225,7 @@
     { "name": "name for remote control", "category": "tabs", "actions": ["rename_pane"] },
     { "name": "pin or unpin", "category": "tabs", "actions": ["pin_tab"] },
     { "name": "duplicate", "category": "tabs", "actions": ["duplicate_tab"] },
+    { "name": "new incognito tab", "category": "tabs", "actions": ["new_incognito_tab"] },
     { "name": "copy folder path", "category": "tabs", "actions": ["copy_folder"] },
     { "name": "move to new window", "category": "tabs", "actions": ["move_tab_to_new_window"] },
     { "name": "split left", "category": "tabs", "actions": ["split_left"] },
@@ -1116,6 +1237,11 @@
     { "name": "equalize panes", "category": "panes", "actions": ["equalize_panes"] },
     { "name": "broadcast input to all panes", "category": "panes", "actions": ["toggle_broadcast_all"] },
     { "name": "broadcast input from this pane", "category": "panes", "actions": ["toggle_broadcast_pane"] },
+    { "name": "sync scroll of this pane", "category": "panes", "actions": ["toggle_scroll_sync"] },
+    { "name": "show pane topology", "category": "panes", "actions": ["show_topology"] },
+    { "name": "queue a command", "category": "queue", "actions": ["queue_command"] },
+    { "name": "edit queued commands", "category": "queue", "actions": ["edit_queue"] },
+    { "name": "resume queue", "category": "queue", "actions": ["resume_queue"] },
     { "name": "switch to left", "category": "tabs", "actions": ["prev_tab"] },
     { "name": "switch to right", "category": "tabs", "actions": ["next_tab"] },
     { "name": "go to tab", "category": "tabs", "actions": ["pick_tab"] },

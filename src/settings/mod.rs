@@ -28,10 +28,10 @@ pub use config::{Config, ConfigFiles};
 pub use keybindings::Keybindings;
 pub use options::{
     BellTarget, ClipboardAccess, CompletionTrigger, ConfirmQuit, CursorBlink, CursorShape,
-    CursorUnfocused, Decorations, FontSlant, LineHeight, LinkModifier, MemoryUnit, MenuBarMode,
-    NewTabButton, PatternAction, ProgramNotifications, RemoteControl, RestoreSession, ScrollEasing,
-    ScrollbarEnable, ScrollbarPlacement, SearchCase, Shell, StartupMode, TabTitleAlign,
-    TabTitleBlock, ThemeMode,
+    CursorUnfocused, Decorations, FontSlant, LineHeight, LinkModifier, MarkSources, MemoryUnit,
+    MenuBarMode, NewTabButton, PatternAction, ProgramNotifications, RemoteControl, RestoreSession,
+    ScrollEasing, ScrollbarEnable, ScrollbarPlacement, SearchCase, Shell, StartupMode,
+    TabTitleAlign, TabTitleBlock, ThemeMode,
 };
 pub use pins::Pins;
 pub use status_bar_state::StatusBarState;
@@ -54,6 +54,8 @@ pub struct Settings {
     pub show_tab_close_button: bool,
     pub drag_tabs: bool,
     pub close_running_tab_warn: bool,
+    /// minutes a tab stays hidden before its history is packed away, 0 never
+    pub sleep_tabs_after_minutes: f32,
     pub confirm_quit: ConfirmQuit,
     pub new_tab_button: NewTabButton,
     pub window_title: Vec<TabTitleBlock>,
@@ -82,6 +84,8 @@ pub struct Settings {
     pub remote_control: RemoteControl,
     pub graphics: GraphicsSettings,
     pub status_bar: StatusBarSettings,
+    /// programs kuterm starts and talks to over stdio
+    pub plugins: Vec<crate::plugins::spec::PluginEntry>,
 }
 
 /// thin bar at the bottom of the window, built from title blocks
@@ -113,6 +117,8 @@ pub struct ShellIntegrationSettings {
     pub notify_after: f32,
     /// a click on the command line being typed moves the shell's cursor there
     pub click_moves_cursor: bool,
+    /// commands that get a gutter mark telling what typed them
+    pub mark_sources: MarkSources,
 }
 
 /// popup of completions for the command line, fed by shell integration
@@ -143,6 +149,10 @@ pub struct LinkSettings {
     /// program links are opened with, the system opener when none
     pub open_with: Option<String>,
     pub patterns: Vec<TextPattern>,
+    /// `file:line` links go to an editor running in another pane
+    pub open_in_running_editor: bool,
+    /// hovering a `file:line` shows the lines around it
+    pub peek: bool,
 }
 
 /// text matched by a regex, with what to do with it
@@ -317,6 +327,10 @@ pub struct NotificationSettings {
     pub from_programs: ProgramNotifications,
     /// notify when an ai agent stops and waits for input
     pub agent_waiting: bool,
+    /// notify when a program asks a question or for a password
+    pub program_waiting: bool,
+    /// regexes a quiet program's last line matches when it asks something
+    pub question_patterns: Vec<String>,
     /// give desktop notifications buttons, like "run again"
     pub actions: bool,
 }
@@ -427,6 +441,12 @@ pub struct TerminalSettings {
     pub paste_protection: bool,
     /// ask before pasting text with hidden or lookalike characters, pointing them out
     pub paste_check_invisible: bool,
+    /// a failed command pauses the commands queued after it
+    pub queue_stop_on_failure: bool,
+    /// ctrl+s from the keyboard may pause output of a pty with ixon on
+    pub send_xoff: bool,
+    /// narrowing a pane keeps finished blocks at the width they were printed at
+    pub keep_block_width: bool,
 }
 
 /// what programs may do with the clipboard through osc 52
@@ -539,6 +559,31 @@ pub struct Profile {
     /// extra environment variables for the command
     #[serde(default)]
     pub env: HashMap<String, String>,
+    /// no shell history, no session restore and no remote reading of the tab
+    #[serde(default)]
+    pub incognito: bool,
+    /// run the shell with no network and writes only where allowed
+    #[serde(default)]
+    pub sandbox: Option<Sandbox>,
+}
+
+/// what a sandboxed profile's shell may do
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct Sandbox {
+    pub network: bool,
+    /// folders it may write, "cwd" for the one it starts in
+    pub write: Vec<String>,
+    pub tmp: SandboxTmp,
+}
+
+/// the /tmp a sandbox sees
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum SandboxTmp {
+    /// an empty one of its own
+    Private,
+    /// the system's, read only
+    Shared,
 }
 
 impl Global for Settings {}
@@ -591,6 +636,8 @@ const MAX_COMPLETION_ITEMS_RANGE: (f32, f32) = (1., 50.);
 
 // Duration panics on negative or huge seconds, an hour is already "until clicked"
 const NOTIFICATION_TIMEOUT_RANGE: (f32, f32) = (0., 3600.);
+// Duration panics on negative or huge seconds, a week is already "never"
+const SLEEP_TABS_RANGE: (f32, f32) = (0., 10080.);
 
 fn limit(name: &str, value: f32, (min, max): (f32, f32)) -> Option<f32> {
     if value.is_nan() || value < min {
@@ -755,6 +802,12 @@ impl Settings {
             SMOOTH_SCROLL_DURATION_RANGE,
         )
         .unwrap_or(defaults.terminal.smooth_scroll.duration);
+        settings.sleep_tabs_after_minutes = limit(
+            "sleep_tabs_after_minutes",
+            settings.sleep_tabs_after_minutes,
+            SLEEP_TABS_RANGE,
+        )
+        .unwrap_or(defaults.sleep_tabs_after_minutes);
         settings.notifications.timeout = limit(
             "notifications.timeout",
             settings.notifications.timeout,

@@ -2,6 +2,7 @@
 
 mod box_drawing;
 mod cursor;
+mod decorations;
 mod grid;
 mod input_handler;
 mod scrollbar;
@@ -104,6 +105,11 @@ pub struct LayoutState {
     /// images with where they go, relative to the grid origin
     images: Vec<(Bounds<Pixels>, Arc<RenderImage>)>,
     hint_background: Hsla,
+    /// ghost text after the cursor and the hint line under the prompt, relative to the grid
+    /// origin, never part of the grid
+    ghost_texts: Vec<(Point<Pixels>, ShapedLine)>,
+    /// gutter marks, chips and popovers, relative to the window
+    decorations: decorations::DecorationsLayout,
 }
 
 pub struct TerminalElement {
@@ -278,13 +284,19 @@ impl Element for TerminalElement {
         );
 
         let padding = window_settings.padding;
-        let (pad_x, pad_y) = (px(padding.x), px(padding.y));
+        // a gutter only while some mark is set, so the grid never moves for those using none
+        let gutter = if self.terminal.read(cx).decorations().gutter.is_empty() {
+            px(0.)
+        } else {
+            cell_width * decorations::GUTTER_CELLS
+        };
+        let (pad_x, pad_y) = (px(padding.x) + gutter, px(padding.y));
         let mut origin = point(bounds.origin.x + pad_x, bounds.origin.y + pad_y);
         if bar_settings.placement == ScrollbarPlacement::Left {
             origin.x += bar_width;
         }
         let mut grid_size = bounds.size;
-        grid_size.width = (grid_size.width - pad_x * 2. - bar_width).max(cell_width * 2.);
+        grid_size.width = (grid_size.width - pad_x * 2. + gutter - bar_width).max(cell_width * 2.);
         // alacritty panics on a grid without rows
         grid_size.height = (grid_size.height - pad_y * 2.).max(line_height);
         if window_settings.padding_balance {
@@ -366,6 +378,50 @@ impl Element for TerminalElement {
                 text_offset: glyph_offset,
             }
         });
+
+        // only while the cursor is on screen, they belong to the line being typed
+        let mut ghost_texts = Vec::new();
+        if cursor.is_some() {
+            let column = content.cursor.point.column.0 as f32;
+            let row = cursor_line as f32;
+            let shown = [
+                terminal.ghost_text().map(|ghost| (ghost, column, row)),
+                terminal
+                    .hint_line()
+                    .filter(|_| (cursor_line as usize) + 1 < dimensions.num_lines())
+                    .map(|hint| (hint, 0., row + 1.)),
+            ];
+            for (ghost, column, row) in shown.into_iter().flatten() {
+                if ghost.text.is_empty() {
+                    continue;
+                }
+                let text = window.text_system().shape_line(
+                    ghost.text.clone().into(),
+                    font_size,
+                    &[TextRun {
+                        len: ghost.text.len(),
+                        font: fonts.italic.clone(),
+                        color: ghost.color,
+                        background_color: None,
+                        underline: None,
+                        strikethrough: None,
+                    }],
+                    Some(cell_width),
+                );
+                ghost_texts.push((point(cell_width * column, line_height * row), text));
+            }
+        }
+
+        let decorations = decorations::layout_decorations(
+            terminal,
+            &dimensions,
+            bounds,
+            window.mouse_position(),
+            &fonts.regular,
+            font_size,
+            theme,
+            window,
+        );
 
         let show_scrollbar = self.scrollbar_visible
             && match bar_settings.enable {
@@ -459,6 +515,8 @@ impl Element for TerminalElement {
             hint_labels,
             hint_background,
             images,
+            ghost_texts,
+            decorations,
         }
     }
 
@@ -543,14 +601,43 @@ impl Element for TerminalElement {
                 )
                 .ok();
             }
+            for (at, text) in &layout.ghost_texts {
+                let at = *at + origin + layout.glyph_offset;
+                let background = self.terminal.read(cx).theme(cx).terminal_background;
+                // covers what the grid has there, the ghost reads as the rest of the line
+                window.paint_quad(fill(
+                    Bounds::new(at, size(text.width, layout.dimensions.line_height)),
+                    background,
+                ));
+                text.paint(
+                    at,
+                    layout.dimensions.line_height,
+                    gpui::TextAlign::Left,
+                    None,
+                    window,
+                    cx,
+                )
+                .ok();
+            }
             // layout is kept while hidden, the input handler still needs its bounds for ime
             if let Some(cursor) = &layout.cursor
                 && self.cursor_on
             {
                 cursor.paint(origin, window, cx);
             }
+            let line_height = layout.dimensions.line_height;
+            for (at, icon) in &layout.decorations.gutter {
+                icon.paint(*at, line_height, gpui::TextAlign::Left, None, window, cx)
+                    .ok();
+            }
+            for chip in &layout.decorations.chips {
+                chip.paint(line_height, window, cx);
+            }
             if let Some((scrollbar, _)) = &layout.scrollbar {
                 scrollbar.paint(window);
+            }
+            for text_box in &layout.decorations.boxes {
+                text_box.paint(line_height, window, cx);
             }
             if let Some(flash) = self.bell_flash {
                 window.paint_quad(fill(bounds, flash));

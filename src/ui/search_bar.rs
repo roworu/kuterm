@@ -7,7 +7,7 @@ use gpui::{
 
 use crate::{
     settings::{SearchCase, Settings},
-    terminal::{SearchQuery, SearchStatus, Terminal},
+    terminal::{SearchQuery, SearchScope, SearchStatus, Terminal},
     theme::Theme,
     ui::text_input::{Changed, TextInput},
 };
@@ -18,6 +18,9 @@ pub struct SearchBar {
     case: SearchCase,
     regex: bool,
     whole_word: bool,
+    scope: SearchScope,
+    /// block "this block" scope searches, picked when the bar opened
+    block: Option<u64>,
     /// matches of the last search, or why the query can't be searched
     status: Result<SearchStatus, String>,
     _input_subscription: Subscription,
@@ -26,8 +29,9 @@ pub struct SearchBar {
 impl EventEmitter<DismissEvent> for SearchBar {}
 
 impl SearchBar {
-    /// empty bar searching `terminal`, options start from settings
-    pub fn new(terminal: Entity<Terminal>, cx: &mut Context<Self>) -> Self {
+    /// empty bar searching `terminal`, options start from settings. `block` is the one the
+    /// "this block" scope searches
+    pub fn new(terminal: Entity<Terminal>, block: Option<u64>, cx: &mut Context<Self>) -> Self {
         let input = cx.new(|cx| TextInput::new("search", cx));
         let _input_subscription = cx.subscribe(&input, |this: &mut Self, _, _: &Changed, cx| {
             this.search(cx)
@@ -39,6 +43,8 @@ impl SearchBar {
             case: settings.case_sensitive,
             regex: settings.regex,
             whole_word: settings.whole_word,
+            scope: SearchScope::All,
+            block,
             status: Ok(SearchStatus::default()),
             _input_subscription,
         }
@@ -51,6 +57,7 @@ impl SearchBar {
             regex: self.regex,
             whole_word: self.whole_word,
             case: self.case,
+            scope: self.scope,
         }
     }
 
@@ -106,6 +113,12 @@ impl SearchBar {
         self.search(cx);
     }
 
+    /// search everything, then the block picked when the bar opened, then failed commands
+    pub fn cycle_scope(&mut self, cx: &mut Context<Self>) {
+        self.scope = next_scope(self.scope, self.block);
+        self.search(cx);
+    }
+
     fn key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
         let keystroke = &event.keystroke;
         let modifiers = &keystroke.modifiers;
@@ -117,6 +130,7 @@ impl SearchBar {
             "c" if modifiers.alt => self.toggle_case(cx),
             "r" if modifiers.alt => self.toggle_regex(cx),
             "w" if modifiers.alt => self.toggle_whole_word(cx),
+            "s" if modifiers.alt => self.cycle_scope(cx),
             // the terminal below never gets keys typed into the bar
             _ => return,
         }
@@ -218,6 +232,14 @@ impl Render for SearchBar {
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_regex(cx))),
             )
             .child(
+                toggle(
+                    "search-scope",
+                    scope_label(self.scope),
+                    self.scope != SearchScope::All,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.cycle_scope(cx))),
+            )
+            .child(
                 div()
                     .id("search-close")
                     .debug_selector(|| "search-close".into())
@@ -228,5 +250,38 @@ impl Render for SearchBar {
                     .child("×")
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(DismissEvent))),
             )
+    }
+}
+
+/// scope after `scope`, skipping "this block" when there is none
+fn next_scope(scope: SearchScope, block: Option<u64>) -> SearchScope {
+    match (scope, block) {
+        (SearchScope::All, Some(block)) => SearchScope::Block(block),
+        (SearchScope::All, None) | (SearchScope::Block(_), _) => SearchScope::Failed,
+        (SearchScope::Failed, _) => SearchScope::All,
+    }
+}
+
+fn scope_label(scope: SearchScope) -> &'static str {
+    match scope {
+        SearchScope::All => "all",
+        SearchScope::Block(_) => "block",
+        SearchScope::Failed => "failed",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SearchScope, next_scope};
+
+    #[test]
+    fn scope_cycles_and_skips_missing_block() {
+        assert_eq!(next_scope(SearchScope::All, Some(4)), SearchScope::Block(4));
+        assert_eq!(
+            next_scope(SearchScope::Block(4), Some(4)),
+            SearchScope::Failed
+        );
+        assert_eq!(next_scope(SearchScope::Failed, Some(4)), SearchScope::All);
+        assert_eq!(next_scope(SearchScope::All, None), SearchScope::Failed);
     }
 }

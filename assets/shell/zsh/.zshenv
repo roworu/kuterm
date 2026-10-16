@@ -10,6 +10,12 @@ unset KUTERM_ZDOTDIR
 
 if [[ -o interactive ]]; then
   autoload -Uz add-zsh-hook
+  if [[ -n "$KUTERM_INCOGNITO" ]]; then
+    # .zshrc runs later and may set HISTFILE, so nothing is added to the history at all
+    __kuterm_nohistory() { return 1 }
+    add-zsh-hook zshaddhistory __kuterm_nohistory
+    unset HISTFILE
+  fi
   __kuterm_precmd() {
     local last=$?
     [[ -n "$__kuterm_ran" ]] && print -n "\e]133;D;$last\a"

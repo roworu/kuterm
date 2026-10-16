@@ -44,6 +44,8 @@ memchr = "2"
 notify = "8"
 serde = { version = "1", features = ["derive"] }
 serde_json_lenient = { version = "0.2", features = ["preserve_order"] }
+# question patterns of waiting programs, already in the tree through gpui
+regex = "1"
 # command values are quoted for the shell with this, already in the tree through gpui
 shlex = "1"
 skrifa = "0.48"

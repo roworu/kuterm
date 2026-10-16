@@ -162,6 +162,20 @@ pub enum TabTitleBlock {
     Size,
     /// git branch of the folder, a star when there are changes, commits ahead and behind
     Git,
+    /// kube context of the program in front
+    Kube,
+    /// aws profile of the program in front
+    Aws,
+    /// python environment of the program in front
+    Venv,
+    /// commands waiting in the tab's queue, a click lists them
+    Queue,
+    /// says so while ctrl+s paused output
+    Xoff,
+    /// programs stopped with ctrl+z
+    StoppedJobs,
+    /// text a plugin keeps up to date, "<plugin>/<block>"
+    Plugin(String),
 }
 
 impl TabTitleBlock {
@@ -333,6 +347,16 @@ impl ScrollEasing {
     }
 }
 
+/// which commands get a gutter mark telling what typed them
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum MarkSources {
+    All,
+    /// only commands something other than the keyboard or a paste typed
+    Others,
+    None,
+}
+
 /// what a program may do with the clipboard through osc 52
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -408,6 +432,8 @@ pub enum PatternAction {
     Paste,
     /// run a shell command with the text in $KUTERM_MATCH, in the folder of the tab
     Exec(String),
+    /// tell the plugin of this name, which added the pattern
+    Plugin(String),
 }
 
 /// when notifications programs send are shown

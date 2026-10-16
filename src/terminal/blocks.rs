@@ -44,6 +44,10 @@ pub struct Block {
     pub mark: usize,
     /// number of the mark of its prompt, none when the prompt was not marked
     pub prompt_mark: Option<usize>,
+    /// what wrote its command line, like the keyboard or a remote client
+    pub source: super::Sources,
+    /// columns of the pane when it ended, none while it runs
+    pub columns: Option<usize>,
 }
 
 /// text people see in cells from `start` to `end`: concealed text and text in its background
@@ -142,6 +146,7 @@ impl Blocks {
         mark: usize,
         cwd: Option<PathBuf>,
         started: Instant,
+        source: super::Sources,
     ) -> u64 {
         let command = self
             .pending_line
@@ -159,6 +164,8 @@ impl Blocks {
             exit: None,
             mark,
             prompt_mark,
+            source,
+            columns: None,
         });
         if self.list.len() > MAX_BLOCKS {
             self.list.pop_front();
@@ -167,10 +174,16 @@ impl Blocks {
     }
 
     /// the running command ended
-    pub(super) fn end(&mut self, exit: Option<i32>, ended: Instant) -> Option<&Block> {
+    pub(super) fn end(
+        &mut self,
+        exit: Option<i32>,
+        ended: Instant,
+        columns: usize,
+    ) -> Option<&Block> {
         let block = self.list.back_mut().filter(|block| block.ended.is_none())?;
         block.ended = Some(ended);
         block.exit = exit;
+        block.columns = Some(columns);
         Some(block)
     }
 }
@@ -178,6 +191,10 @@ impl Blocks {
 impl Terminal {
     /// commands run in this terminal whose lines are still in its history, oldest first
     pub fn blocks(&mut self) -> &VecDeque<Block> {
+        // the marks of blocks in packed away history are not in the grid
+        if self.asleep() {
+            return &self.blocks.list;
+        }
         let term = self.term.lock_unfair();
         let oldest = oldest_mark(&term);
         drop(term);
@@ -236,7 +253,6 @@ impl Terminal {
     }
 
     /// block whose output covers grid line `line`
-    #[allow(dead_code)]
     pub fn block_at(&self, line: Line) -> Option<u64> {
         self.blocks.list.iter().rev().find_map(|block| {
             let (start, end) = self.output_range(block.id)?;
@@ -384,7 +400,7 @@ mod tests {
         assert_eq!(terminal.block_at(start.line), Some(blocks[1].id));
 
         // their lines leave the short history, the blocks go with them
-        terminal.input(b"\r".to_vec());
+        terminal.input(crate::terminal::InputSource::Keyboard, b"\r".to_vec());
         wait_for_text(terminal, "all_gone");
         let deadline = Instant::now() + Duration::from_secs(5);
         while !terminal.blocks().is_empty() {
