@@ -1,0 +1,57 @@
+{
+ "name": "tr",
+ "description": "Translate or delete characters",
+ "options": [
+  {
+   "name": [
+    "-c",
+    "--complement"
+   ],
+   "description": "Use the complement of SET1 [aliases: -C]"
+  },
+  {
+   "name": [
+    "-d",
+    "--delete"
+   ],
+   "description": "Delete characters in SET1, do not translate"
+  },
+  {
+   "name": [
+    "-s",
+    "--squeeze-repeats"
+   ],
+   "description": "Replace each sequence of a repeated character that is listed in the last specif…"
+  },
+  {
+   "name": [
+    "-t",
+    "--truncate-set1"
+   ],
+   "description": "First truncate SET1 to length of SET2"
+  },
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Print help"
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Print version"
+  }
+ ],
+ "args": [
+  {
+   "name": "set1"
+  },
+  {
+   "name": "set2",
+   "isOptional": true
+  }
+ ]
+}

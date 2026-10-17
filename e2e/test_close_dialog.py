@@ -1,6 +1,7 @@
 """close dialog: closing a tab or quitting with a running program asks first, keys and clicks answer it"""
 
 import time
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -164,9 +165,21 @@ def test_disabled_warning_closes_at_once(app_factory):
     assert dialog(app) is None
 
 
-def program_pid(program: str) -> int:
-    """pid of the only process running exactly `program`"""
-    out = sh("pgrep", "-xf", program, check=False).split()
+def started_by(pid: int, ancestor: int) -> bool:
+    """whether ancestor is the parent of pid, or its parent's and so on"""
+    while pid > 1:
+        try:
+            pid = int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[1])
+        except OSError:
+            return False
+        if pid == ancestor:
+            return True
+    return False
+
+
+def program_pid(app: App, program: str) -> int:
+    """pid of the only process of the app running exactly `program`, parallel workers run it too"""
+    out = [p for p in sh("pgrep", "-xf", program, check=False).split() if started_by(int(p), app.proc.pid)]
     assert len(out) == 1, f"{program!r} runs {len(out)} times"
     return int(out[0])
 
@@ -184,7 +197,7 @@ def quit_asked(app: App, how: str) -> None:
 def test_quit_asks_with_running_program(app_factory, how):
     """quitting with the palette or closing the window asks first, escape keeps the app, enter quits"""
     app = busy_app(app_factory, program="sleep 1001")
-    pid = program_pid("sleep 1001")
+    pid = program_pid(app, "sleep 1001")
     quit_asked(app, how)
     app.snap(f"asked before quitting ({how}) with sleep running")
     app.key("Escape")
@@ -216,7 +229,7 @@ def test_idle_quit_asks_nothing(app_factory, how):
 def test_disabled_confirm_quit_quits_at_once(app_factory, how):
     """confirm_quit "never" quits a busy app without asking"""
     app = busy_app(app_factory, program="sleep 1001", confirm_quit="never")
-    pid = program_pid("sleep 1001")
+    pid = program_pid(app, "sleep 1001")
     if how == "palette":
         app.palette("app quit")
     else:
@@ -266,7 +279,7 @@ def test_dialog_names_inactive_tab(app_factory):
     app.wait_title("2 bash")
     app.run("sleep 1001")
     app.wait_title("2 sleep")
-    pid = program_pid("sleep 1001")
+    pid = program_pid(app, "sleep 1001")
     app.key("ctrl+shift+t")
     app.wait_title("3 bash")
 

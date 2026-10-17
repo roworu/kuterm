@@ -31,6 +31,104 @@ pub fn foreground_process(shell_pid: u32) -> Option<ForegroundProcess> {
     process_info(pid)
 }
 
+/// tty settings of a pty that tell what the program in front waits for
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PtyModes {
+    /// typed text is shown, off while a program reads a secret
+    pub echo: bool,
+    /// input comes in lines, off for full screen programs reading each key
+    pub icanon: bool,
+    /// ctrl+s and ctrl+q pause and resume output
+    pub ixon: bool,
+}
+
+/// tty settings of the terminal process `pid` runs in, none when they can't be read
+#[cfg(target_os = "linux")]
+pub fn pty_modes(pid: u32) -> Option<PtyModes> {
+    use std::os::{fd::AsRawFd, unix::fs::OpenOptionsExt};
+
+    let tty = std::fs::read_link(format!("/proc/{pid}/fd/0")).ok()?;
+    // opening the tty must not make it ours or wait on it
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOCTTY | libc::O_NONBLOCK)
+        .open(tty)
+        .ok()?;
+    let mut termios = std::mem::MaybeUninit::<libc::termios>::uninit();
+    // SAFETY: the fd is open for the call and termios is written by it before being read
+    let termios = unsafe {
+        if libc::tcgetattr(file.as_raw_fd(), termios.as_mut_ptr()) != 0 {
+            return None;
+        }
+        termios.assume_init()
+    };
+    Some(PtyModes {
+        echo: termios.c_lflag & libc::ECHO != 0,
+        icanon: termios.c_lflag & libc::ICANON != 0,
+        ixon: termios.c_iflag & libc::IXON != 0,
+    })
+}
+
+/// tty settings can only be read on linux
+#[cfg(not(target_os = "linux"))]
+pub fn pty_modes(_pid: u32) -> Option<PtyModes> {
+    None
+}
+
+/// a program of the shell stopped with ctrl+z, waiting for `fg`
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoppedJob {
+    pub pid: u32,
+    pub name: String,
+    /// job number `fg %n` takes, counted among the shell's children by age like `jobs`
+    pub job: usize,
+}
+
+/// state letter of a process from its /proc stat line, like 'T' for stopped
+pub fn stat_state(stat: &str) -> Option<char> {
+    // comm may contain spaces and parens, so the state is the first field after the last ')'
+    stat.rsplit_once(')')?
+        .1
+        .split_whitespace()
+        .next()?
+        .chars()
+        .next()
+}
+
+/// stopped ones among the shell's children, given oldest first as pid, name and state
+pub fn stopped_among(children: &[(u32, String, char)]) -> Vec<StoppedJob> {
+    children
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, _, state))| *state == 'T')
+        .map(|(ix, (pid, name, _))| StoppedJob {
+            pid: *pid,
+            name: name.clone(),
+            job: ix + 1,
+        })
+        .collect()
+}
+
+/// programs of the shell `shell_pid` stopped with ctrl+z
+#[cfg(not(target_os = "macos"))]
+pub fn stopped_jobs(shell_pid: u32) -> Vec<StoppedJob> {
+    let children: Vec<(u32, String, char)> = children(shell_pid)
+        .into_iter()
+        .filter_map(|pid| {
+            let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+            let name = process_info(pid)?.name;
+            Some((pid, name, stat_state(&stat)?))
+        })
+        .collect();
+    stopped_among(&children)
+}
+
+/// stopped jobs are only read from /proc
+#[cfg(target_os = "macos")]
+pub fn stopped_jobs(_shell_pid: u32) -> Vec<StoppedJob> {
+    Vec::new()
+}
+
 /// name, arguments and folder of any process, none when it is gone
 #[cfg(not(target_os = "macos"))]
 pub fn process_info(pid: u32) -> Option<ForegroundProcess> {
@@ -255,6 +353,60 @@ pub(crate) mod tests {
     fn has_no_ctty() -> bool {
         // opening /dev/tty fails without a controlling terminal, on linux and macos alike
         std::fs::File::open("/dev/tty").is_err()
+    }
+
+    #[test]
+    fn stopped_children_are_found_from_their_state() {
+        assert_eq!(stat_state("42 (vi m) S 1 2"), Some('S'));
+        assert_eq!(stat_state("42 (a) b) T 1"), Some('T'));
+        assert_eq!(stat_state("garbage"), None);
+        let children = [
+            (10, "sleep".to_string(), 'S'),
+            (11, "vim".to_string(), 'T'),
+            (12, "less".to_string(), 'T'),
+        ];
+        let stopped = stopped_among(&children);
+        assert_eq!(
+            stopped,
+            [
+                StoppedJob {
+                    pid: 11,
+                    name: "vim".into(),
+                    job: 2
+                },
+                StoppedJob {
+                    pid: 12,
+                    name: "less".into(),
+                    job: 3
+                },
+            ]
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_stopped_child_is_listed() {
+        let parent = spawn("sleep 30 & sleep 31; :", 1);
+        let pid = parent.0.id();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while children(pid).len() < 2 {
+            assert!(Instant::now() < deadline, "children never started");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let first = children(pid)[0];
+        unsafe { libc::kill(first as i32, libc::SIGSTOP) };
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let stopped = stopped_jobs(pid);
+            if stopped.iter().any(|job| job.pid == first) {
+                assert_eq!(stopped[0].name, "sleep");
+                assert_eq!(stopped[0].job, 1);
+                break;
+            }
+            assert!(Instant::now() < deadline, "no stopped job");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        unsafe { libc::kill(first as i32, libc::SIGKILL) };
     }
 
     #[test]

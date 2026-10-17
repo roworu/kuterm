@@ -11,7 +11,8 @@ FEATURE = "mouse reporting"
 DARK = bundled_theme(True)
 
 # turns on the modes, then keeps every byte the terminal sends for a few seconds
-READ = ("printf '{modes}'; stty raw -echo; touch \"$T2_TMP/ready\"; "
+# "ready" shows the modes were read, the cursor after it is one more cell
+READ = ("printf '{modes}'; stty raw -echo; printf ready; touch \"$T2_TMP/ready\"; "
         'timeout --foreground {seconds} cat > "$T2_TMP/got.tmp"; stty sane; mv "$T2_TMP/got.tmp" "$T2_TMP/got"')
 
 SGR = "\\033[?1000h\\033[?1006h"
@@ -21,7 +22,7 @@ def reading(app_factory, modes: str, seconds: int = 3, **settings) -> App:
     """app whose program turned on `modes` and reads raw input, read it back with got()"""
     app = app_factory({"theme": {"mode": "dark"}, **settings}, script=READ.format(modes=modes, seconds=seconds))
     app.wait_file("ready")
-    time.sleep(0.3)
+    app.wait_line(0, 6)
     return app
 
 

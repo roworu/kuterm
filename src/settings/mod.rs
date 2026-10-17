@@ -2,34 +2,48 @@
 
 mod commands;
 mod config;
+pub mod edit;
+mod files;
+mod fonts;
 mod keybindings;
+mod limits;
 mod options;
 mod pins;
+mod status_bar_state;
 mod tab_icons;
 mod window_size;
 
 use std::collections::{BTreeMap, HashMap};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use alacritty_terminal::term::search::RegexSearch;
 use gpui::{App, CursorHideMode, Global, Hsla};
 use serde::Deserialize;
 use serde_json_lenient::Value;
 
-pub use commands::{Command, CommandAction, Commands};
+pub use commands::{
+    Command, CommandAction, CommandStep, Commands, Input, Side, Target, Values, fill,
+};
+#[cfg(test)]
+pub(crate) use config::DEFAULT_SETTINGS;
 #[cfg(test)]
 pub(crate) use config::combine as config_combine;
 pub(crate) use config::defaults as bundled_settings;
+pub(crate) use config::merge;
 pub use config::{Config, ConfigFiles};
+pub use files::{config_dir, create_default_file, load_json, save_json, state_dir};
+pub use fonts::parse_font_feature;
 pub use keybindings::Keybindings;
+pub use limits::MAX_HISTORY_LENGTH;
 pub use options::{
-    BellTarget, ClipboardAccess, ConfirmQuit, CursorBlink, CursorShape, CursorUnfocused,
-    Decorations, FontSlant, LineHeight, LinkModifier, MenuBarMode, NewTabButton, PatternAction,
-    ProgramNotifications, RemoteControl, RestoreSession, ScrollEasing, ScrollbarEnable,
-    ScrollbarPlacement, SearchCase, Shell, StartupMode, TabTitleAlign, TabTitleBlock, ThemeMode,
+    BellTarget, ClipboardAccess, CompletionTrigger, ConfirmQuit, CursorBlink, CursorShape,
+    CursorUnfocused, Decorations, FontSlant, LineHeight, LinkModifier, MarkSources, MemoryUnit,
+    MenuBarMode, NewTabButton, PatternAction, ProgramNotifications, RemoteControl, RestoreSession,
+    ScrollEasing, ScrollbarEnable, ScrollbarPlacement, SearchCase, Shell, StartupMode,
+    TabTitleAlign, TabTitleBlock, ThemeMode,
 };
 pub use pins::Pins;
-pub use tab_icons::TabIcons;
+pub use status_bar_state::StatusBarState;
+pub use tab_icons::{IconGroup, TabIcons};
 pub use window_size::WindowSize;
 
 use crate::cli::Cli;
@@ -61,10 +75,13 @@ pub struct Settings {
     pub focus_follows_mouse: bool,
     pub bell: BellSettings,
     pub search: SearchSettings,
+    pub selection: SelectionSettings,
+    pub tab_groups: TabGroupSettings,
     pub links: LinkSettings,
     pub hints: HintSettings,
     pub panes: PaneSettings,
     pub shell_integration: ShellIntegrationSettings,
+    pub autocomplete: AutocompleteSettings,
     /// program and arguments the history is opened with, the file goes last
     pub scrollback_pager: Vec<String>,
     pub restore_session: RestoreSession,
@@ -79,6 +96,10 @@ pub struct StatusBarSettings {
     pub enable: bool,
     pub left: Vec<TabTitleBlock>,
     pub right: Vec<TabTitleBlock>,
+    /// unit memory shows in until a click on it picks another
+    pub memory_unit: MemoryUnit,
+    /// strftime format of clock blocks
+    pub clock_format: String,
 }
 
 /// images programs show with kitty's graphics protocol
@@ -96,6 +117,20 @@ pub struct ShellIntegrationSettings {
     /// seconds a command runs before its end is notified while its tab is not seen,
     /// 0 never notifies
     pub notify_after: f32,
+    /// a click on the command line being typed moves the shell's cursor there
+    pub click_moves_cursor: bool,
+    /// commands that get a gutter mark telling what typed them
+    pub mark_sources: MarkSources,
+}
+
+/// popup of completions for the command line, fed by shell integration
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+pub struct AutocompleteSettings {
+    pub enable: bool,
+    pub trigger: CompletionTrigger,
+    /// rows shown at once, the list scrolls past them
+    pub max_items: usize,
+    pub show_descriptions: bool,
 }
 
 /// split panes
@@ -116,6 +151,10 @@ pub struct LinkSettings {
     /// program links are opened with, the system opener when none
     pub open_with: Option<String>,
     pub patterns: Vec<TextPattern>,
+    /// `file:line` links go to an editor running in another pane
+    pub open_in_running_editor: bool,
+    /// hovering a `file:line` shows the lines around it
+    pub peek: bool,
 }
 
 /// text matched by a regex, with what to do with it
@@ -141,6 +180,20 @@ pub struct SearchSettings {
     pub case_sensitive: SearchCase,
     pub regex: bool,
     pub whole_word: bool,
+}
+
+/// groups of tabs under a chip in the tab bar
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+pub struct TabGroupSettings {
+    /// group tabs by the git project of their folder
+    pub by_project: bool,
+}
+
+/// how selecting text with the mouse behaves
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+pub struct SelectionSettings {
+    /// keep showing the frame a drag started on until the button is released
+    pub hold_frame: bool,
 }
 
 impl Default for Settings {
@@ -200,6 +253,14 @@ pub struct NotificationSettings {
     pub paste: bool,
     /// show notifications programs send with osc 9 and osc 777
     pub from_programs: ProgramNotifications,
+    /// notify when an ai agent stops and waits for input
+    pub agent_waiting: bool,
+    /// notify when a program asks a question or for a password
+    pub program_waiting: bool,
+    /// regexes a quiet program's last line matches when it asks something
+    pub question_patterns: Vec<String>,
+    /// give desktop notifications buttons, like "run again"
+    pub actions: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -306,6 +367,12 @@ pub struct TerminalSettings {
     pub clipboard: ClipboardSettings,
     /// ask before pasting text that would run right away or has control characters
     pub paste_protection: bool,
+    /// ask before pasting text with hidden or lookalike characters, pointing them out
+    pub paste_check_invisible: bool,
+    /// a failed command pauses the commands queued after it
+    pub queue_stop_on_failure: bool,
+    /// ctrl+s from the keyboard may pause output of a pty with ixon on
+    pub send_xoff: bool,
 }
 
 /// what programs may do with the clipboard through osc 52
@@ -418,104 +485,34 @@ pub struct Profile {
     /// extra environment variables for the command
     #[serde(default)]
     pub env: HashMap<String, String>,
+    /// no shell history, no session restore and no remote reading of the tab
+    #[serde(default)]
+    pub incognito: bool,
+    /// run the shell with no network and writes only where allowed
+    #[serde(default)]
+    pub sandbox: Option<Sandbox>,
+}
+
+/// what a sandboxed profile's shell may do
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct Sandbox {
+    pub network: bool,
+    /// folders it may write, "cwd" for the one it starts in
+    pub write: Vec<String>,
+    pub tmp: SandboxTmp,
+}
+
+/// the /tmp a sandbox sees
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum SandboxTmp {
+    /// an empty one of its own
+    Private,
+    /// the system's, read only
+    Shared,
 }
 
 impl Global for Settings {}
-
-// smaller fonts break the terminal grid, bigger ones stop growing
-const FONT_SIZE_RANGE: (f32, f32) = (6., 72.);
-// css font weights, the font picks its nearest face
-const FONT_WEIGHT_RANGE: (f32, f32) = (100., 900.);
-// a few pixels fix a font, more breaks the grid
-const CELL_ADJUST_RANGE: (f32, f32) = (-10., 10.);
-// 1 is no contrast at all, 21 is black on white
-const MINIMUM_CONTRAST_RANGE: (f32, f32) = (1., 21.);
-const DIM_OPACITY_RANGE: (f32, f32) = (0., 1.);
-// lines below 1 overlap, above 3 waste the screen
-const LINE_HEIGHT_RANGE: (f32, f32) = (1., 3.);
-// thinner bars are hard to grab, wider ones eat the grid
-const SCROLLBAR_WIDTH_RANGE: (f32, f32) = (2., 64.);
-// Duration panics on negative or huge seconds, an hour is already "never"
-const AUTO_HIDE_RANGE: (f32, f32) = (0., 3600.);
-// faster blinking flickers, slower looks like a hang
-const CURSOR_BLINK_INTERVAL_RANGE: (f32, f32) = (100., 2000.);
-// Duration panics on negative or huge seconds, an hour is already "never"
-const CURSOR_BLINK_TIMEOUT_RANGE: (f32, f32) = (0., 3600.);
-// thinner is invisible, thicker looks like a block
-const CURSOR_THICKNESS_RANGE: (f32, f32) = (1., 8.);
-// slower scrolling is useless, faster skips whole screens
-const SCROLL_MULTIPLIER_RANGE: (f32, f32) = (0.1, 20.);
-// Duration panics on negative seconds, a longer flash hides the output
-const BELL_DURATION_RANGE: (f32, f32) = (0., 2000.);
-// longer glides feel like lag, not smoothness
-const SMOOTH_SCROLL_DURATION_RANGE: (f32, f32) = (0., 1000.);
-
-pub const MAX_HISTORY_LENGTH: usize = u32::MAX as usize;
-
-// more padding than this leaves no room for the grid
-const PADDING_RANGE: (f32, f32) = (0., 200.);
-const OPACITY_RANGE: (f32, f32) = (0., 1.);
-// a window smaller than this is useless, bigger ones don't fit any screen
-const COLUMNS_RANGE: (f32, f32) = (10., 1000.);
-const ROWS_RANGE: (f32, f32) = (2., 500.);
-
-// a wider divider wastes room, 0 still leaves a grab handle
-const DIVIDER_WIDTH_RANGE: (f32, f32) = (0., 20.);
-const DIM_INACTIVE_RANGE: (f32, f32) = (0., 1.);
-// a few megabytes hold some images, more than this is a lot for one tab
-const GRAPHICS_MEMORY_RANGE: (f32, f32) = (1., 4096.);
-// Duration panics on negative or huge seconds, a day is already "never"
-const NOTIFY_AFTER_RANGE: (f32, f32) = (0., 86400.);
-
-// Duration panics on negative or huge seconds, an hour is already "until clicked"
-const NOTIFICATION_TIMEOUT_RANGE: (f32, f32) = (0., 3600.);
-
-fn limit(name: &str, value: f32, (min, max): (f32, f32)) -> Option<f32> {
-    if value.is_nan() || value < min {
-        eprintln!("{name} {value} is below {min}, using the default");
-        return None;
-    }
-    if value > max {
-        eprintln!("{name} {value} is above {max}, using {max}");
-    }
-    Some(value.min(max))
-}
-
-/// commented settings file written on first launch
-pub const DEFAULT_SETTINGS: &str = include_str!("../../assets/default_settings.jsonc");
-
-/// write a default config file if it does not exist yet, so users can see what to change
-pub fn create_default_file(path: &Path, contents: &str) {
-    if path.exists() {
-        return;
-    }
-    let result = path
-        .parent()
-        .map_or(Ok(()), std::fs::create_dir_all)
-        .and_then(|()| std::fs::write(path, contents));
-    if let Err(error) = result {
-        eprintln!("failed to create {}: {error}", path.display());
-    }
-}
-
-/// `$XDG_CONFIG_HOME/kuterm`, falling back to `~/.config/kuterm`
-pub fn config_dir() -> Option<PathBuf> {
-    xdg_dir("XDG_CONFIG_HOME", ".config")
-}
-
-/// `$XDG_STATE_HOME/kuterm`, falling back to `~/.local/state/kuterm`, for files the app writes
-pub fn state_dir() -> Option<PathBuf> {
-    xdg_dir("XDG_STATE_HOME", ".local/state")
-}
-
-fn xdg_dir(var: &str, fallback: &str) -> Option<PathBuf> {
-    // xdg says empty or relative values must be ignored
-    let dir = std::env::var_os(var)
-        .map(PathBuf::from)
-        .filter(|dir| dir.is_absolute())
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(fallback)))?;
-    Some(dir.join("kuterm"))
-}
 
 impl Settings {
     /// `--config-file`, or `settings.jsonc` in the config dir
@@ -524,257 +521,6 @@ impl Settings {
             .config_file
             .clone()
             .or_else(|| Some(config_dir()?.join("settings.jsonc")))
-    }
-
-    /// parse settings, we allow comments and trailing commas
-    #[cfg(test)]
-    pub fn parse(json: &str) -> serde_json_lenient::Result<Self> {
-        Self::from_full(config::combine(serde_json_lenient::from_str(json)?))
-    }
-
-    /// settings from user values already merged over the bundled ones, keeping values in limits
-    pub fn from_full(full: Value) -> serde_json_lenient::Result<Self> {
-        let mut settings: Self = serde_json_lenient::from_value(full)?;
-        let defaults = Self::default();
-        settings.ui_font_size = limit("ui_font_size", settings.ui_font_size, FONT_SIZE_RANGE)
-            .unwrap_or(defaults.ui_font_size);
-        let terminal = &mut settings.terminal;
-        let font = &mut terminal.font;
-        font.size = limit("terminal.font.size", font.size, FONT_SIZE_RANGE)
-            .unwrap_or(defaults.terminal.font.size);
-        font.bold.weight = limit(
-            "terminal.font.bold.weight",
-            font.bold.weight,
-            FONT_WEIGHT_RANGE,
-        )
-        .unwrap_or(defaults.terminal.font.bold.weight);
-        terminal.font_features.retain(|feature| {
-            let valid = parse_font_feature(feature).is_some();
-            if !valid {
-                eprintln!("terminal.font_features {feature:?} is not a feature like \"-calt\", \"ss01\" or \"cv01=2\", skipped");
-            }
-            valid
-        });
-        terminal.cell_width = limit(
-            "terminal.cell_width",
-            terminal.cell_width,
-            CELL_ADJUST_RANGE,
-        )
-        .unwrap_or(defaults.terminal.cell_width);
-        let offset = &mut terminal.glyph_offset;
-        offset.x = limit("terminal.glyph_offset.x", offset.x, CELL_ADJUST_RANGE)
-            .unwrap_or(defaults.terminal.glyph_offset.x);
-        offset.y = limit("terminal.glyph_offset.y", offset.y, CELL_ADJUST_RANGE)
-            .unwrap_or(defaults.terminal.glyph_offset.y);
-        terminal.minimum_contrast = limit(
-            "terminal.minimum_contrast",
-            terminal.minimum_contrast,
-            MINIMUM_CONTRAST_RANGE,
-        )
-        .unwrap_or(defaults.terminal.minimum_contrast);
-        terminal.dim_opacity = limit(
-            "terminal.dim_opacity",
-            terminal.dim_opacity,
-            DIM_OPACITY_RANGE,
-        )
-        .unwrap_or(defaults.terminal.dim_opacity);
-        if let LineHeight::Custom(value) = terminal.line_height {
-            terminal.line_height = limit("terminal.line_height", value, LINE_HEIGHT_RANGE)
-                .map_or(defaults.terminal.line_height, LineHeight::Custom);
-        }
-        terminal.cursor_blink_interval = limit(
-            "terminal.cursor_blink_interval",
-            terminal.cursor_blink_interval,
-            CURSOR_BLINK_INTERVAL_RANGE,
-        )
-        .unwrap_or(defaults.terminal.cursor_blink_interval);
-        terminal.cursor_blink_timeout = limit(
-            "terminal.cursor_blink_timeout",
-            terminal.cursor_blink_timeout,
-            CURSOR_BLINK_TIMEOUT_RANGE,
-        )
-        .unwrap_or(defaults.terminal.cursor_blink_timeout);
-        terminal.cursor.thickness = limit(
-            "terminal.cursor.thickness",
-            terminal.cursor.thickness,
-            CURSOR_THICKNESS_RANGE,
-        )
-        .unwrap_or(defaults.terminal.cursor.thickness);
-        terminal.scroll_multiplier = limit(
-            "terminal.scroll_multiplier",
-            terminal.scroll_multiplier,
-            SCROLL_MULTIPLIER_RANGE,
-        )
-        .unwrap_or(defaults.terminal.scroll_multiplier);
-        if terminal.max_history_length > MAX_HISTORY_LENGTH {
-            eprintln!(
-                "terminal.max_history_length {} is above {MAX_HISTORY_LENGTH}, using {MAX_HISTORY_LENGTH}",
-                terminal.max_history_length
-            );
-            terminal.max_history_length = MAX_HISTORY_LENGTH;
-        }
-        let scrollbar = &mut terminal.scrollbar;
-        scrollbar.width = limit(
-            "terminal.scrollbar.width",
-            scrollbar.width,
-            SCROLLBAR_WIDTH_RANGE,
-        )
-        .unwrap_or(defaults.terminal.scrollbar.width);
-        scrollbar.auto_hide = limit(
-            "terminal.scrollbar.auto_hide",
-            scrollbar.auto_hide,
-            AUTO_HIDE_RANGE,
-        )
-        .unwrap_or(defaults.terminal.scrollbar.auto_hide);
-        let smooth_scroll = &mut terminal.smooth_scroll;
-        smooth_scroll.duration = limit(
-            "terminal.smooth_scroll.duration",
-            smooth_scroll.duration,
-            SMOOTH_SCROLL_DURATION_RANGE,
-        )
-        .unwrap_or(defaults.terminal.smooth_scroll.duration);
-        settings.notifications.timeout = limit(
-            "notifications.timeout",
-            settings.notifications.timeout,
-            NOTIFICATION_TIMEOUT_RANGE,
-        )
-        .unwrap_or(defaults.notifications.timeout);
-        settings.bell.visual.duration = limit(
-            "bell.visual.duration",
-            settings.bell.visual.duration,
-            BELL_DURATION_RANGE,
-        )
-        .unwrap_or(defaults.bell.visual.duration);
-        let panes = &mut settings.panes;
-        panes.divider_width = limit(
-            "panes.divider_width",
-            panes.divider_width,
-            DIVIDER_WIDTH_RANGE,
-        )
-        .unwrap_or(defaults.panes.divider_width);
-        panes.dim_inactive = limit("panes.dim_inactive", panes.dim_inactive, DIM_INACTIVE_RANGE)
-            .unwrap_or(defaults.panes.dim_inactive);
-        settings.shell_integration.notify_after = limit(
-            "shell_integration.notify_after",
-            settings.shell_integration.notify_after,
-            NOTIFY_AFTER_RANGE,
-        )
-        .unwrap_or(defaults.shell_integration.notify_after);
-        settings.graphics.max_memory_mb = limit(
-            "graphics.max_memory_mb",
-            settings.graphics.max_memory_mb as f32,
-            GRAPHICS_MEMORY_RANGE,
-        )
-        .map_or(defaults.graphics.max_memory_mb, |mb| mb as usize);
-        let window = &mut settings.window;
-        window.padding.x = limit("window.padding.x", window.padding.x, PADDING_RANGE)
-            .unwrap_or(defaults.window.padding.x);
-        window.padding.y = limit("window.padding.y", window.padding.y, PADDING_RANGE)
-            .unwrap_or(defaults.window.padding.y);
-        window.opacity = limit("window.opacity", window.opacity, OPACITY_RANGE)
-            .unwrap_or(defaults.window.opacity);
-        window.columns = limit("window.columns", window.columns as f32, COLUMNS_RANGE)
-            .map_or(defaults.window.columns, |columns| columns as u32);
-        window.rows = limit("window.rows", window.rows as f32, ROWS_RANGE)
-            .map_or(defaults.window.rows, |rows| rows as u32);
-        for (name, patterns) in [
-            ("links.patterns", &mut settings.links.patterns),
-            ("hints.patterns", &mut settings.hints.patterns),
-        ] {
-            patterns.retain(|pattern| {
-                let error = RegexSearch::new(&pattern.regex).err();
-                if let Some(error) = &error {
-                    eprintln!(
-                        "{name} {:?} is not a valid regex, skipped: {error}",
-                        pattern.regex
-                    );
-                }
-                error.is_none()
-            });
-        }
-        let alphabet = &mut settings.hints.alphabet;
-        let mut letters: Vec<char> = alphabet.chars().collect();
-        letters.dedup();
-        // labels need at least two different letters, and spaces would be invisible
-        if letters.len() != alphabet.chars().count()
-            || letters.len() < 2
-            || letters.iter().any(|c| c.is_whitespace() || c.is_control())
-        {
-            eprintln!(
-                "hints.alphabet {alphabet:?} needs two or more different letters, using the default"
-            );
-            *alphabet = defaults.hints.alphabet;
-        }
-        if settings
-            .scrollback_pager
-            .first()
-            .is_none_or(|program| program.is_empty())
-        {
-            eprintln!("scrollback_pager needs a program, using the default");
-            settings.scrollback_pager = defaults.scrollback_pager;
-        }
-        if settings.profiles.is_empty() {
-            eprintln!("profiles is empty, using the default profiles");
-            settings.profiles = defaults.profiles;
-        }
-        // exactly one profile is the default, the first marked one wins
-        match settings.profiles.iter().position(|profile| profile.default) {
-            Some(first) => {
-                let (head, rest) = settings.profiles.split_at_mut(first + 1);
-                for profile in rest.iter_mut().filter(|profile| profile.default) {
-                    eprintln!(
-                        "profile {:?} is also default, using {:?}",
-                        profile.name, head[first].name
-                    );
-                    profile.default = false;
-                }
-            }
-            None => settings.profiles[0].default = true,
-        }
-        Ok(settings)
-    }
-
-    /// replace font families that are not installed with the bundled defaults
-    pub fn use_installed_fonts(&mut self, installed: &[String]) {
-        // the system fallback is usually proportional, which breaks the terminal grid
-        let defaults = Self::default();
-        for (name, family, default) in [
-            (
-                "ui_font_family",
-                &mut self.ui_font_family,
-                defaults.ui_font_family,
-            ),
-            (
-                "terminal.font.family",
-                &mut self.terminal.font.family,
-                defaults.terminal.font.family,
-            ),
-        ] {
-            if !installed.contains(family) {
-                eprintln!("{name} {family:?} is not installed, using {default:?}");
-                *family = default;
-            }
-        }
-        let font = &mut self.terminal.font;
-        for (name, family) in [
-            ("terminal.font.bold.family", &mut font.bold.family),
-            ("terminal.font.italic.family", &mut font.italic.family),
-            (
-                "terminal.font.bold_italic.family",
-                &mut font.bold_italic.family,
-            ),
-        ] {
-            if let Some(missing) = family.take_if(|family| !installed.contains(family)) {
-                eprintln!("{name} {missing:?} is not installed, using the regular family");
-            }
-        }
-        self.terminal.font_fallbacks.retain(|family| {
-            let found = installed.contains(family);
-            if !found {
-                eprintln!("terminal.font_fallbacks {family:?} is not installed, skipped");
-            }
-            found
-        });
     }
 
     /// profile opened by the new tab action
@@ -790,9 +536,9 @@ impl Settings {
         self.profiles.iter().find(|profile| profile.name == name)
     }
 
-    /// keep a font size inside the allowed range
-    pub fn clamp_font_size(size: f32) -> f32 {
-        size.clamp(FONT_SIZE_RANGE.0, FONT_SIZE_RANGE.1)
+    /// profile with this name, the default one when it was renamed or removed since
+    pub fn profile_or_default(&self, name: &str) -> &Profile {
+        self.profile(name).unwrap_or_else(|| self.default_profile())
     }
 
     /// settings loaded at startup or on the last reload
@@ -801,35 +547,9 @@ impl Settings {
     }
 }
 
-/// opentype tag and value of a feature like "-calt", "+calt", "ss01" or "cv01=2"
-pub fn parse_font_feature(feature: &str) -> Option<(String, u32)> {
-    let (tag, value) = if let Some(tag) = feature.strip_prefix('-') {
-        (tag, 0)
-    } else if let Some((tag, value)) = feature.split_once('=') {
-        (tag, value.parse().ok()?)
-    } else {
-        (feature.strip_prefix('+').unwrap_or(feature), 1)
-    };
-    // opentype tags are exactly four printable ascii chars
-    (tag.len() == 4 && tag.bytes().all(|b| b.is_ascii_graphic())).then(|| (tag.to_string(), value))
-}
-
-// user values override defaults key by key, so a partial file keeps the other defaults.
-// anything that is not an object on both sides (enum values, arrays) is replaced as a whole
-pub(crate) fn merge(base: &mut Value, overrides: Value) {
-    match (base, overrides) {
-        (Value::Object(base), Value::Object(overrides)) => {
-            for (key, value) in overrides {
-                // a missing key starts as null, which the fallback arm replaces with the value
-                merge(base.entry(key).or_insert(Value::Null), value);
-            }
-        }
-        (base, overrides) => *base = overrides,
-    }
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
+    use std::path::Path;
     use std::sync::Mutex;
 
     use super::*;
@@ -874,18 +594,31 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn empty_file_uses_defaults() {
-        let settings = Settings::parse("{}").unwrap();
-        assert_eq!(settings, Settings::default());
-    }
-
-    #[test]
     fn bundled_settings_are_commented_and_parse() {
         assert!(DEFAULT_SETTINGS.contains("//"));
         assert_eq!(
             Settings::parse(DEFAULT_SETTINGS).unwrap(),
             Settings::default()
         );
+    }
+
+    #[test]
+    fn example_presets_parse() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/presets");
+        let mut presets = 0;
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path().join("settings.jsonc");
+            if !path.exists() {
+                continue;
+            }
+            let json = std::fs::read_to_string(&path).unwrap();
+            let full = config::combine(serde_json_lenient::from_str(&json).unwrap());
+            Settings::from_full(full.clone()).unwrap_or_else(|e| panic!("{path:?}: {e}"));
+            Keybindings::from_full(&full).unwrap_or_else(|e| panic!("{path:?}: {e}"));
+            Commands::from_full(&full).unwrap_or_else(|e| panic!("{path:?}: {e}"));
+            presets += 1;
+        }
+        assert!(presets > 0, "no presets in {dir:?}");
     }
 
     #[test]
@@ -936,19 +669,6 @@ pub(crate) mod tests {
         };
         assert_eq!(parse(r#""system""#), Shell::System);
         assert_eq!(parse(r#"{"program": "zsh"}"#), Shell::Program("zsh".into()));
-    }
-
-    #[test]
-    fn partial_terminal_section_keeps_other_defaults() {
-        let settings = Settings::parse(r#"{"terminal": {"cursor_shape": "hollow"}}"#).unwrap();
-        let defaults = Settings::default();
-        assert_eq!(settings.terminal.cursor_shape, CursorShape::Hollow);
-        assert_eq!(
-            settings.terminal.cursor_blink,
-            defaults.terminal.cursor_blink
-        );
-        assert_eq!(settings.terminal.font.size, defaults.terminal.font.size);
-        assert_eq!(settings.ui_font_size, defaults.ui_font_size);
     }
 
     #[test]
@@ -1056,17 +776,6 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn create_default_file_creates_dirs_and_never_overwrites() {
-        let dir = temp_dir("create_default");
-        let path = dir.join("a").join("b").join("file.jsonc");
-        create_default_file(&path, "first");
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "first");
-        create_default_file(&path, "second");
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "first");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
     fn load_creates_and_reads_settings_file() {
         let dir = temp_dir("settings_load");
         with_config_home(&dir, || {
@@ -1092,70 +801,6 @@ pub(crate) mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    fn font_json(field: &str, value: &str) -> String {
-        match field {
-            "ui_font_size" => format!(r#"{{"ui_font_size": {value}}}"#),
-            _ => format!(r#"{{"terminal": {{"font_size": {value}}}}}"#),
-        }
-    }
-
-    fn parse_font(field: &str, value: &str) -> f32 {
-        let settings = Settings::parse(&font_json(field, value)).unwrap();
-        match field {
-            "ui_font_size" => settings.ui_font_size,
-            _ => settings.terminal.font.size,
-        }
-    }
-
-    #[test]
-    fn font_size_below_min_uses_default() {
-        let defaults = Settings::default();
-        for field in ["ui_font_size", "terminal.font.size"] {
-            for value in [
-                "0", "0.0", "-0", "-0.0", "1", "0.5", "1e-30", "5", "-1", "-6", "-16", "-72",
-                "-100", "-1e30", "-3.4e38",
-            ] {
-                let got = parse_font(field, value);
-                let default = match field {
-                    "ui_font_size" => defaults.ui_font_size,
-                    _ => defaults.terminal.font.size,
-                };
-                // exactly the default, not -0.0 or a clamp to 6
-                assert_eq!(
-                    got.to_bits(),
-                    default.to_bits(),
-                    "{field} {value} gave {got}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn font_size_above_max_is_capped() {
-        for field in ["ui_font_size", "terminal.font.size"] {
-            for value in [
-                "72.5", "73", "80", "100", "200", "1000", "1e6", "1e30", "3.4e38", "1e39", "1e300",
-            ] {
-                let got = parse_font(field, value);
-                assert_eq!(got, 72.0, "{field} {value} gave {got}");
-            }
-        }
-    }
-
-    #[test]
-    fn line_height_custom_boundaries() {
-        let lh = |v: &str| {
-            let json = format!(r#"{{"terminal": {{"line_height": {{"custom": {v}}}}}}}"#);
-            Settings::parse(&json).unwrap().terminal.line_height
-        };
-        assert_eq!(lh("0.99"), LineHeight::Standard);
-        assert_eq!(lh("0.9999"), LineHeight::Standard);
-        assert_eq!(lh("1"), LineHeight::Custom(1.0));
-        assert_eq!(lh("3"), LineHeight::Custom(3.0));
-        assert_eq!(lh("3.01"), LineHeight::Custom(3.0));
-        assert_eq!(lh("3.0001"), LineHeight::Custom(3.0));
-    }
-
     #[test]
     fn tab_title_array_replaces_default_whole() {
         // default has 3 blocks, a shorter or longer user array must not be index merged
@@ -1172,7 +817,8 @@ pub(crate) mod tests {
     fn status_bar_takes_title_and_sampled_blocks() {
         let settings = Settings::parse(
             r#"{"status_bar": {"enable": true, "left": ["folder", "ports", "cpu", "memory"],
-                "right": [{"text": "all"}, "total_cpu", "total_memory", "all_ports"]}}"#,
+                "right": [{"text": "all"}, "total_cpu", "total_memory", "all_ports", "network",
+                "total_network"], "memory_unit": "mb"}}"#,
         )
         .unwrap();
         let bar = settings.status_bar;
@@ -1192,11 +838,15 @@ pub(crate) mod tests {
                 TabTitleBlock::Text("all".into()),
                 TabTitleBlock::TotalCpu,
                 TabTitleBlock::TotalMemory,
-                TabTitleBlock::AllPorts
+                TabTitleBlock::AllPorts,
+                TabTitleBlock::Network,
+                TabTitleBlock::TotalNetwork
             ]
         );
+        assert_eq!(bar.memory_unit, MemoryUnit::Mb);
         let settings = Settings::parse(r#"{"status_bar": {"enable": false}}"#).unwrap();
         assert!(!settings.status_bar.enable);
+        assert_eq!(settings.status_bar.memory_unit, MemoryUnit::Auto);
     }
 
     #[test]
@@ -1242,35 +892,6 @@ pub(crate) mod tests {
         assert_eq!(theme.dark, Some("themes/b.jsonc".into()));
         assert_eq!(theme.light, None);
         assert_eq!(b.env["EDITOR"], "vim");
-    }
-
-    #[test]
-    fn exactly_one_profile_is_default() {
-        let a = r#"{"name": "a", "command": "system"}"#;
-        let a_default = r#"{"name": "a", "default": true, "command": "system"}"#;
-        let b = r#"{"name": "b", "command": "system"}"#;
-        let b_default = r#"{"name": "b", "default": true, "command": "system"}"#;
-        let c_default = r#"{"name": "c", "default": true, "command": "system"}"#;
-        // default flags of the parsed profiles, in order
-        let parse = |profiles: &[&str]| -> Vec<bool> {
-            let json = format!(r#"{{"profiles": [{}]}}"#, profiles.join(","));
-            let settings = Settings::parse(&json).unwrap();
-            settings
-                .profiles
-                .iter()
-                .map(|profile| profile.default)
-                .collect()
-        };
-        // none marked, the first one is used
-        assert_eq!(parse(&[a, b]), [true, false]);
-        assert_eq!(parse(&[b_default]), [true]);
-        assert_eq!(parse(&[a, b_default]), [false, true]);
-        // several marked, the first marked one wins
-        assert_eq!(parse(&[a, b_default, c_default]), [false, true, false]);
-        assert_eq!(
-            parse(&[a_default, b_default, c_default]),
-            [true, false, false]
-        );
     }
 
     #[test]
@@ -1369,38 +990,6 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn scrollbar_width_limits() {
-        let width = |value: &str| {
-            let json = format!(r#"{{"terminal": {{"scrollbar": {{"width": {value}}}}}}}"#);
-            Settings::parse(&json).unwrap().terminal.scrollbar.width
-        };
-        let default = Settings::default().terminal.scrollbar.width;
-        assert_eq!(width("0"), default);
-        assert_eq!(width("1.9"), default);
-        assert_eq!(width("-5"), default);
-        assert_eq!(width("2"), 2.);
-        assert_eq!(width("64"), 64.);
-        assert_eq!(width("65"), 64.);
-        assert_eq!(width("1e30"), 64.);
-    }
-
-    #[test]
-    fn scrollbar_auto_hide_limits() {
-        let auto_hide = |value: &str| {
-            let json = format!(r#"{{"terminal": {{"scrollbar": {{"auto_hide": {value}}}}}}}"#);
-            Settings::parse(&json).unwrap().terminal.scrollbar.auto_hide
-        };
-        let default = Settings::default().terminal.scrollbar.auto_hide;
-        assert_eq!(auto_hide("-1"), default);
-        assert_eq!(auto_hide("-0.5"), default);
-        assert_eq!(auto_hide("0"), 0.);
-        assert_eq!(auto_hide("0.25"), 0.25);
-        assert_eq!(auto_hide("3600"), 3600.);
-        assert_eq!(auto_hide("3601"), 3600.);
-        assert_eq!(auto_hide("1e30"), 3600.);
-    }
-
-    #[test]
     fn cursor_blink_parses_and_interval_limits() {
         let terminal = |json: &str| Settings::parse(json).unwrap().terminal;
         assert_eq!(
@@ -1422,23 +1011,6 @@ pub(crate) mod tests {
         assert_eq!(interval("750"), 750.);
         assert_eq!(interval("2000"), 2000.);
         assert_eq!(interval("5000"), 2000.);
-    }
-
-    #[test]
-    fn cursor_blink_timeout_limits() {
-        let timeout = |value: &str| {
-            let json = format!(r#"{{"terminal": {{"cursor_blink_timeout": {value}}}}}"#);
-            Settings::parse(&json)
-                .unwrap()
-                .terminal
-                .cursor_blink_timeout
-        };
-        let default = Settings::default().terminal.cursor_blink_timeout;
-        assert_eq!(timeout("-1"), default);
-        assert_eq!(timeout("0"), 0.);
-        assert_eq!(timeout("2.5"), 2.5);
-        assert_eq!(timeout("3600"), 3600.);
-        assert_eq!(timeout("1e30"), 3600.);
     }
 
     #[test]
@@ -1559,19 +1131,6 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn notification_timeout_limits() {
-        let timeout = |value: &str| {
-            let json = format!(r#"{{"notifications": {{"timeout": {value}}}}}"#);
-            Settings::parse(&json).unwrap().notifications.timeout
-        };
-        let default = Settings::default().notifications.timeout;
-        assert_eq!(timeout("-1"), default);
-        assert_eq!(timeout("0"), 0.);
-        assert_eq!(timeout("2.5"), 2.5);
-        assert_eq!(timeout("3601"), 3600.);
-    }
-
-    #[test]
     fn parses_smooth_scroll() {
         let smooth = |json: &str| Settings::parse(json).unwrap().terminal.smooth_scroll;
         let parsed = smooth(
@@ -1612,36 +1171,6 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn max_history_length_is_capped() {
-        let history = |value: &str| {
-            let json = format!(r#"{{"terminal": {{"max_history_length": {value}}}}}"#);
-            Settings::parse(&json).unwrap().terminal.max_history_length
-        };
-        assert_eq!(history("0"), 0);
-        assert_eq!(history("5000"), 5000);
-        assert_eq!(history("4294967295"), MAX_HISTORY_LENGTH);
-        assert_eq!(history("18446744073709551615"), MAX_HISTORY_LENGTH);
-    }
-
-    #[test]
-    fn missing_font_families_use_defaults() {
-        let defaults = Settings::default();
-        let mut settings = Settings::parse(
-            r#"{"ui_font_family": "No Such Font", "terminal": {"font_family": "DejaVu Sans Mono"}}"#,
-        )
-        .unwrap();
-        settings.use_installed_fonts(&[
-            "DejaVu Sans Mono".to_string(),
-            defaults.ui_font_family.clone(),
-        ]);
-        assert_eq!(settings.ui_font_family, defaults.ui_font_family);
-        assert_eq!(settings.terminal.font.family, "DejaVu Sans Mono");
-
-        settings.use_installed_fonts(&[]);
-        assert_eq!(settings.terminal.font.family, defaults.terminal.font.family);
-    }
-
-    #[test]
     fn flat_font_keys_move_into_font() {
         let settings =
             Settings::parse(r#"{"terminal": {"font_family": "Agent Mono", "font_size": 15}}"#)
@@ -1678,102 +1207,6 @@ pub(crate) mod tests {
             Some("Agent Bold Italic")
         );
         assert!(Settings::parse(r#"{"terminal": {"font": {"italic": {"style": "x"}}}}"#).is_err());
-    }
-
-    #[test]
-    fn font_and_color_rule_limits() {
-        let defaults = Settings::default().terminal;
-        let terminal = |json: &str| {
-            Settings::parse(&format!(r#"{{"terminal": {json}}}"#))
-                .unwrap()
-                .terminal
-        };
-        let bold = |weight: &str| {
-            terminal(&format!(
-                r#"{{"font": {{"bold": {{"weight": {weight}}}}}}}"#
-            ))
-            .font
-            .bold
-            .weight
-        };
-        assert_eq!(bold("99"), defaults.font.bold.weight);
-        assert_eq!(bold("100"), 100.);
-        assert_eq!(bold("950"), 900.);
-
-        let cell = |value: &str| terminal(&format!(r#"{{"cell_width": {value}}}"#)).cell_width;
-        assert_eq!(cell("-11"), defaults.cell_width);
-        assert_eq!(cell("-10"), -10.);
-        assert_eq!(cell("3.5"), 3.5);
-        assert_eq!(cell("11"), 10.);
-
-        let offset = terminal(r#"{"glyph_offset": {"x": -20, "y": 20}}"#).glyph_offset;
-        assert_eq!(offset.x, defaults.glyph_offset.x);
-        assert_eq!(offset.y, 10.);
-
-        let contrast =
-            |value: &str| terminal(&format!(r#"{{"minimum_contrast": {value}}}"#)).minimum_contrast;
-        assert_eq!(contrast("0.5"), defaults.minimum_contrast);
-        assert_eq!(contrast("4.5"), 4.5);
-        assert_eq!(contrast("30"), 21.);
-
-        let dim = |value: &str| terminal(&format!(r#"{{"dim_opacity": {value}}}"#)).dim_opacity;
-        assert_eq!(dim("-0.1"), defaults.dim_opacity);
-        assert_eq!(dim("0.4"), 0.4);
-        assert_eq!(dim("2"), 1.);
-    }
-
-    #[test]
-    fn font_features_are_checked() {
-        assert_eq!(parse_font_feature("-calt"), Some(("calt".into(), 0)));
-        assert_eq!(parse_font_feature("+liga"), Some(("liga".into(), 1)));
-        assert_eq!(parse_font_feature("ss01"), Some(("ss01".into(), 1)));
-        assert_eq!(parse_font_feature("cv01=2"), Some(("cv01".into(), 2)));
-        for bad in [
-            "",
-            "-",
-            "cal",
-            "ligatures",
-            "cv01=x",
-            "cv01=-1",
-            "ss 1",
-            "-+calt",
-        ] {
-            assert_eq!(parse_font_feature(bad), None, "{bad:?}");
-        }
-        let settings = Settings::parse(
-            r#"{"terminal": {"font_features": ["-calt", "bad feature", "ss01", "cv01=2"]}}"#,
-        )
-        .unwrap();
-        assert_eq!(settings.terminal.font_features, ["-calt", "ss01", "cv01=2"]);
-    }
-
-    #[test]
-    fn missing_style_families_and_fallbacks_are_dropped() {
-        let mut settings = Settings::parse(
-            r#"{"terminal": {
-                "font": {"bold": {"family": "Agent Bold"}, "italic": {"family": "Agent Gone"}},
-                "font_fallbacks": ["Agent Gone", "Agent Emoji"]
-            }}"#,
-        )
-        .unwrap();
-        let installed = [
-            Settings::default().terminal.font.family,
-            "Agent Bold".to_string(),
-            "Agent Emoji".to_string(),
-        ];
-        settings.use_installed_fonts(&installed);
-        let terminal = &settings.terminal;
-        assert_eq!(terminal.font.bold.family.as_deref(), Some("Agent Bold"));
-        assert_eq!(terminal.font.italic.family, None);
-        assert_eq!(terminal.font_fallbacks, ["Agent Emoji"]);
-    }
-
-    #[test]
-    fn empty_profiles_use_bundled_ones() {
-        assert_eq!(
-            Settings::parse(r#"{"profiles": []}"#).unwrap().profiles,
-            Settings::default().profiles
-        );
     }
 }
 

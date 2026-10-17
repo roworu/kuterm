@@ -1,0 +1,33 @@
+{
+ "name": "dirname",
+ "description": "Strip the last component from file names",
+ "options": [
+  {
+   "name": [
+    "-z",
+    "--zero"
+   ],
+   "description": "Separate output with NUL rather than newline"
+  },
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Print help"
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Print version"
+  }
+ ],
+ "args": {
+  "name": "file",
+  "template": "filepaths",
+  "isVariadic": true,
+  "isOptional": true
+ }
+}

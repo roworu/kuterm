@@ -1,0 +1,26 @@
+// Catppuccin Latte, from github.com/catppuccin/catppuccin (MIT licence).
+// terminal colors are the upstream palette, the ui colors are picked from it
+{
+  "tab_bar_background": "#e6e9ef",
+  "tab_active_background": "#eff1f5",
+  "border": "#ccd0da",
+  "text": "#4c4f69",
+  "text_muted": "#6c6f85",
+  "danger_button": "#d20f39",
+  "danger_button_text": "#eff1f5",
+  "attention": "#fe640b",
+  "terminal_background": "#eff1f5",
+  "terminal_foreground": "#4c4f69",
+  "cursor": "#dc8a78",
+  "selection": "#ccd0da",
+  "scrollbar": "#acb0be",
+  "search_match": "#ead3b4",
+  "search_match_active": "#e5b673",
+  "bright_foreground": "#303446",
+  "dim_foreground": "#9598a8",
+  "ansi": [
+    "#5c5f77", "#d20f39", "#40a02b", "#df8e1d", "#1e66f5", "#ea76cb", "#179299", "#acb0be",
+    "#6c6f85", "#d20f39", "#40a02b", "#df8e1d", "#1e66f5", "#ea76cb", "#179299", "#bcc0cc",
+  ],
+  "ansi_dim": ["#8f92a3", "#dc5e7b", "#7dbc72", "#e5b169", "#6797f5", "#eca1da", "#63b3b9", "#c3c7d1"],
+}

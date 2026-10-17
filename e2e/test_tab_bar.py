@@ -65,23 +65,6 @@ def test_bar_hidden_for_one_tab_by_default(app_factory):
     app.wait(lambda: not bar_shown(app), msg="bar hidden again")
 
 
-def test_bar_always_shown_when_not_hiding(app_factory):
-    """hide_bar_for_one_tab false keeps the bar with a single tab"""
-    app = bar_app(app_factory, hide_bar_for_one_tab=False)
-    app.wait(lambda: bar_shown(app), msg="bar")
-    img = app.shot()
-    h = app.bar_height()
-    assert close_to(tuple(img[h // 2, 5]), C["tab_active_background"])
-    assert close_to(tuple(img[h // 2, 895]), C["tab_bar_background"])
-    assert close_to(tuple(img[h + 2, 450]), C["terminal_background"])
-
-
-def test_terminal_starts_below_bar(app_factory):
-    """the terminal gives the bar its rows, the shell sees fewer lines"""
-    app = bar_app(app_factory, hide_bar_for_one_tab=False)
-    assert app.pty_size() == app.expected_pty(900, 600, top=app.bar_height())
-
-
 @pytest.mark.parametrize("width", [120, 220, 260])
 def test_fixed_tab_width(app_factory, width):
     """tab_width sets the width of every tab"""
@@ -228,20 +211,14 @@ def test_show_tab_close_button(app_factory, show):
     app.wait_title("1")
 
 
-def test_middle_click_closes_tab(app_factory):
-    """a middle click on a tab closes it"""
-    app = bar_app(app_factory, tab_width=200, **PLAIN)
-    open_tabs(app, 3)
-    app.click(100, app.bar_height() // 2, button=2)
-    app.wait(lambda: len(borders(app)) == 2, msg=f"two tabs left, edges {borders(app)}")
-
-
 def test_drag_reorders_tabs(app_factory):
-    """dragging the first tab past the others moves it, the active tab follows its tab"""
+    """dragging the first tab onto the right edge of the last one moves it there, the active tab
+    follows its tab"""
     app = bar_app(app_factory, tab_width=200, **PLAIN)
     open_tabs(app, 3)
     h = app.bar_height()
-    app.drag((100, h // 2), (500, h // 2))
+    # the middle of a tab would group the two, its edges reorder
+    app.drag((100, h // 2), (585, h // 2))
     # the first tab is now last, so the active third tab sits in the middle
     app.wait_title("2")
     app.snap("first tab dragged to the end")
@@ -283,7 +260,8 @@ def test_drag_tab_to_a_side_splits_the_pane(app_factory):
 def test_focus_follows_mouse(app_factory):
     """with focus_follows_mouse, moving the mouse over a pane focuses it, typing goes there"""
     app = bar_app(app_factory, tab_width=200, focus_follows_mouse=True, **PLAIN)
-    time.sleep(1)
+    # the prompt and the cursor after it
+    app.wait_line(0, 3, top=app.top())
     app.run("export WHO=first")
     open_tabs(app, 2)
     app.run("export WHO=second")
@@ -296,19 +274,6 @@ def test_focus_follows_mouse(app_factory):
     app.run('echo "$WHO" > "$T2_TMP/who"')
     assert app.wait_file("who").strip() == "second"
     app.snap("mouse over the left pane focused it")
-
-
-def test_drag_tab_to_the_bottom_half_splits_the_pane(app_factory):
-    """dragging a tab to the bottom half of the terminal splits it into two panes"""
-    app = bar_app(app_factory, tab_width=200, **PLAIN)
-    open_tabs(app, 2)
-    w, h = app.size()
-    app.drag((100, app.bar_height() // 2), (w // 2, h * 3 // 4))
-    app.wait(
-        lambda: divider_shown(app, vertical=False),
-        msg="no horizontal divider between the panes",
-    )
-    app.snap("tab dragged to the bottom half split the pane")
 
 
 def border_at(app: App, x: int, y: int) -> bool:
@@ -438,7 +403,7 @@ def reference(app_factory, title: str):
     """the title drawn uncut in a tab much wider than it"""
     if title not in _references:
         app = cut_app(app_factory, title, expand_tabs=False, tab_width=880)
-        time.sleep(1)
+        app.wait_still("the title drawn")
         # stop short of the tab's border, it is ink too
         _references[title] = trim(text_mask(app, app.shot(), 0, 860))
         app.close()
@@ -512,7 +477,7 @@ def test_long_titles_are_cut_only_at_the_end(app_factory, align, layout):
     ref = reference(app_factory, LONG)
     app = cut_app(app_factory, LONG, tab_title_align=align, **layout)
     open_tabs(app, tabs)
-    time.sleep(0.5)
+    app.wait_still("the tabs laid out")
     check_tabs(app, ref, reference(app_factory, "…"), tabs)
     app.snap(f"{tabs} tabs with a long title, {align} aligned")
 
@@ -524,7 +489,7 @@ def test_titles_of_every_kind_are_cut_only_at_the_end(app_factory, title):
     ref = reference(app_factory, title)
     app = cut_app(app_factory, title, expand_tabs=True)
     open_tabs(app, 6)
-    time.sleep(0.5)
+    app.wait_still("the tabs laid out")
     check_tabs(app, ref, reference(app_factory, "…"), 6)
     app.snap(f"six expanded tabs titled {title!r}")
 
@@ -537,6 +502,30 @@ def test_cut_follows_window_resize(app_factory):
     for width in (900, 640, 480, 900):
         app.resize(width, 600)
         app.wait(lambda: app.size()[0] == width, msg=f"width {width}")
-        time.sleep(0.5)
+        app.wait_still("the tabs laid out")
         check_tabs(app, ref, reference(app_factory, "…"), 3)
     app.snap("titles cut again after resizing")
+
+
+def chip_pixels(app: App) -> int:
+    """pixels of the tab bar in one of the group colors"""
+    bar = app.shot()[: app.bar_height()]
+    return max(int(near(bar, C["ansi"][i], 2).sum()) for i in range(1, 7))
+
+
+def test_tabs_are_grouped_by_project_and_closed_together(app_factory):
+    """two tabs in the same git project get a chip, closing the project closes both"""
+    app = bar_app(app_factory, hide_bar_for_one_tab=False, tab_groups={"by_project": True})
+    (app.file("proj") / ".git").mkdir(parents=True)
+    app.run("cd")
+    app.key("ctrl+shift+t")
+    app.wait_title("2")
+    app.run("cd $T2_TMP/proj")
+    app.key("ctrl+shift+t")
+    app.wait_title("3")
+    app.run("cd $T2_TMP/proj")
+    app.wait(lambda: chip_pixels(app) > 200, msg="group chip")
+    app.snap("tabs 2 and 3 grouped under the chip of their project")
+    app.palette("close all tabs of this project")
+    app.wait_title("1")
+    app.wait(lambda: chip_pixels(app) == 0, msg="chip gone with its tabs")

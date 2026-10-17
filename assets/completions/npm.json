@@ -1,0 +1,352 @@
+{
+ "name": "npm",
+ "description": "The package manager for JavaScript",
+ "subcommands": [
+  {
+   "name": [
+    "install",
+    "i",
+    "add"
+   ],
+   "description": "Install packages",
+   "options": [
+    {
+     "name": [
+      "-D",
+      "--save-dev"
+     ],
+     "description": "As a development dependency"
+    },
+    {
+     "name": [
+      "-E",
+      "--save-exact"
+     ],
+     "description": "Pin the exact version"
+    },
+    {
+     "name": [
+      "-O",
+      "--save-optional"
+     ],
+     "description": "As an optional dependency"
+    },
+    {
+     "name": "--no-save",
+     "description": "Don't change package.json"
+    },
+    {
+     "name": "--legacy-peer-deps",
+     "description": "Ignore peer dependency conflicts"
+    }
+   ],
+   "args": {
+    "name": "package",
+    "isOptional": true,
+    "isVariadic": true
+   },
+   "priority": 80
+  },
+  {
+   "name": [
+    "uninstall",
+    "remove",
+    "rm",
+    "un"
+   ],
+   "description": "Remove packages",
+   "options": [
+    {
+     "name": [
+      "-D",
+      "--save-dev"
+     ],
+     "description": "From development dependencies"
+    }
+   ],
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": [
+    "run",
+    "run-script"
+   ],
+   "description": "Run a script of package.json",
+   "options": [
+    {
+     "name": "--if-present",
+     "description": "No error when the script is missing"
+    },
+    {
+     "name": "--silent",
+     "description": "Print less"
+    }
+   ],
+   "args": [
+    {
+     "name": "script"
+    },
+    {
+     "name": "args",
+     "isOptional": true,
+     "isVariadic": true
+    }
+   ],
+   "priority": 80
+  },
+  {
+   "name": [
+    "test",
+    "t"
+   ],
+   "description": "Run the test script",
+   "priority": 70
+  },
+  {
+   "name": "start",
+   "description": "Run the start script",
+   "priority": 70
+  },
+  {
+   "name": "stop",
+   "description": "Run the stop script"
+  },
+  {
+   "name": "ci",
+   "description": "Clean install from the lock file",
+   "priority": 60
+  },
+  {
+   "name": "init",
+   "description": "Create a package.json",
+   "options": [
+    {
+     "name": [
+      "-y",
+      "--yes"
+     ],
+     "description": "Skip the questions"
+    }
+   ]
+  },
+  {
+   "name": [
+    "update",
+    "up"
+   ],
+   "description": "Update packages",
+   "args": {
+    "name": "package",
+    "isOptional": true,
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "outdated",
+   "description": "List outdated packages"
+  },
+  {
+   "name": [
+    "ls",
+    "list"
+   ],
+   "description": "List installed packages",
+   "options": [
+    {
+     "name": "--all",
+     "description": "Every dependency"
+    },
+    {
+     "name": "--depth",
+     "description": "How deep",
+     "args": {
+      "name": "n"
+     }
+    }
+   ]
+  },
+  {
+   "name": "audit",
+   "description": "Check for known vulnerabilities",
+   "subcommands": [
+    {
+     "name": "fix",
+     "description": "Fix them",
+     "options": [
+      {
+       "name": "--force",
+       "description": "Allow breaking updates"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": [
+    "exec",
+    "x"
+   ],
+   "description": "Run a command from a package",
+   "args": {
+    "name": "command",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "publish",
+   "description": "Publish a package",
+   "options": [
+    {
+     "name": "--access",
+     "description": "Access",
+     "args": {
+      "name": "access",
+      "suggestions": [
+       "public",
+       "restricted"
+      ]
+     }
+    },
+    {
+     "name": "--tag",
+     "description": "Dist tag",
+     "args": {
+      "name": "tag"
+     }
+    },
+    {
+     "name": "--dry-run",
+     "description": "Do everything but publish"
+    }
+   ],
+   "args": {
+    "name": "folder",
+    "template": "folders",
+    "isOptional": true
+   }
+  },
+  {
+   "name": "version",
+   "description": "Bump the package version",
+   "args": {
+    "name": "version",
+    "suggestions": [
+     "major",
+     "minor",
+     "patch",
+     "premajor",
+     "preminor",
+     "prepatch",
+     "prerelease"
+    ]
+   }
+  },
+  {
+   "name": "link",
+   "description": "Symlink a package folder",
+   "args": {
+    "name": "package",
+    "isOptional": true,
+    "template": "folders"
+   }
+  },
+  {
+   "name": "pack",
+   "description": "Make a tarball of a package"
+  },
+  {
+   "name": "cache",
+   "description": "Manage the package cache",
+   "subcommands": [
+    {
+     "name": "clean",
+     "description": "Delete the cache",
+     "options": [
+      {
+       "name": "--force",
+       "description": "Really"
+      }
+     ]
+    },
+    {
+     "name": "verify",
+     "description": "Check the cache"
+    }
+   ]
+  },
+  {
+   "name": "config",
+   "description": "Manage the npm configuration",
+   "subcommands": [
+    {
+     "name": "get",
+     "description": "Print a value",
+     "args": {
+      "name": "key"
+     }
+    },
+    {
+     "name": "set",
+     "description": "Set a value",
+     "args": [
+      {
+       "name": "key"
+      },
+      {
+       "name": "value"
+      }
+     ]
+    },
+    {
+     "name": "list",
+     "description": "List the configuration"
+    },
+    {
+     "name": "delete",
+     "description": "Delete a value",
+     "args": {
+      "name": "key"
+     }
+    }
+   ]
+  }
+ ],
+ "options": [
+  {
+   "name": [
+    "-v",
+    "--version"
+   ],
+   "description": "Print the version"
+  },
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Show help"
+  },
+  {
+   "name": [
+    "-g",
+    "--global"
+   ],
+   "description": "Work on global packages",
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-w",
+    "--workspace"
+   ],
+   "description": "Work on this workspace",
+   "args": {
+    "name": "name"
+   },
+   "isPersistent": true
+  }
+ ]
+}

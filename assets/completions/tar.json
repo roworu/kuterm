@@ -1,0 +1,988 @@
+{
+ "name": "tar",
+ "description": "Archive files",
+ "options": [
+  {
+   "name": [
+    "-A",
+    "--catenate",
+    "--concatenate"
+   ],
+   "description": "Append tar files to an archive"
+  },
+  {
+   "name": [
+    "-c",
+    "--create"
+   ],
+   "description": "Create a new archive"
+  },
+  {
+   "name": "--delete",
+   "description": "Delete from the archive (not on mag tapes!)"
+  },
+  {
+   "name": [
+    "-d",
+    "--diff",
+    "--compare"
+   ],
+   "description": "Find differences between archive and file system"
+  },
+  {
+   "name": [
+    "-r",
+    "--append"
+   ],
+   "description": "Append files to the end of an archive"
+  },
+  {
+   "name": "--test-label",
+   "description": "Test the archive volume label and exit"
+  },
+  {
+   "name": [
+    "-t",
+    "--list"
+   ],
+   "description": "List the contents of an archive"
+  },
+  {
+   "name": [
+    "-u",
+    "--update"
+   ],
+   "description": "Only append files newer than copy in archive"
+  },
+  {
+   "name": [
+    "-x",
+    "--extract",
+    "--get"
+   ],
+   "description": "Extract files from an archive"
+  },
+  {
+   "name": "--check-device",
+   "description": "Check device numbers when creating incremental"
+  },
+  {
+   "name": [
+    "-g",
+    "--listed-incremental"
+   ],
+   "description": "Handle new GNU-format incremental backup",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": [
+    "-G",
+    "--incremental"
+   ],
+   "description": "Handle old GNU-format incremental backup"
+  },
+  {
+   "name": "--hole-detection",
+   "description": "Technique to detect holes",
+   "args": {
+    "name": "type"
+   }
+  },
+  {
+   "name": "--ignore-failed-read",
+   "description": "Do not exit with nonzero on unreadable files"
+  },
+  {
+   "name": "--level",
+   "description": "Dump level for created listed-incremental archive",
+   "args": {
+    "name": "number"
+   }
+  },
+  {
+   "name": "--no-check-device",
+   "description": "Do not check device numbers when creating"
+  },
+  {
+   "name": "--no-seek",
+   "description": "Archive is not seekable"
+  },
+  {
+   "name": [
+    "-n",
+    "--seek"
+   ],
+   "description": "Archive is seekable"
+  },
+  {
+   "name": "--occurrence",
+   "description": "Process only the NUMBERth occurrence of each file",
+   "args": {
+    "name": "number",
+    "isOptional": true
+   }
+  },
+  {
+   "name": "--sparse-version",
+   "description": "Set version of the sparse format to use (implies",
+   "args": {
+    "name": "major"
+   }
+  },
+  {
+   "name": [
+    "-S",
+    "--sparse"
+   ],
+   "description": "Handle sparse files efficiently"
+  },
+  {
+   "name": "--add-file",
+   "description": "Add given FILE to the archive (useful if its name",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": [
+    "-C",
+    "--directory"
+   ],
+   "description": "Change to directory DIR",
+   "args": {
+    "name": "dir",
+    "template": "folders"
+   }
+  },
+  {
+   "name": "--exclude",
+   "description": "Exclude files, given as a PATTERN",
+   "args": {
+    "name": "pattern"
+   }
+  },
+  {
+   "name": "--exclude-backups",
+   "description": "Exclude backup and lock files"
+  },
+  {
+   "name": "--exclude-caches",
+   "description": "Exclude contents of directories containing"
+  },
+  {
+   "name": "--exclude-caches-all",
+   "description": "Exclude directories containing CACHEDIR.TAG"
+  },
+  {
+   "name": "--exclude-caches-under",
+   "description": "CACHEDIR.TAG"
+  },
+  {
+   "name": "--exclude-ignore",
+   "description": "Read exclude patterns for each directory from",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "--exclude-ignore-recursive",
+   "description": "Read exclude patterns for each directory and its",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "--exclude-tag",
+   "description": "Exclude contents of directories containing FILE",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "--exclude-tag-all",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "--exclude-tag-under",
+   "description": "Exclude everything under directories",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "--exclude-vcs",
+   "description": "Exclude version control system directories"
+  },
+  {
+   "name": "--exclude-vcs-ignores",
+   "description": "Read exclude patterns from the VCS ignore files"
+  },
+  {
+   "name": "--no-null",
+   "description": "Disable the effect of the previous --null option"
+  },
+  {
+   "name": "--no-recursion",
+   "description": "Avoid descending automatically in directories"
+  },
+  {
+   "name": "--no-unquote",
+   "description": "Do not unquote input file or member names"
+  },
+  {
+   "name": "--no-verbatim-files-from",
+   "description": "T treats file names starting with dash as"
+  },
+  {
+   "name": "--null",
+   "description": "T reads null-terminated names"
+  },
+  {
+   "name": "--recursion",
+   "description": "Recurse into directories (default)"
+  },
+  {
+   "name": [
+    "-T",
+    "--files-from"
+   ],
+   "description": "Get names to extract or create from FILE",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "--unquote",
+   "description": "Unquote input file or member names (default)"
+  },
+  {
+   "name": "--verbatim-files-from",
+   "description": "T reads file names verbatim (no escape or option"
+  },
+  {
+   "name": [
+    "-X",
+    "--exclude-from"
+   ],
+   "description": "Exclude patterns listed in FILE",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "--anchored",
+   "description": "Patterns match file name start"
+  },
+  {
+   "name": "--ignore-case",
+   "description": "Ignore case"
+  },
+  {
+   "name": "--no-anchored",
+   "description": "Patterns match after any '/' (default for"
+  },
+  {
+   "name": "--no-ignore-case",
+   "description": "Case sensitive matching (default)"
+  },
+  {
+   "name": "--no-wildcards",
+   "description": "Verbatim string matching"
+  },
+  {
+   "name": "--no-wildcards-match-slash",
+   "description": "Wildcards do not match '/'"
+  },
+  {
+   "name": "--wildcards",
+   "description": "Use wildcards (default for exclusion)"
+  },
+  {
+   "name": "--wildcards-match-slash",
+   "description": "Wildcards match '/' (default for exclusion)"
+  },
+  {
+   "name": "--keep-directory-symlink",
+   "description": "Preserve existing symlinks to directories when"
+  },
+  {
+   "name": "--keep-newer-files",
+   "description": "Don't replace existing files that are newer than"
+  },
+  {
+   "name": [
+    "-k",
+    "--keep-old-files"
+   ],
+   "description": "Don't replace existing files when extracting"
+  },
+  {
+   "name": "--no-overwrite-dir",
+   "description": "Preserve metadata of existing directories"
+  },
+  {
+   "name": "--one-top-level",
+   "description": "Create a subdirectory to avoid having loose files",
+   "args": {
+    "name": "dir",
+    "template": "folders",
+    "isOptional": true
+   }
+  },
+  {
+   "name": "--overwrite",
+   "description": "Overwrite existing files when extracting"
+  },
+  {
+   "name": "--overwrite-dir",
+   "description": "Overwrite metadata of existing directories when"
+  },
+  {
+   "name": "--recursive-unlink",
+   "description": "Empty hierarchies prior to extracting directory"
+  },
+  {
+   "name": "--remove-files",
+   "description": "Remove files after adding them to the archive"
+  },
+  {
+   "name": "--skip-old-files",
+   "description": "Don't replace existing files when extracting"
+  },
+  {
+   "name": [
+    "-U",
+    "--unlink-first"
+   ],
+   "description": "Remove each file prior to extracting over it"
+  },
+  {
+   "name": [
+    "-W",
+    "--verify"
+   ],
+   "description": "Attempt to verify the archive after writing it"
+  },
+  {
+   "name": "--ignore-command-error"
+  },
+  {
+   "name": "--no-ignore-command-error",
+   "description": "Treat non-zero exit codes of children as"
+  },
+  {
+   "name": [
+    "-O",
+    "--to-stdout"
+   ],
+   "description": "Extract files to standard output"
+  },
+  {
+   "name": "--to-command",
+   "description": "Pipe extracted files to another program",
+   "args": {
+    "name": "command"
+   }
+  },
+  {
+   "name": "--atime-preserve",
+   "description": "Preserve access times on dumped files, either",
+   "args": {
+    "name": "method",
+    "isOptional": true
+   }
+  },
+  {
+   "name": "--clamp-mtime",
+   "description": "Only set time when the file is more recent than"
+  },
+  {
+   "name": "--delay-directory-restore",
+   "description": "Delay setting modification times and"
+  },
+  {
+   "name": "--group",
+   "description": "Force NAME as group for added files",
+   "args": {
+    "name": "name"
+   }
+  },
+  {
+   "name": "--group-map",
+   "description": "Use FILE to map file owner GIDs and names",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "--mode",
+   "description": "Force (symbolic) mode CHANGES for added files",
+   "args": {
+    "name": "changes"
+   }
+  },
+  {
+   "name": "--mtime",
+   "description": "Set mtime for added files from DATE-OR-FILE",
+   "args": {
+    "name": "date-or-file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": [
+    "-m",
+    "--touch"
+   ],
+   "description": "Don't extract file modified time"
+  },
+  {
+   "name": "--no-delay-directory-restore",
+   "description": "Cancel the effect of --delay-directory-restore"
+  },
+  {
+   "name": "--no-same-owner",
+   "description": "Extract files as yourself (default for ordinary"
+  },
+  {
+   "name": "--no-same-permissions",
+   "description": "Apply the user's umask when extracting permissions"
+  },
+  {
+   "name": "--numeric-owner",
+   "description": "Always use numbers for user/group names"
+  },
+  {
+   "name": "--owner",
+   "description": "Force NAME as owner for added files",
+   "args": {
+    "name": "name"
+   }
+  },
+  {
+   "name": "--owner-map",
+   "description": "Use FILE to map file owner UIDs and names",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": [
+    "-p",
+    "--preserve-permissions",
+    "--same-permissions"
+   ],
+   "description": "Extract information about file permissions"
+  },
+  {
+   "name": "--same-owner",
+   "description": "Try extracting files with the same ownership as"
+  },
+  {
+   "name": "--sort",
+   "description": "Directory sorting order: none (default), name or",
+   "args": {
+    "name": "order"
+   }
+  },
+  {
+   "name": [
+    "-s",
+    "--preserve-order",
+    "--same-order"
+   ],
+   "description": "Member arguments are listed in the same order as"
+  },
+  {
+   "name": "--acls",
+   "description": "Enable the POSIX ACLs support"
+  },
+  {
+   "name": "--no-acls",
+   "description": "Disable the POSIX ACLs support"
+  },
+  {
+   "name": "--no-selinux",
+   "description": "Disable the SELinux context support"
+  },
+  {
+   "name": "--no-xattrs",
+   "description": "Disable extended attributes support"
+  },
+  {
+   "name": "--selinux",
+   "description": "Enable the SELinux context support"
+  },
+  {
+   "name": "--xattrs",
+   "description": "Enable extended attributes support"
+  },
+  {
+   "name": "--xattrs-exclude",
+   "description": "Specify the exclude pattern for xattr keys",
+   "args": {
+    "name": "mask"
+   }
+  },
+  {
+   "name": "--xattrs-include",
+   "description": "Specify the include pattern for xattr keys",
+   "args": {
+    "name": "mask"
+   }
+  },
+  {
+   "name": "--force-local",
+   "description": "Archive file is local even if it has a colon"
+  },
+  {
+   "name": [
+    "-f",
+    "--file"
+   ],
+   "description": "Use archive file or device ARCHIVE",
+   "args": {
+    "name": "archive",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": [
+    "-F",
+    "--info-script",
+    "--new-volume-script"
+   ],
+   "description": "Run script at end of each tape (implies -M)",
+   "args": {
+    "name": "name"
+   }
+  },
+  {
+   "name": [
+    "-L",
+    "--tape-length"
+   ],
+   "description": "Change tape after writing NUMBER x 1024 bytes",
+   "args": {
+    "name": "number"
+   }
+  },
+  {
+   "name": [
+    "-M",
+    "--multi-volume"
+   ],
+   "description": "Create/list/extract multi-volume archive"
+  },
+  {
+   "name": "--rmt-command",
+   "description": "Use given rmt COMMAND instead of rmt",
+   "args": {
+    "name": "command"
+   }
+  },
+  {
+   "name": "--rsh-command",
+   "description": "Use remote COMMAND instead of rsh",
+   "args": {
+    "name": "command"
+   }
+  },
+  {
+   "name": "--volno-file",
+   "description": "Use/update the volume number in FILE",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": [
+    "-b",
+    "--blocking-factor"
+   ],
+   "description": "BLOCKS x 512 bytes per record",
+   "args": {
+    "name": "blocks"
+   }
+  },
+  {
+   "name": [
+    "-B",
+    "--read-full-records"
+   ],
+   "description": "Reblock as we read (for 4.2BSD pipes)"
+  },
+  {
+   "name": [
+    "-i",
+    "--ignore-zeros"
+   ],
+   "description": "Ignore zeroed blocks in archive (means EOF)"
+  },
+  {
+   "name": "--record-size",
+   "description": "NUMBER of bytes per record, multiple of 512",
+   "args": {
+    "name": "number"
+   }
+  },
+  {
+   "name": [
+    "-H",
+    "--format"
+   ],
+   "description": "Create archive of the given format",
+   "args": {
+    "name": "format"
+   }
+  },
+  {
+   "name": [
+    "--old-archive",
+    "--portability"
+   ],
+   "description": "Same as --format=v7"
+  },
+  {
+   "name": "--pax-option",
+   "description": "Control pax keywords",
+   "args": {
+    "name": "keyword"
+   }
+  },
+  {
+   "name": "--posix",
+   "description": "Same as --format=posix"
+  },
+  {
+   "name": [
+    "-V",
+    "--label"
+   ],
+   "description": "Create archive with volume name TEXT",
+   "args": {
+    "name": "text"
+   }
+  },
+  {
+   "name": [
+    "-a",
+    "--auto-compress"
+   ],
+   "description": "Use archive suffix to determine the compression"
+  },
+  {
+   "name": [
+    "-I",
+    "--use-compress-program"
+   ],
+   "description": "Filter through PROG (must accept -d)",
+   "args": {
+    "name": "prog"
+   }
+  },
+  {
+   "name": [
+    "-j",
+    "--bzip2"
+   ],
+   "description": "Filter the archive through bzip2"
+  },
+  {
+   "name": [
+    "-J",
+    "--xz"
+   ],
+   "description": "Filter the archive through xz"
+  },
+  {
+   "name": "--lzip",
+   "description": "Filter the archive through lzip"
+  },
+  {
+   "name": "--lzma",
+   "description": "Filter the archive through xz"
+  },
+  {
+   "name": "--lzop",
+   "description": "Filter the archive through lzop"
+  },
+  {
+   "name": "--no-auto-compress",
+   "description": "Do not use archive suffix to determine the"
+  },
+  {
+   "name": "--zstd",
+   "description": "Filter the archive through zstd"
+  },
+  {
+   "name": [
+    "-z",
+    "--gzip",
+    "--gunzip",
+    "--ungzip"
+   ],
+   "description": "Filter the archive through gzip"
+  },
+  {
+   "name": [
+    "-Z",
+    "--compress",
+    "--uncompress"
+   ],
+   "description": "Filter the archive through compress"
+  },
+  {
+   "name": "--backup",
+   "description": "Backup before removal, choose version CONTROL",
+   "args": {
+    "name": "control",
+    "isOptional": true
+   }
+  },
+  {
+   "name": "--hard-dereference",
+   "description": "Follow hard links"
+  },
+  {
+   "name": [
+    "-h",
+    "--dereference"
+   ],
+   "description": "Follow symlinks"
+  },
+  {
+   "name": [
+    "-K",
+    "--starting-file"
+   ],
+   "description": "Begin at member MEMBER-NAME when reading the",
+   "args": {
+    "name": "member-name"
+   }
+  },
+  {
+   "name": "--newer-mtime",
+   "description": "Compare date and time when data changed only",
+   "args": {
+    "name": "date"
+   }
+  },
+  {
+   "name": [
+    "-N",
+    "--newer",
+    "--after-date"
+   ],
+   "description": "Only store files newer than DATE-OR-FILE",
+   "args": {
+    "name": "date-or-file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "--one-file-system",
+   "description": "Stay in local file system when creating archive"
+  },
+  {
+   "name": [
+    "-P",
+    "--absolute-names"
+   ],
+   "description": "Don't strip leading '/'s from file names"
+  },
+  {
+   "name": "--suffix",
+   "description": "Backup before removal, override usual suffix ('~'",
+   "args": {
+    "name": "string"
+   }
+  },
+  {
+   "name": "--strip-components",
+   "description": "Strip NUMBER leading components from file",
+   "args": {
+    "name": "number"
+   }
+  },
+  {
+   "name": [
+    "--transform",
+    "--xform"
+   ],
+   "description": "Use sed replace EXPRESSION to transform file",
+   "args": {
+    "name": "expression"
+   }
+  },
+  {
+   "name": "--checkpoint",
+   "description": "Display progress messages every NUMBERth record",
+   "args": {
+    "name": "number",
+    "isOptional": true
+   }
+  },
+  {
+   "name": "--checkpoint-action",
+   "description": "Execute ACTION on each checkpoint",
+   "args": {
+    "name": "action"
+   }
+  },
+  {
+   "name": "--full-time",
+   "description": "Print file time to its full resolution"
+  },
+  {
+   "name": "--index-file",
+   "description": "Send verbose output to FILE",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": [
+    "-l",
+    "--check-links"
+   ],
+   "description": "Print a message if not all links are dumped"
+  },
+  {
+   "name": "--no-quote-chars",
+   "description": "Disable quoting for characters from STRING",
+   "args": {
+    "name": "string"
+   }
+  },
+  {
+   "name": "--quote-chars",
+   "description": "Additionally quote characters from STRING",
+   "args": {
+    "name": "string"
+   }
+  },
+  {
+   "name": "--quoting-style",
+   "description": "Set name quoting style",
+   "args": {
+    "name": "style"
+   }
+  },
+  {
+   "name": [
+    "-R",
+    "--block-number"
+   ],
+   "description": "Show block number within archive with each message"
+  },
+  {
+   "name": "--show-defaults",
+   "description": "Show tar defaults"
+  },
+  {
+   "name": "--show-omitted-dirs",
+   "description": "When listing or extracting, list each directory"
+  },
+  {
+   "name": "--show-snapshot-field-ranges",
+   "description": "Show valid ranges for snapshot-file fields"
+  },
+  {
+   "name": [
+    "--show-transformed-names",
+    "--show-stored-names"
+   ],
+   "description": "Show file or archive names after transformation"
+  },
+  {
+   "name": "--totals",
+   "description": "Print total bytes after processing the archive",
+   "args": {
+    "name": "signal",
+    "isOptional": true
+   }
+  },
+  {
+   "name": "--utc",
+   "description": "Print file modification times in UTC"
+  },
+  {
+   "name": [
+    "-v",
+    "--verbose"
+   ],
+   "description": "Verbosely list files processed"
+  },
+  {
+   "name": "--warning",
+   "description": "Warning control",
+   "args": {
+    "name": "keyword"
+   }
+  },
+  {
+   "name": [
+    "-w",
+    "--interactive",
+    "--confirmation"
+   ],
+   "description": "Ask for confirmation for every action"
+  },
+  {
+   "name": "-o",
+   "description": "When creating, same as --old-archive"
+  },
+  {
+   "name": [
+    "-?",
+    "--help"
+   ],
+   "description": "Give this help list"
+  },
+  {
+   "name": "--restrict",
+   "description": "Disable use of some potentially harmful options"
+  },
+  {
+   "name": "--usage",
+   "description": "Give a short usage message"
+  },
+  {
+   "name": "--version",
+   "description": "Print program version"
+  },
+  {
+   "name": [
+    "-f-",
+    "-b20"
+   ],
+   "args": {
+    "name": "gnu"
+   }
+  }
+ ],
+ "args": {
+  "name": "file",
+  "template": "filepaths",
+  "isVariadic": true,
+  "isOptional": true
+ }
+}

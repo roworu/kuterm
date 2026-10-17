@@ -45,8 +45,8 @@ def wait_shape(app: App, theme: dict, shape: str) -> None:
              msg=f"{shape} cursor, footprint {footprint(app, theme)}")
 
 
-@pytest.mark.parametrize("mode", ["dark", "light"])
-@pytest.mark.parametrize("shape", SHAPES)
+# every shape in one mode, the other mode only changes the color
+@pytest.mark.parametrize("shape,mode", [(shape, "dark") for shape in SHAPES] + [("block", "light")])
 def test_cursor_shape_setting(app_factory, shape, mode):
     """terminal.cursor_shape draws that shape in the theme cursor color"""
     app = app_factory({"theme": {"mode": mode}, "terminal": {"cursor_shape": shape, "font_size": 24}}, script="")

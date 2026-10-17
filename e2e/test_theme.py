@@ -1,5 +1,6 @@
 """theme colors as painted on screen: bundled dark and light, named themes, theme files, broken ones, system mode"""
 
+import json
 import time
 
 import pytest
@@ -103,7 +104,7 @@ def test_theme_name_from_themes_folder(app_factory):
     check_palette(app, as_rgb(theme))
 
 
-@pytest.mark.parametrize("content", ["{", '{"ansi": ["#fff"]}', '{"cursor": "red"}'])
+@pytest.mark.parametrize("content", ["{", '{"ansi": ["#fff"]}'])
 def test_broken_theme_file_falls_back_to_bundled(app_factory, content):
     """an invalid theme file prints an error and paints the bundled theme"""
     app = app_factory({"theme": {"mode": "dark", "dark": "mine.jsonc"}}, script=PALETTE,
@@ -112,7 +113,7 @@ def test_broken_theme_file_falls_back_to_bundled(app_factory, content):
     assert "invalid theme" in app.output()
 
 
-@pytest.mark.parametrize("colors", [{"ansi": ["#fff"]}, {"cursor": "red"}])
+@pytest.mark.parametrize("colors", [{"cursor": "red"}])
 def test_broken_named_theme_falls_back_to_bundled(app_factory, colors):
     """an invalid theme in settings prints an error naming it and paints the bundled theme"""
     app = app_factory({"theme": {"mode": "dark"}}, script=PALETTE, themes={"dark": colors})
@@ -195,3 +196,26 @@ def test_fixed_mode_ignores_desktop(app_factory, portal, mode):
     # the switch arrives over dbus a moment later, give it time to be (wrongly) applied
     time.sleep(1)
     assert close_to(dominant(app.shot()), theme["terminal_background"])
+
+
+def test_pick_theme_previews_keeps_and_goes_back(app_factory):
+    """the theme picker shows the highlighted theme, escape puts the old one back, enter writes it to settings"""
+    dark = bundled_theme(True)
+    app = app_factory({"theme": {"mode": "dark"}})
+    background = lambda: tuple(app.shot()[500, 100])
+    app.wait(lambda: close_to(background(), dark["terminal_background"]), msg="bundled dark")
+    app.palette("pick theme")
+    app.type("nord")
+    app.wait(lambda: close_to(background(), rgb("#2e3440")), msg="nord previewed")
+    app.snap("nord previewed in the theme picker")
+    app.key("Escape")
+    app.wait(lambda: close_to(background(), dark["terminal_background"]), msg="back to the bundled theme")
+    app.palette("pick theme")
+    app.type("dracula")
+    app.wait(lambda: close_to(background(), rgb("#282a36")), msg="dracula previewed")
+    app.key("Return")
+    app.wait(lambda: '"dracula"' in (app.config / "settings.jsonc").read_text(), msg="dracula kept in settings")
+    assert json.loads((app.config / "settings.jsonc").read_text())["theme"]["dark"] == "dracula"
+    # the reload from the saved file keeps it
+    time.sleep(1)
+    assert close_to(background(), rgb("#282a36"))

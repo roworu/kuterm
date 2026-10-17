@@ -1,7 +1,7 @@
 //! value types for settings that have a fixed set of choices
 
 use alacritty_terminal::vte::ansi::CursorShape as AlacCursorShape;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// shell to launch
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -148,6 +148,32 @@ pub enum TabTitleBlock {
     TotalMemory,
     /// ports of every tab
     AllPorts,
+    /// tcp bytes the tab's programs receive and send per second
+    Network,
+    /// tcp traffic of every tab added up
+    TotalNetwork,
+    /// cpu use of the tab's programs over the last seconds
+    CpuGraph,
+    /// cpu use of every tab over the last seconds
+    TotalCpuGraph,
+    /// time of day, formatted with `status_bar.clock_format`
+    Clock,
+    /// columns and rows of the terminal, like "120×40"
+    Size,
+    /// git branch of the folder, a star when there are changes, commits ahead and behind
+    Git,
+    /// kube context of the program in front
+    Kube,
+    /// aws profile of the program in front
+    Aws,
+    /// python environment of the program in front
+    Venv,
+    /// commands waiting in the tab's queue, a click lists them
+    Queue,
+    /// says so while ctrl+s paused output
+    Xoff,
+    /// programs stopped with ctrl+z
+    StoppedJobs,
 }
 
 impl TabTitleBlock {
@@ -161,7 +187,35 @@ impl TabTitleBlock {
                 | Self::TotalCpu
                 | Self::TotalMemory
                 | Self::AllPorts
+                | Self::Network
+                | Self::TotalNetwork
+                | Self::CpuGraph
+                | Self::TotalCpuGraph
         )
+    }
+}
+
+/// unit memory blocks are shown in
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryUnit {
+    /// the largest unit that keeps the number at 1 or more
+    #[default]
+    Auto,
+    Kb,
+    Mb,
+    Gb,
+}
+
+impl MemoryUnit {
+    /// the unit a click switches to
+    pub fn next(self) -> Self {
+        match self {
+            Self::Auto => Self::Kb,
+            Self::Kb => Self::Mb,
+            Self::Mb => Self::Gb,
+            Self::Gb => Self::Auto,
+        }
     }
 }
 
@@ -291,6 +345,16 @@ impl ScrollEasing {
     }
 }
 
+/// which commands get a gutter mark telling what typed them
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum MarkSources {
+    All,
+    /// only commands something other than the keyboard or a paste typed
+    Others,
+    None,
+}
+
 /// what a program may do with the clipboard through osc 52
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -397,6 +461,16 @@ pub enum RemoteControl {
     Socket,
 }
 
+/// when the completion popup shows
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum CompletionTrigger {
+    /// while typing
+    Auto,
+    /// only on the "complete" key
+    Key,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -436,29 +510,51 @@ mod tests {
     }
 
     #[test]
-    fn line_height_values() {
-        assert_eq!(LineHeight::Comfortable.value(), 1.618);
-        assert_eq!(LineHeight::Standard.value(), 1.3);
-        assert_eq!(LineHeight::Custom(2.0).value(), 2.0);
+    fn font_slant_maps_to_the_gpui_style() {
+        for (slant, style) in [
+            (FontSlant::Normal, gpui::FontStyle::Normal),
+            (FontSlant::Italic, gpui::FontStyle::Italic),
+            (FontSlant::Oblique, gpui::FontStyle::Oblique),
+        ] {
+            assert_eq!(gpui::FontStyle::from(slant), style);
+        }
     }
 
     #[test]
-    fn cursor_shapes_map_to_alacritty() {
-        assert_eq!(
-            AlacCursorShape::from(CursorShape::Block),
-            AlacCursorShape::Block
-        );
-        assert_eq!(
-            AlacCursorShape::from(CursorShape::Bar),
-            AlacCursorShape::Beam
-        );
-        assert_eq!(
-            AlacCursorShape::from(CursorShape::Underline),
-            AlacCursorShape::Underline
-        );
-        assert_eq!(
-            AlacCursorShape::from(CursorShape::Hollow),
-            AlacCursorShape::HollowBlock
-        );
+    fn search_case_is_smart_or_a_bool() {
+        let case = |json: &str| serde_json_lenient::from_str::<SearchCase>(json);
+        assert_eq!(case(r#""smart""#).unwrap(), SearchCase::Smart);
+        assert_eq!(case("true").unwrap(), SearchCase::Sensitive);
+        assert_eq!(case("false").unwrap(), SearchCase::Insensitive);
+        let error = case(r#""loud""#).unwrap_err().to_string();
+        assert!(error.contains("unknown case_sensitive \"loud\""), "{error}");
+    }
+
+    #[test]
+    fn link_modifier_is_held_alone() {
+        let alt = gpui::Modifiers {
+            alt: true,
+            ..Default::default()
+        };
+        let shift = gpui::Modifiers {
+            shift: true,
+            ..Default::default()
+        };
+        let platform = gpui::Modifiers {
+            platform: true,
+            ..Default::default()
+        };
+        assert!(LinkModifier::Alt.held(&alt));
+        assert!(LinkModifier::Shift.held(&shift));
+        assert!(LinkModifier::Super.held(&platform));
+        assert!(!LinkModifier::Alt.held(&shift));
+        assert!(!LinkModifier::Ctrl.held(&platform));
+        // another modifier on top means a different shortcut, not a link click
+        let alt_shift = gpui::Modifiers {
+            alt: true,
+            shift: true,
+            ..Default::default()
+        };
+        assert!(!LinkModifier::Alt.held(&alt_shift));
     }
 }

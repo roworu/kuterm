@@ -75,7 +75,31 @@
   //   "cpu"                                    - cpu use of the programs of the tab, like
   //                                              "34%", 100% is one busy core
   //   "memory"                                 - memory they use, like "1.2 GB"
-  //   "total_cpu", "total_memory", "all_ports" - the same for all tabs together
+  //   "network"                                - tcp traffic of the programs of the tab,
+  //                                              like "↓1.2 MB/s ↑4.0 KB/s". udp, like
+  //                                              quic, is not counted
+  //   "cpu_graph"                              - cpu use of the last seconds as a small
+  //                                              chart, braille dots in titles
+  //   "total_cpu", "total_memory", "all_ports",
+  //   "total_network", "total_cpu_graph"       - the same for all tabs together
+  //   "clock"                                  - time of day, see "status_bar.clock_format"
+  //   "size"                                   - columns and rows of the tab, like "120×40"
+  //   "git"                                    - git branch of the folder, "*" when files
+  //                                              changed, ↑ and ↓ commits ahead and behind
+  //                                              its upstream. read at most every 2 seconds
+  //   "xoff"                                   - "paused (ctrl+q)" while ctrl+s paused output
+  //   "stopped_jobs"                           - programs stopped with ctrl+z, like
+  //                                              "vim, stopped". both also show at the
+  //                                              bottom of the pane, a click there runs fg
+  //   "queue"                                  - commands waiting in the tab's queue, like
+  //                                              "⧗ 2", a click on it lists them
+  //   "kube", "aws", "venv"                    - kube context, aws profile ($AWS_PROFILE) and
+  //                                              python venv of the program in front, read
+  //                                              from its environment and kubeconfig, with
+  //                                              no prompt plugin. empty when unknown. a venv
+  //                                              activated at the prompt shows once a
+  //                                              program runs in it, the shell's own
+  //                                              variables can't be read from outside
   // titles refresh every second. an "exec" command still running after 2 seconds is
   // abandoned and shows nothing, so keep them fast. blocks with nothing to show, like a
   // failing "exec", are left empty.
@@ -87,7 +111,9 @@
   // show the "×" close button on the active tab and on hovered ones.
   // a middle click on a tab closes it either way
   "show_tab_close_button": true,
-  // drag tabs with the mouse to reorder them
+  // drag tabs with the mouse to reorder them. a tab let go outside the window moves into a
+  // window of its own there, or into the kuterm window it was dropped on (x11 and macos,
+  // wayland tells apps nothing about other windows, so there it always gets a new one)
   "drag_tabs": true,
   // ask before closing a tab while a program still runs in it, like vim or a long build,
   // so its work is not lost by accident
@@ -113,12 +139,22 @@
   // thin bar at the bottom of the window, quiet until hovered. both sides are built for the
   // active tab from the same blocks as "tab_title", each block apart from the next, blocks
   // with nothing to show are left out. a click on a port opens http://localhost:<port>, a
-  // click on "total_cpu" or "total_memory" lists them per tab in the command palette.
-  // cpu, memory and ports are only measured while something shows them
+  // click on "memory" switches its unit, a click on "total_cpu", "total_memory" or
+  // "total_network" lists them per tab in the command palette.
+  // cpu, memory, traffic and ports are only measured while something shows them
   "status_bar": {
     "enable": false,
-    "left": ["prompt", "folder", "cpu", "memory", "ports"],
-    "right": [{ "text": "all tabs" }, "total_cpu", "total_memory", "all_ports"],
+    "left": ["cpu_graph", "cpu", "memory", "network", "ports"],
+    "right": [
+      { "text": "all tabs" }, "total_cpu", "total_memory", "total_network", "all_ports",
+      "size", "clock",
+    ],
+    // unit of memory in titles and the status bar: "auto", "kb", "mb" or "gb". a click on
+    // "memory" switches to the next one and is remembered until this is changed
+    "memory_unit": "auto",
+    // how "clock" blocks show the time, in strftime format: "%H:%M" gives "14:05",
+    // "%a %H:%M:%S" gives "Tue 14:05:09", "%I:%M %p" gives "02:05 PM"
+    "clock_format": "%H:%M",
   },
 
   // the command palette: a list of commands filtered as you type, opened with the
@@ -149,6 +185,33 @@
     //   "unfocused" - only while the tab is not in front of a focused window
     //   "never"     - never
     "from_programs": "unfocused",
+    // notify once when an ai agent, like claude code or codex, stops working without
+    // finishing and waits for you, like at a permission prompt. its tab is marked until you
+    // type into it. agents are the programs of a group with "agents": true in
+    // "icons.dynamic_app_icons", they must report being busy with osc 9;4
+    "agent_waiting": true,
+    // notify once when a program waits for you, and mark its tab until you type into it:
+    // right away when it asks for a password (echo off, like sudo or ssh), or when a running
+    // command goes quiet for 2 seconds with its last line matching "question_patterns", like
+    // apt's "[Y/n]". yes or no questions get "y" and "n" buttons, password prompts "fill
+    // password". while a program asks for a password the tab shows a lock, and broadcast
+    // input, palette commands typing text, run links and remote or mcp clients can't type
+    // into it, the keyboard and paste still can
+    "program_waiting": true,
+    // regexes for the last line of a question, matched with trailing spaces removed
+    "question_patterns": [
+      "\\?$",
+      "\\[[yYnN]/[yYnN]\\]\\s*:?$",
+      "\\([yYnN]/[yYnN]\\)\\s*\\??:?$",
+      "(?i)\\b(yes|no)\\b.*:$",
+      "(?i)press (any|enter|return) key",
+      "(?i)password[^:]*:$",
+      "(?i)passphrase[^:]*:$",
+    ],
+    // buttons on desktop notifications: "show" switches to the tab, a finished command adds
+    // "run again", and "open first error" when it failed and "hints.patterns" find a
+    // file:line in its output, which runs the action of that pattern. linux only
+    "actions": true,
   },
 
   // ---------------------------------------------------------------------------------------
@@ -207,6 +270,44 @@
     // notify when a command took longer than this many seconds and its tab is not in front,
     // 0 never notifies
     "notify_after": 10,
+    // a click on the command line you are typing moves the shell's cursor there, by
+    // sending it arrow keys. needs the prompt marks of shell integration
+    "click_moves_cursor": true,
+    // a mark left of each command telling what typed it, the mouse over it says more:
+    //   "all"    - every command: a person for typed, a clipboard for pasted
+    //   "others" - only commands something else typed: a palette command or key, broadcast
+    //              input, `kuterm msg`, a run link or the queue, or an ai agent through
+    //              `kuterm mcp`. agents running commands in your shell leave a trail
+    //   "none"   - no marks
+    // the marks take two cells left of the text while any is shown
+    "mark_sources": "others",
+  },
+
+  // a popup of completions for the command line: programs, subcommands, options and their
+  // values, files and folders, with what they do. it needs zsh 5.3 or newer with
+  // "shell_integration.inject" on, other shells and shells over ssh work as before without
+  // it. the shell reports its command line to kuterm over a private socket of the tab, and a
+  // picked completion is put into the shell's own line, so nothing is typed for you.
+  // nothing is run to find completions: commands come from your PATH, the rest from specs
+  // in the json form of fig's specs (github.com/withfig/autocomplete). kuterm brings specs
+  // for the core commands, apt, dnf, pacman, zypper, apk, snap, flatpak, pip, systemctl,
+  // git, cargo, docker, npm, aws and more; a spec named like the command, like
+  // "kubectl.json", in the "completions" folder next to this file adds one or replaces
+  // kuterm's. their "generators" and scripts are ignored, they would run commands. new or
+  // changed specs are read when kuterm starts.
+  // keys while the popup shows are in "keybindings": "completion_next",
+  // "completion_prev", "completion_accept" and "completion_dismiss"
+  "autocomplete": {
+    // off until it works with your shell setup, new tabs pick up a change
+    "enable": true,
+    // when the popup shows:
+    //   "auto" - while typing a command, escape hides it until the next word
+    //   "key"  - only on the "complete" key
+    "trigger": "auto",
+    // rows shown at once, the list scrolls past them. from 1 to 50
+    "max_items": 8,
+    // show what each completion does next to it
+    "show_descriptions": true,
   },
 
   // focus a split pane when the mouse moves over it, without clicking. keys then go to the
@@ -266,6 +367,27 @@
     "whole_word": false,
   },
 
+  // groups of tabs, like chrome's: a colored chip in the tab bar before the tabs of a group,
+  // with a line in its color under them. a click on the chip hides or shows them, a right click
+  // renames, recolors, ungroups or closes the group. dragging a tab onto the middle of another
+  // groups the two (an unnamed group is a dot until renamed), onto the chip or between tabs of
+  // a group joins it, and past the group's last tab leaves it. groups are also made with the
+  // "new_group" action or the tab menu
+  "tab_groups": {
+    // put each tab into a group of the git project its folder is in, named after the project,
+    // made and changed as the shell moves around. groups made by hand stay as they are
+    "by_project": false,
+  },
+
+  // selecting text with the mouse
+  "selection": {
+    // while the mouse button is down, the pane keeps showing what it showed when the drag
+    // started, so text of "kubectl logs -f" or htop doesn't move away under the mouse. the
+    // program keeps running and its output is read, the pane catches up on release, or
+    // after 30 seconds. the copied text is what was shown
+    "hold_frame": true,
+  },
+
   // links in the terminal: osc 8 hyperlinks that programs like ls --hyperlink print, and text
   // matched by "patterns". holding the modifier underlines the link under the mouse, a click
   // with it held runs its action. plain clicks are left for selecting text and for programs
@@ -285,8 +407,16 @@
     //   "paste"                 - type the text into the terminal
     //   { "exec": "code -g \"$KUTERM_MATCH\"" } - run a shell command, the text is in $KUTERM_MATCH
     "patterns": [
-      { "regex": "(https?|ftp|file)://[^\\s<>\"'`(){}\\[\\]]*[^\\s<>\"'`(){}\\[\\].,;:!?]", "action": "open" },
+      { "regex": "(https?|ftp|file|kuterm)://[^\\s<>\"'`(){}\\[\\]]*[^\\s<>\"'`(){}\\[\\].,;:!?]", "action": "open" },
     ],
+    // a link or hint with the "open" action naming a line of a file, like "src/main.rs:42",
+    // opens in vim, nvim, helix, kakoune or emacs -nw when one runs in a pane of the window,
+    // at that line, and focuses that pane. nvim gets it over its server socket when it has
+    // one. the path is taken from the folder of the command that printed it. without an
+    // editor running it opens as before
+    "open_in_running_editor": true,
+    // resting the mouse on a "file:line" in output shows the lines around it
+    "peek": true,
   },
 
   // hints: the "hints" key (ctrl-shift-e by default) puts a short label on every match of
@@ -301,7 +431,7 @@
     // where matches of two patterns overlap, the earlier pattern wins.
     // "\\b" here is written "(?-u:\\b)", the regex engine only knows ascii word boundaries
     "patterns": [
-      { "name": "url", "regex": "(https?|ftp|file)://[^\\s<>\"'`(){}\\[\\]]*[^\\s<>\"'`(){}\\[\\].,;:!?]", "action": "open" },
+      { "name": "url", "regex": "(https?|ftp|file|kuterm)://[^\\s<>\"'`(){}\\[\\]]*[^\\s<>\"'`(){}\\[\\].,;:!?]", "action": "open" },
       { "name": "path", "regex": "(~|\\.{1,2})?(/[\\w.+@-]+)+/?", "action": "copy" },
       { "name": "hash", "regex": "(?-u:\\b)[0-9a-f]{7,40}(?-u:\\b)", "action": "copy" },
       { "name": "ip", "regex": "(?-u:\\b)[0-9]{1,3}(\\.[0-9]{1,3}){3}(:[0-9]+)?(?-u:\\b)", "action": "copy" },
@@ -326,6 +456,9 @@
     //     themes/nord.jsonc (or .json). "themes" wins when both have the name
     //   - a path to a theme file, like "~/mine.jsonc". anything with a slash or a json
     //     extension is a path, relative paths are resolved from this folder
+    //   - a theme kuterm brings: "catppuccin-mocha", "catppuccin-latte", "dracula",
+    //     "gruvbox-dark", "gruvbox-light", "nord", "solarized-dark", "solarized-light",
+    //     "tokyo-night". the "pick_theme" action lists them all with a preview
     // a theme file is an object with the same color keys as the themes below, and is watched
     // like this file. null, or a theme that is missing or broken, uses the bundled theme.
     // --dark-theme-file and --light-theme-file override these from the command line
@@ -351,6 +484,8 @@
         // buttons that destroy something, like "close" in the dialog asking to close a busy tab
         "danger_button": "#be5046",
         "danger_button_text": "#ffffff",
+        // mark of a tab whose ai agent waits for you
+        "attention": "#d19a66",
 
         // terminal: default background and text color, used where programs set no color
         "terminal_background": "#282c34",
@@ -397,6 +532,8 @@
         // buttons that destroy something, like "close" in the dialog asking to close a busy tab
         "danger_button": "#e45649",
         "danger_button_text": "#ffffff",
+        // mark of a tab whose ai agent waits for you
+        "attention": "#c18401",
 
         // terminal: default background and text color, used where programs set no color
         "terminal_background": "#fafafa",
@@ -620,6 +757,20 @@
     // paste, since a shell runs it right away, or text with control characters like escape.
     // with bracketed paste on, control characters are always removed from pasted text
     "paste_protection": true,
+    // ask before pasting text with characters that hide what it really runs, like
+    // zero-width spaces, bidi overrides that show text in another order, or cyrillic and
+    // greek letters passing for latin ones in a word. a command copied from a web page can
+    // look harmless and run something else. the dialog shows each one as a marked <U+200B>
+    "paste_check_invisible": true,
+    // commands added with "queue_command" while something runs are typed one by one each
+    // time the prompt comes back. a command that fails pauses the rest until "resume_queue",
+    // like `&&` would. needs the prompt marks of shell integration
+    "queue_stop_on_failure": true,
+    // ctrl+s pauses all output of a terminal with flow control on (`stty ixon`, the default)
+    // until ctrl+q, which looks like a frozen terminal. kuterm says so at the bottom of the
+    // pane. false never pauses: ctrl+s then only reaches programs while flow control is off,
+    // like emacs or nano, which turn it off to use the key
+    "send_xoff": true,
   },
 
   // ---------------------------------------------------------------------------------------
@@ -664,6 +815,21 @@
       // extra environment variables for the program, added to the ones kuterm got,
       // like { "EDITOR": "vim" }
       "env": {},
+      // like a private browser window: the shell keeps no history (bash, zsh and fish
+      // with shell integration), the tab never comes back with the session, `kuterm msg
+      // get-text` and `query` (and mcp agents) can't read it, and its text is wiped from
+      // memory when it closes. it gets a purple frame. "new_incognito_tab" opens the
+      // default profile this way
+      "incognito": false,
+      // run the shell in a sandbox, for ai agents, scripts from the internet or a
+      // `curl | sh` you don't trust yet, like
+      //   { "network": false, "write": ["cwd", "~/.cache"], "tmp": "private" }
+      // "network" false cuts it off, "write" lists the only folders it may change ("cwd"
+      // is the folder it starts in, the rest is read only), "tmp" is "private" for an
+      // empty /tmp of its own or "shared" for the system's, read only. linux needs
+      // bubblewrap (bwrap) installed, the tab refuses to open without it; macos uses
+      // sandbox-exec. the tab shows a shield. null runs it as usual
+      "sandbox": null,
     },
   ],
 
@@ -695,6 +861,8 @@
     "paste": "ctrl-shift-v",
     // search the history of the active tab
     "search": "ctrl-shift-f",
+    // search the history of every tab of every window, picking a match switches to it
+    "find_in_all_tabs": null,
     // label links, paths, hashes and other "hints.patterns" matches on screen, typing a
     // label runs its action
     "hints": "ctrl-shift-e",
@@ -719,6 +887,55 @@
     "zoom_pane": null,
     // give all panes the same size
     "equalize_panes": null,
+    // type into every pane of the window at once, again to stop. joined panes get a red
+    // frame and a "broadcast" label
+    "toggle_broadcast_all": null,
+    // join the focused pane to the panes typed into together, or take it out
+    "toggle_broadcast_pane": null,
+    // scroll the focused pane together with the other joined panes, like vim's scrollbind,
+    // or take it out. joined panes get a "synced" label
+    "toggle_scroll_sync": null,
+    // ask for a command typed into the active tab once its prompt is back, after the ones
+    // queued before. "@18:00 make deploy" also waits for 18:00. the tab shows how many wait
+    "queue_command": null,
+    // list the queued commands of the active tab: pick one to edit it (empty drops it), to
+    // run it first, or to resume or clear the queue
+    "edit_queue": null,
+    // go on with the queue after a failed command paused it
+    "resume_queue": null,
+    // type a title of its own for the active tab, empty goes back to "tab_title".
+    // a double click on a tab does it too
+    "rename_tab": null,
+    // pin the active tab: small, at the front of its pane, with no close button, or unpin it
+    "pin_tab": null,
+    // open a tab with the active tab's profile and folder next to it
+    "duplicate_tab": null,
+    // open the default profile incognito: no shell history, no session restore, no
+    // remote reading, a purple frame
+    "new_incognito_tab": null,
+    // put the active tab into a new group, see "tab_groups"
+    "new_group": null,
+    // put the active tab into the group of the tab next to it, or a new one
+    "add_tab_to_group": null,
+    // take the active tab out of its group
+    "remove_tab_from_group": null,
+    // close every tab of the active tab's group, like every tab of its project
+    "close_group": null,
+    // draw text programs concealed (sgr 8), again to hide it. remote control and agents
+    // never get concealed text
+    "show_hidden_text": null,
+    // type the name "kuterm msg --pane" finds the active tab by
+    "rename_pane": null,
+    // close every tab of the pane but the active one and pinned ones
+    "close_other_tabs": null,
+    // move the active tab, its programs still running, into a window of its own.
+    // dragging a tab out of the window does it too
+    "move_tab_to_new_window": null,
+    // switch to the tab whose ai agent has waited longest for you, see
+    // "notifications.agent_waiting"
+    "next_attention_tab": null,
+    // list the tabs running an ai agent with how long each has waited, pick one to switch
+    "pick_agent_tab": null,
     // scroll to the prompt above or below, needs shell integration
     "jump_to_prev_prompt": "ctrl-shift-up",
     "jump_to_next_prompt": "ctrl-shift-down",
@@ -731,6 +948,16 @@
     // select, / searches and n/N go to the next match, y copies, escape leaves.
     // a number before a motion repeats it, like 5j
     "vi_mode": "ctrl-shift-space",
+    // show completions for the command line, see "autocomplete". with "trigger": "auto"
+    // it brings a popup hidden with escape back
+    "complete": "ctrl-space",
+    // keys of the completion popup, they only work while it shows, other keys go to the
+    // shell as usual. accepting puts the picked completion into the command line, enter
+    // still runs the line as it is
+    "completion_next": "down",
+    "completion_prev": "up",
+    "completion_accept": "tab",
+    "completion_dismiss": "escape",
     // open command palette
     "command_palette": "ctrl-shift-p",
     // toggle fullscreen
@@ -759,6 +986,9 @@
     "open_settings": null,
     // read this file and the files it uses again, they are also read on every save
     "reload_config": null,
+    // list the themes, moving through them shows each one, enter keeps it in this file as
+    // the theme of the current mode, escape goes back
+    "pick_theme": null,
     // switch to tab by its position, any "activate_tab_<n>" with n from 1 up can be added
     "activate_tab_1": "alt-1",
     "activate_tab_2": "alt-2",
@@ -778,14 +1008,22 @@
   //             "unbind" - the keys do nothing in kuterm and reach the terminal program
   //             a command palette action, like { "send_text": "\u001b[2J" } that sends
   //             text to the program right away, or { "new_tab_with_profile": "dev" }
-  //   "when":   "terminal", "search" (the search bar), "palette", "vi_mode" or "alt_screen"
-  //             (full screen programs like vim). left out works everywhere
-  // keys pressed one after another, like "ctrl-a c", wait 1 second for the next one.
+  //             { "run": "checkout branch" } - run the command of that name from "commands"
+  //             below, asking for its inputs first like the palette does. a name that is
+  //             not there is an error when this file is read, the palette shows the key
+  //             next to the command
+  //   "when":   "terminal", "search" (the search bar), "palette", "vi_mode", "alt_screen"
+  //             (full screen programs like vim) or "completion" (while the completion popup
+  //             shows). left out works everywhere
+  // "keys" in a keymap entry is written like the "keybindings" above: "ctrl-shift-j", not
+  // "ctrl+shift+j". keys pressed one after another, like "ctrl-a c", wait 1 second for the
+  // next one.
   // example:
   //   [
   //     { "keys": "ctrl-a c", "action": "new_tab" },
   //     { "keys": "ctrl-shift-k", "action": { "send_text": "\u001b[2J" } },
   //     { "keys": "ctrl-shift-t", "action": "unbind", "when": "alt_screen" },
+  //     { "keys": "ctrl-alt-b", "action": { "run": "checkout branch" } },
   //   ]
   "keymap": [],
 
@@ -808,6 +1046,7 @@
   // actions:
   //   "about"                            - show a page with the version and links
   //   "reload_config"                    - read this file, its imports and theme files again
+  //   "pick_theme"                       - list the themes with a preview, enter keeps one
   //   "new_tab"                          - open a tab with the default profile
   //   { "new_tab_with_profile": "dev" }  - open a tab with the named profile
   //   "new_background_tab"               - open a tab without switching to it
@@ -815,6 +1054,15 @@
   //   "close_tab"                        - close the active tab
   //   "close_tabs_to_right"              - close every tab to the right of the active one
   //   "close_tabs_to_left"               - close every tab to the left of the active one
+  //   "close_other_tabs"                 - close every tab but the active one.
+  //                                        the three closes above leave pinned tabs open
+  //   "rename_tab"                       - type a title of its own for the active tab
+  //   "pin_tab"                          - pin the active tab, or unpin it
+  //   "duplicate_tab"                    - open a tab with the active tab's profile and folder
+  //   "new_incognito_tab"                - open the default profile incognito
+  //   "copy_folder"                      - copy the active tab's folder to the clipboard
+  //   "move_tab_to_new_window"           - move the active tab, its programs still running,
+  //                                        into a window of its own
   //   "split_left"                       - split the focused pane, moving its active tab left
   //   "split_right"                      - split the focused pane, moving its active tab right
   //   "split_up"                         - split the focused pane, moving its active tab above
@@ -825,13 +1073,29 @@
   //                                        _right, _up, _down
   //   "zoom_pane"                        - show the focused pane alone, again to show all
   //   "equalize_panes"                   - give all panes the same size
+  //   "toggle_broadcast_all"             - type into every pane of the window at once, or stop
+  //   "toggle_broadcast_pane"            - join the focused pane to the broadcast, or leave it
+  //   "toggle_scroll_sync"               - scroll the focused pane with the other joined ones
+  //   "queue_command"                    - type a command into the tab once its prompt is back
+  //   "edit_queue"                       - edit, reorder or drop the queued commands
+  //   "resume_queue"                     - go on with the queue after a failure paused it
   //   "next_tab"                         - switch to the tab on the right
   //   "prev_tab"                         - switch to the tab on the left
   //   { "activate_tab": 2 }              - switch to the tab at this 1 based position
   //   "pick_tab"                         - list the open tabs in the palette, pick one to switch to it
+  //   "new_group"                        - put the active tab into a new group
+  //   "add_tab_to_group"                 - put the active tab into the group next to it
+  //   "remove_tab_from_group"            - take the active tab out of its group
+  //   "close_group"                      - close every tab of the active tab's group
+  //   "show_hidden_text"                 - draw concealed text, or hide it again
+  //   "rename_pane"                      - name the active tab for "kuterm msg --pane"
+  //   "next_attention_tab"               - switch to the tab whose ai agent has waited longest
+  //   "pick_agent_tab"                   - list the tabs running an ai agent and how long each
+  //                                        has waited, pick one to switch to it
   //   "copy"                             - copy the active tab's selection to the clipboard
   //   "paste"                            - paste the clipboard into the active tab
   //   "search"                           - open the search bar of the active tab
+  //   "find_in_all_tabs"                 - search the history of every tab of every window
   //   "hints"                            - label matches of "hints.patterns" on screen
   //   "vi_mode"                          - start or end keyboard selection mode
   //   "jump_to_prev_prompt"              - scroll to the prompt above, needs shell integration
@@ -856,6 +1120,26 @@
   //   { "notify_when_done": "built" }    - show a notification once the program running in the
   //                                        tab finishes, clicking it switches to that tab
   //
+  // an action can name the "target" it works on instead of the command's current tab, by
+  // writing it as { "target": ..., "action": ... }:
+  //   "new_split_right"  - split the focused pane and work in the new tab, also _left, _up,
+  //                        _down
+  //   "pane:tests"       - the pane named "tests" with rename_pane, or named by the title of
+  //                        its tab or its 1 based number
+  //   "all_panes_in_tab" - every pane of the window, works with "type" and "send_text"
+  //   "new_window"       - a window of its own
+  //
+  // a command can ask for values before it runs, with an "inputs" object. the inputs are asked
+  // for one after another in the order written here, escape cancels the command.
+  // every value fills {name} in the action texts, quoted for the shell; {name:raw} fills it in
+  // as it is. a command can also use values that need no input of their own:
+  // {selection}, {last_output}, {cwd}, {clipboard}, and {hint}, which starts hints mode and
+  // uses the match picked there.
+  //   { "text": "branch" }             - a field to type the value into, the string is its hint
+  //   { "pick": ["a", "b"] }           - pick one of these in the palette
+  //   { "pick_from": "git branch" }    - run this in the active tab's folder and pick one of
+  //                                      the lines it prints
+  //
   // actions can be mixed freely to build bigger commands, see the examples below.
   "commands": [
     { "name": "about", "category": "app", "actions": ["about"] },
@@ -863,11 +1147,14 @@
 
     { "name": "reload config", "category": "config", "actions": ["reload_config"] },
     { "name": "open settings", "category": "config", "actions": ["open_settings"] },
+    { "name": "pick theme", "category": "config", "actions": ["pick_theme"] },
 
     { "name": "copy selection", "category": "edit", "actions": ["copy"] },
     { "name": "paste", "category": "edit", "actions": ["paste"] },
+    { "name": "show or hide concealed text", "category": "view", "actions": ["show_hidden_text"] },
     { "name": "select all", "category": "edit", "actions": ["select_all"] },
     { "name": "search", "category": "edit", "actions": ["search"] },
+    { "name": "find in all tabs", "category": "edit", "actions": ["find_in_all_tabs"] },
     { "name": "hints", "category": "edit", "actions": ["hints"] },
     { "name": "keyboard selection", "category": "edit", "actions": ["vi_mode"] },
     { "name": "copy last output", "category": "edit", "actions": ["copy_last_output"] },
@@ -879,6 +1166,14 @@
     { "name": "close current", "category": "tabs", "actions": ["close_tab"] },
     { "name": "close tabs to the right", "category": "tabs", "actions": ["close_tabs_to_right"] },
     { "name": "close tabs to the left", "category": "tabs", "actions": ["close_tabs_to_left"] },
+    { "name": "close other tabs", "category": "tabs", "actions": ["close_other_tabs"] },
+    { "name": "rename", "category": "tabs", "actions": ["rename_tab"] },
+    { "name": "name for remote control", "category": "tabs", "actions": ["rename_pane"] },
+    { "name": "pin or unpin", "category": "tabs", "actions": ["pin_tab"] },
+    { "name": "duplicate", "category": "tabs", "actions": ["duplicate_tab"] },
+    { "name": "new incognito tab", "category": "tabs", "actions": ["new_incognito_tab"] },
+    { "name": "copy folder path", "category": "tabs", "actions": ["copy_folder"] },
+    { "name": "move to new window", "category": "tabs", "actions": ["move_tab_to_new_window"] },
     { "name": "split left", "category": "tabs", "actions": ["split_left"] },
     { "name": "split right", "category": "tabs", "actions": ["split_right"] },
     { "name": "split up", "category": "tabs", "actions": ["split_up"] },
@@ -886,9 +1181,22 @@
     { "name": "close pane", "category": "panes", "actions": ["close_pane"] },
     { "name": "zoom pane", "category": "panes", "actions": ["zoom_pane"] },
     { "name": "equalize panes", "category": "panes", "actions": ["equalize_panes"] },
+    { "name": "broadcast input to all panes", "category": "panes", "actions": ["toggle_broadcast_all"] },
+    { "name": "broadcast input from this pane", "category": "panes", "actions": ["toggle_broadcast_pane"] },
+    { "name": "sync scroll of this pane", "category": "panes", "actions": ["toggle_scroll_sync"] },
+    { "name": "queue a command", "category": "queue", "actions": ["queue_command"] },
+    { "name": "edit queued commands", "category": "queue", "actions": ["edit_queue"] },
+    { "name": "resume queue", "category": "queue", "actions": ["resume_queue"] },
     { "name": "switch to left", "category": "tabs", "actions": ["prev_tab"] },
     { "name": "switch to right", "category": "tabs", "actions": ["next_tab"] },
     { "name": "go to tab", "category": "tabs", "actions": ["pick_tab"] },
+    { "name": "new group", "category": "tabs", "actions": ["new_group"] },
+    { "name": "add to group", "category": "tabs", "actions": ["add_tab_to_group"] },
+    { "name": "remove from group", "category": "tabs", "actions": ["remove_tab_from_group"] },
+    { "name": "close group", "category": "tabs", "actions": ["close_group"] },
+    { "name": "close all tabs of this project", "category": "tabs", "actions": ["close_group"] },
+    { "name": "go to waiting agent", "category": "tabs", "actions": ["next_attention_tab"] },
+    { "name": "agent tabs", "category": "tabs", "actions": ["pick_agent_tab"] },
 
     { "name": "scroll to top", "category": "view", "actions": ["scroll_top"] },
     { "name": "scroll to bottom", "category": "view", "actions": ["scroll_bottom"] },
@@ -917,6 +1225,15 @@
         { "type": "sleep 3 && echo woke up\n" },
         { "notify_when_done": "sleep finished" },
       ],
+    },
+    // custom command example: pick a branch out of the ones the active tab's folder has and
+    // check it out there. bind it to a key with { "keys": "ctrl-alt-b", "action": { "run":
+    // "checkout branch" } } in "keymap" above, the palette then shows that key next to it
+    {
+      "name": "checkout branch",
+      "category": "examples",
+      "inputs": { "branch": { "pick_from": "git branch --format=%(refname:short)" } },
+      "actions": [{ "type": "git checkout {branch}\n" }],
     },
   ],
 
@@ -954,8 +1271,9 @@
           "commands": ["curl", "wget", "aria2c", "xh", "http"],
         },
         {
-          // ai and agents
+          // ai and agents, "agents" marks them for "notifications.agent_waiting"
           "icon": "󰚩",
+          "agents": true,
           "commands": ["claude", "opencode", "pi", "codex", "gemini", "aider", "crush", "goose", "amp", "cursor-agent", "copilot", "qwen", "llama-cli", "llama-server", "llama-bench", "ollama", "llm", "droid", "kiro-cli"],
         },
         {
@@ -1021,6 +1339,8 @@
         "vi_mode": "cmd-shift-space",
         "jump_to_prev_prompt": "cmd-up",
         "jump_to_next_prompt": "cmd-down",
+        // ctrl-space switches input sources on macos
+        "complete": "cmd-i",
         "command_palette": "cmd-shift-p",
         "toggle_fullscreen": "ctrl-cmd-f",
         "quit": "cmd-q",

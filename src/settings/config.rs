@@ -6,9 +6,7 @@ use std::sync::OnceLock;
 use gpui::Global;
 use serde_json_lenient::{Map, Value};
 
-use super::{
-    Commands, DEFAULT_SETTINGS, Keybindings, Settings, TabIcons, create_default_file, merge,
-};
+use super::{Commands, Keybindings, Settings, TabIcons, create_default_file};
 use crate::cli::Cli;
 
 /// every section of the config, parsed and checked
@@ -255,6 +253,23 @@ fn parse(user: Value) -> Result<Config, String> {
             .map_err(|error| format!("icons.dynamic_app_icons: {error}"))?,
         settings: Settings::from_full(full).map_err(|error| error.to_string())?,
     })
+}
+
+/// commented settings file written on first launch
+pub(crate) const DEFAULT_SETTINGS: &str = include_str!("../../assets/default_settings.jsonc");
+
+// user values override defaults key by key, so a partial file keeps the other defaults.
+// anything that is not an object on both sides (enum values, arrays) is replaced as a whole
+pub(crate) fn merge(base: &mut Value, overrides: Value) {
+    match (base, overrides) {
+        (Value::Object(base), Value::Object(overrides)) => {
+            for (key, value) in overrides {
+                // a missing key starts as null, which the fallback arm replaces with the value
+                merge(base.entry(key).or_insert(Value::Null), value);
+            }
+        }
+        (base, overrides) => *base = overrides,
+    }
 }
 
 #[cfg(test)]

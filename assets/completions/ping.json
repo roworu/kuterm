@@ -1,0 +1,212 @@
+{
+ "name": "ping",
+ "description": "Send ICMP echo requests to network hosts",
+ "options": [
+  {
+   "name": "-3",
+   "description": "RTT precision (do not round up the result time)"
+  },
+  {
+   "name": "-a",
+   "description": "Use audible ping"
+  },
+  {
+   "name": "-A",
+   "description": "Use adaptive ping"
+  },
+  {
+   "name": "-B",
+   "description": "Sticky source address"
+  },
+  {
+   "name": "-c",
+   "description": "Stop after <count> replies",
+   "args": {
+    "name": "count"
+   }
+  },
+  {
+   "name": "-C",
+   "description": "Call connect() syscall on socket creation"
+  },
+  {
+   "name": "-D",
+   "description": "Print timestamps"
+  },
+  {
+   "name": "-d",
+   "description": "Use SO_DEBUG socket option"
+  },
+  {
+   "name": "-e",
+   "description": "Define identifier for ping session, default is random for",
+   "args": {
+    "name": "identifier"
+   }
+  },
+  {
+   "name": "-f",
+   "description": "Flood ping"
+  },
+  {
+   "name": "-h",
+   "description": "Print help and exit"
+  },
+  {
+   "name": "-H",
+   "description": "Force reverse DNS name resolution (useful for numeric"
+  },
+  {
+   "name": "-I",
+   "description": "Either interface name or address",
+   "args": {
+    "name": "interface"
+   }
+  },
+  {
+   "name": "-i",
+   "description": "Seconds between sending each packet",
+   "args": {
+    "name": "interval"
+   }
+  },
+  {
+   "name": "-L",
+   "description": "Suppress loopback of multicast packets"
+  },
+  {
+   "name": "-l",
+   "description": "Send <preload> number of packages while waiting replies",
+   "args": {
+    "name": "preload"
+   }
+  },
+  {
+   "name": "-m",
+   "description": "Tag the packets going out",
+   "args": {
+    "name": "mark"
+   }
+  },
+  {
+   "name": "-M",
+   "description": "Define path MTU discovery, can be one of <do|dont|want|probe>",
+   "args": {
+    "name": "pmtud"
+   }
+  },
+  {
+   "name": "-n",
+   "description": "No reverse DNS name resolution, override -H"
+  },
+  {
+   "name": "-O",
+   "description": "Report outstanding replies"
+  },
+  {
+   "name": "-p",
+   "description": "Contents of padding byte",
+   "args": {
+    "name": "pattern"
+   }
+  },
+  {
+   "name": "-q",
+   "description": "Quiet output"
+  },
+  {
+   "name": "-Q",
+   "description": "Use quality of service <tclass> bits",
+   "args": {
+    "name": "tclass"
+   }
+  },
+  {
+   "name": "-s",
+   "description": "Use <size> as number of data bytes to be sent",
+   "args": {
+    "name": "size"
+   }
+  },
+  {
+   "name": "-S",
+   "description": "Use <size> as SO_SNDBUF socket option value",
+   "args": {
+    "name": "size"
+   }
+  },
+  {
+   "name": "-t",
+   "description": "Define time to live",
+   "args": {
+    "name": "ttl"
+   }
+  },
+  {
+   "name": "-U",
+   "description": "Print user-to-user latency"
+  },
+  {
+   "name": "-v",
+   "description": "Verbose output"
+  },
+  {
+   "name": "-V",
+   "description": "Print version and exit"
+  },
+  {
+   "name": "-w",
+   "description": "Reply wait <deadline> in seconds",
+   "args": {
+    "name": "deadline"
+   }
+  },
+  {
+   "name": "-W",
+   "description": "Time to wait for response",
+   "args": {
+    "name": "timeout"
+   }
+  },
+  {
+   "name": "-4",
+   "description": "Use IPv4"
+  },
+  {
+   "name": "-b",
+   "description": "Allow pinging broadcast"
+  },
+  {
+   "name": "-R",
+   "description": "Record route"
+  },
+  {
+   "name": "-T",
+   "description": "Define timestamp, can be one of <tsonly|tsandaddr|tsprespec>",
+   "args": {
+    "name": "timestamp"
+   }
+  },
+  {
+   "name": "-6",
+   "description": "Use IPv6"
+  },
+  {
+   "name": "-F",
+   "description": "Define flow label, default is random",
+   "args": {
+    "name": "flowlabel"
+   }
+  },
+  {
+   "name": "-N",
+   "description": "Use IPv6 node info query, try <help> as argument",
+   "args": {
+    "name": "nodeinfo"
+   }
+  }
+ ],
+ "args": {
+  "name": "destination"
+ }
+}

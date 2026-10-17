@@ -1,0 +1,824 @@
+{
+ "name": "systemctl",
+ "description": "Control the systemd system and service manager",
+ "subcommands": [
+  {
+   "name": "list-units",
+   "description": "List units currently in memory",
+   "priority": 74
+  },
+  {
+   "name": "list-automounts",
+   "description": "List automount units currently in memory"
+  },
+  {
+   "name": "list-paths",
+   "description": "List path units currently in memory"
+  },
+  {
+   "name": "list-sockets",
+   "description": "List socket units currently in memory"
+  },
+  {
+   "name": "list-timers",
+   "description": "List timer units currently in memory"
+  },
+  {
+   "name": "is-active",
+   "description": "Check whether units are active",
+   "args": {
+    "name": "unit",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "is-failed",
+   "description": "Check whether units are failed or"
+  },
+  {
+   "name": "status",
+   "description": "Show runtime status of one or more units",
+   "priority": 76,
+   "args": {
+    "name": "unit",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "show",
+   "description": "Show properties of one or more",
+   "args": {
+    "name": "unit",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "cat",
+   "description": "Show files and drop-ins of specified units",
+   "args": {
+    "name": "unit",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "help",
+   "description": "Show manual for one or more units"
+  },
+  {
+   "name": "list-dependencies",
+   "description": "Recursively show units which are required"
+  },
+  {
+   "name": "start",
+   "description": "Start (activate) one or more units",
+   "priority": 76,
+   "args": {
+    "name": "unit",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "stop",
+   "description": "Stop (deactivate) one or more units",
+   "priority": 76,
+   "args": {
+    "name": "unit",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "reload",
+   "description": "Reload one or more units",
+   "priority": 75,
+   "args": {
+    "name": "unit",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "restart",
+   "description": "Start or restart one or more units",
+   "priority": 76,
+   "args": {
+    "name": "unit",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "try-restart",
+   "description": "Restart one or more units if active",
+   "args": {
+    "name": "unit",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "reload-or-restart",
+   "description": "Reload one or more units if possible",
+   "args": {
+    "name": "unit",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "try-reload-or-restart",
+   "description": "If active, reload one or more units"
+  },
+  {
+   "name": "isolate",
+   "description": "Start one unit and stop all others"
+  },
+  {
+   "name": "kill",
+   "description": "Send signal to processes of a unit",
+   "args": {
+    "name": "unit",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "clean",
+   "description": "Clean runtime, cache, state, logs or"
+  },
+  {
+   "name": "freeze",
+   "description": "Freeze execution of unit processes"
+  },
+  {
+   "name": "thaw",
+   "description": "Resume execution of a frozen unit"
+  },
+  {
+   "name": "bind",
+   "description": "Bind-mount a path from the host into a"
+  },
+  {
+   "name": "service-log-level",
+   "description": "Get/set logging threshold for service"
+  },
+  {
+   "name": "reset-failed",
+   "description": "Reset failed state for all, one, or more"
+  },
+  {
+   "name": "whoami",
+   "description": "Return unit caller or specified PIDs are"
+  },
+  {
+   "name": "list-unit-files",
+   "description": "List installed unit files"
+  },
+  {
+   "name": "enable",
+   "description": "Enable one or more unit files",
+   "priority": 75,
+   "args": {
+    "name": "unit",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "disable",
+   "description": "Disable one or more unit files",
+   "priority": 75,
+   "args": {
+    "name": "unit",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "reenable",
+   "description": "Reenable one or more unit files"
+  },
+  {
+   "name": "preset",
+   "description": "Enable/disable one or more unit files"
+  },
+  {
+   "name": "preset-all",
+   "description": "Enable/disable all unit files based on"
+  },
+  {
+   "name": "is-enabled",
+   "description": "Check whether unit files are enabled",
+   "args": {
+    "name": "unit",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "mask",
+   "description": "Mask one or more units",
+   "args": {
+    "name": "unit",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "unmask",
+   "description": "Unmask one or more units",
+   "args": {
+    "name": "unit",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "link",
+   "description": "Link one or more units files into"
+  },
+  {
+   "name": "revert",
+   "description": "Revert one or more unit files to vendor"
+  },
+  {
+   "name": "add-wants",
+   "description": "Add 'Wants' dependency for the target"
+  },
+  {
+   "name": "add-requires",
+   "description": "Add 'Requires' dependency for the target"
+  },
+  {
+   "name": "edit",
+   "description": "Edit one or more unit files",
+   "args": {
+    "name": "unit",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "get-default",
+   "description": "Get the name of the default target"
+  },
+  {
+   "name": "set-default",
+   "description": "Set the default target"
+  },
+  {
+   "name": "list-machines",
+   "description": "List local containers and host"
+  },
+  {
+   "name": "list-jobs",
+   "description": "List jobs"
+  },
+  {
+   "name": "cancel",
+   "description": "Cancel all, one, or more jobs"
+  },
+  {
+   "name": "show-environment",
+   "description": "Dump environment"
+  },
+  {
+   "name": "set-environment",
+   "description": "Set one or more environment variables"
+  },
+  {
+   "name": "unset-environment",
+   "description": "Unset one or more environment variables"
+  },
+  {
+   "name": "import-environment",
+   "description": "Import all or some environment variables"
+  },
+  {
+   "name": "daemon-reload",
+   "description": "Reload systemd manager configuration",
+   "priority": 75
+  },
+  {
+   "name": "daemon-reexec",
+   "description": "Reexecute systemd manager"
+  },
+  {
+   "name": "log-level",
+   "description": "Get/set logging threshold for manager"
+  },
+  {
+   "name": "log-target",
+   "description": "Get/set logging target for manager"
+  },
+  {
+   "name": "service-watchdogs",
+   "description": "Get/set service watchdog state"
+  },
+  {
+   "name": "is-system-running",
+   "description": "Check whether system is fully running"
+  },
+  {
+   "name": "default",
+   "description": "Enter system default mode"
+  },
+  {
+   "name": "rescue",
+   "description": "Enter system rescue mode"
+  },
+  {
+   "name": "emergency",
+   "description": "Enter system emergency mode"
+  },
+  {
+   "name": "halt",
+   "description": "Shut down and halt the system"
+  },
+  {
+   "name": "poweroff",
+   "description": "Shut down and power-off the system"
+  },
+  {
+   "name": "reboot",
+   "description": "Shut down and reboot the system"
+  },
+  {
+   "name": "kexec",
+   "description": "Shut down and reboot the system with kexec"
+  },
+  {
+   "name": "soft-reboot",
+   "description": "Shut down and reboot userspace"
+  },
+  {
+   "name": "exit",
+   "description": "Request user instance or container exit"
+  },
+  {
+   "name": "switch-root",
+   "description": "Change to a different root file system"
+  },
+  {
+   "name": "sleep",
+   "description": "Put the system to sleep (through one of"
+  },
+  {
+   "name": "suspend",
+   "description": "Suspend the system"
+  },
+  {
+   "name": "hibernate",
+   "description": "Hibernate the system"
+  },
+  {
+   "name": "hybrid-sleep",
+   "description": "Hibernate and suspend the system"
+  },
+  {
+   "name": "suspend-then-hibernate",
+   "description": "Suspend the system, wake after a period of"
+  }
+ ],
+ "options": [
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Show this help",
+   "isPersistent": true
+  },
+  {
+   "name": "--version",
+   "description": "Show package version",
+   "isPersistent": true
+  },
+  {
+   "name": "--system",
+   "description": "Connect to system manager",
+   "isPersistent": true
+  },
+  {
+   "name": "--user",
+   "description": "Connect to user service manager",
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-C",
+    "--capsule"
+   ],
+   "description": "Connect to service manager of specified capsule",
+   "args": {
+    "name": "name"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-H",
+    "--host"
+   ],
+   "description": "Operate on remote host",
+   "args": {
+    "name": "user"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-M",
+    "--machine"
+   ],
+   "args": {
+    "name": "container"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-t",
+    "--type"
+   ],
+   "description": "List units of a particular type",
+   "args": {
+    "name": "type"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--state",
+   "description": "List units with particular LOAD or SUB or ACTIVE state",
+   "args": {
+    "name": "state"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--failed",
+   "description": "Shortcut for --state=failed",
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-p",
+    "--property"
+   ],
+   "description": "Show only properties by this name",
+   "args": {
+    "name": "name"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "-P",
+   "description": "Equivalent to --value --property=NAME",
+   "args": {
+    "name": "name"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-a",
+    "--all"
+   ],
+   "description": "Show all properties/all units currently in memory",
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-l",
+    "--full"
+   ],
+   "description": "Don't ellipsize unit names on output",
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-r",
+    "--recursive"
+   ],
+   "description": "Show unit list of host and local containers",
+   "isPersistent": true
+  },
+  {
+   "name": "--reverse",
+   "description": "Show reverse dependencies with 'list-dependencies'",
+   "isPersistent": true
+  },
+  {
+   "name": "--before",
+   "description": "Show units ordered before with 'list-dependencies'",
+   "isPersistent": true
+  },
+  {
+   "name": "--after",
+   "description": "Show units ordered after with 'list-dependencies'",
+   "isPersistent": true
+  },
+  {
+   "name": "--with-dependencies",
+   "description": "'list-units', and 'list-unit-files'",
+   "isPersistent": true
+  },
+  {
+   "name": "--job-mode",
+   "description": "Specify how to deal with already queued jobs, when",
+   "args": {
+    "name": "mode"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-T",
+    "--show-transaction"
+   ],
+   "description": "When enqueuing a unit job, show full transaction",
+   "isPersistent": true
+  },
+  {
+   "name": "--show-types",
+   "description": "When showing sockets, explicitly show their type",
+   "isPersistent": true
+  },
+  {
+   "name": "--value",
+   "description": "When showing properties, only print the value",
+   "isPersistent": true
+  },
+  {
+   "name": "--check-inhibitors",
+   "description": "Whether to check inhibitors before shutting down",
+   "args": {
+    "name": "mode"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "-i",
+   "description": "Shortcut for --check-inhibitors=no",
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-s",
+    "--signal"
+   ],
+   "description": "Which signal to send",
+   "args": {
+    "name": "signal"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--kill-whom",
+   "description": "Whom to send signal to",
+   "args": {
+    "name": "whom"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--kill-value",
+   "description": "Signal value to enqueue",
+   "args": {
+    "name": "int"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--kill-subgroup",
+   "description": "Send signal to sub-control group only",
+   "args": {
+    "name": "path",
+    "template": "filepaths"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--what",
+   "description": "Which types of resources to remove",
+   "args": {
+    "name": "resources"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--now",
+   "description": "Start or stop unit after enabling or disabling it",
+   "isPersistent": true
+  },
+  {
+   "name": "--dry-run",
+   "description": "Only print what would be done",
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-q",
+    "--quiet"
+   ],
+   "description": "Suppress output",
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-v",
+    "--verbose"
+   ],
+   "description": "Show unit logs while executing operation",
+   "isPersistent": true
+  },
+  {
+   "name": "--no-warn",
+   "description": "Suppress several warnings shown by default",
+   "isPersistent": true
+  },
+  {
+   "name": "--wait",
+   "description": "For (re)start, wait until service stopped again",
+   "isPersistent": true
+  },
+  {
+   "name": "--no-block",
+   "description": "Do not wait until operation finished",
+   "isPersistent": true
+  },
+  {
+   "name": "--no-wall",
+   "description": "Don't send wall message before halt/power-off/reboot",
+   "isPersistent": true
+  },
+  {
+   "name": "--message",
+   "description": "Specify human-readable reason for system shutdown",
+   "args": {
+    "name": "message"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--no-reload",
+   "description": "Don't reload daemon after en-/dis-abling unit files",
+   "isPersistent": true
+  },
+  {
+   "name": "--legend",
+   "description": "Enable/disable the legend (column headers and hints)",
+   "args": {
+    "name": "bool"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--no-pager",
+   "description": "Do not pipe output into a pager",
+   "isPersistent": true
+  },
+  {
+   "name": "--no-ask-password",
+   "description": "Do not ask for system passwords",
+   "isPersistent": true
+  },
+  {
+   "name": "--global",
+   "description": "Edit/enable/disable/mask default user unit files",
+   "isPersistent": true
+  },
+  {
+   "name": "--runtime",
+   "description": "Edit/enable/disable/mask unit files temporarily until",
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-f",
+    "--force"
+   ],
+   "description": "When enabling unit files, override existing symlinks",
+   "isPersistent": true
+  },
+  {
+   "name": "--preset-mode",
+   "description": "Apply only enable, only disable, or all presets",
+   "isPersistent": true
+  },
+  {
+   "name": "--root",
+   "description": "Edit/enable/disable/mask unit files in the specified",
+   "args": {
+    "name": "path",
+    "template": "filepaths"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--image",
+   "description": "Edit/enable/disable/mask unit files in the specified",
+   "args": {
+    "name": "path",
+    "template": "filepaths"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--image-policy",
+   "description": "Specify disk image dissection policy",
+   "args": {
+    "name": "policy"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-n",
+    "--lines"
+   ],
+   "description": "Number of journal entries to show",
+   "args": {
+    "name": "integer"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-o",
+    "--output"
+   ],
+   "description": "Change journal output mode (short, short-precise",
+   "args": {
+    "name": "string"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--firmware-setup",
+   "description": "Tell the firmware to show the setup menu on next boot",
+   "isPersistent": true
+  },
+  {
+   "name": "--boot-loader-menu",
+   "description": "Boot into boot loader menu on next boot",
+   "args": {
+    "name": "time"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--boot-loader-entry",
+   "description": "Boot into a specific boot loader entry on next boot",
+   "args": {
+    "name": "name"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--reboot-argument",
+   "description": "Specify argument string to pass to reboot()",
+   "args": {
+    "name": "arg"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--plain",
+   "description": "Print unit dependencies as a list instead of a tree",
+   "isPersistent": true
+  },
+  {
+   "name": "--timestamp",
+   "description": "Change format of printed timestamps (pretty, unix",
+   "args": {
+    "name": "format"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--read-only",
+   "description": "Create read-only bind mount",
+   "isPersistent": true
+  },
+  {
+   "name": "--mkdir",
+   "description": "Create directory before mounting, if missing",
+   "isPersistent": true
+  },
+  {
+   "name": "--marked",
+   "description": "Restart/reload previously marked units",
+   "isPersistent": true
+  },
+  {
+   "name": "--drop-in",
+   "description": "Edit unit files using the specified drop-in file name",
+   "args": {
+    "name": "name"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--when",
+   "description": "Schedule halt/power-off/reboot/kexec action after",
+   "args": {
+    "name": "time"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--stdin",
+   "description": "Read new contents of edited file from stdin",
+   "isPersistent": true
+  }
+ ]
+}

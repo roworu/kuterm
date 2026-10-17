@@ -2,6 +2,7 @@
 
 mod box_drawing;
 mod cursor;
+mod decorations;
 mod grid;
 mod input_handler;
 mod scrollbar;
@@ -30,6 +31,12 @@ use grid::{
 };
 use input_handler::TerminalInputHandler;
 use scrollbar::ScrollbarLayout;
+
+/// concealed text (sgr 8) is drawn while this is on, so people can see what programs hid
+#[derive(Clone, Copy, Default)]
+pub struct ShowHidden(pub bool);
+
+impl gpui::Global for ShowHidden {}
 
 /// regular terminal font with the features and fallbacks from settings
 fn terminal_font(settings: &TerminalSettings) -> Font {
@@ -98,6 +105,10 @@ pub struct LayoutState {
     /// images with where they go, relative to the grid origin
     images: Vec<(Bounds<Pixels>, Arc<RenderImage>)>,
     hint_background: Hsla,
+    /// hint line under the prompt, relative to the grid origin, never part of the grid
+    hint_line: Option<(Point<Pixels>, ShapedLine)>,
+    /// gutter marks and popovers, relative to the window
+    decorations: decorations::DecorationsLayout,
 }
 
 pub struct TerminalElement {
@@ -111,8 +122,8 @@ pub struct TerminalElement {
     scrollbar_visible: bool,
     /// fading bell flash painted over the terminal
     bell_flash: Option<Hsla>,
-    /// cells of the link under the mouse, underlined
-    link: Option<Match>,
+    /// cells of every part of the link under the mouse, underlined
+    link: Vec<Match>,
     /// hint labels and the cell each one starts at
     hints: Vec<(AlacPoint, String)>,
 }
@@ -128,7 +139,7 @@ impl TerminalElement {
         cursor_on: bool,
         scrollbar_visible: bool,
         bell_flash: Option<Hsla>,
-        link: Option<Match>,
+        link: Vec<Match>,
         hints: Vec<(AlacPoint, String)>,
     ) -> Self {
         Self {
@@ -250,6 +261,7 @@ impl Element for TerminalElement {
             minimum_contrast: settings.minimum_contrast,
             dim_opacity: settings.dim_opacity,
             builtin_box_drawing: settings.builtin_box_drawing,
+            show_hidden: cx.try_global::<ShowHidden>().is_some_and(|shown| shown.0),
         };
         let font_size = px(self.terminal_view.read(cx).font_size(cx));
         let cell = cell_size(font_size, cx);
@@ -271,13 +283,19 @@ impl Element for TerminalElement {
         );
 
         let padding = window_settings.padding;
-        let (pad_x, pad_y) = (px(padding.x), px(padding.y));
+        // a gutter only while some mark is set, so the grid never moves for those using none
+        let gutter = if self.terminal.read(cx).decorations().gutter.is_empty() {
+            px(0.)
+        } else {
+            cell_width * decorations::GUTTER_CELLS
+        };
+        let (pad_x, pad_y) = (px(padding.x) + gutter, px(padding.y));
         let mut origin = point(bounds.origin.x + pad_x, bounds.origin.y + pad_y);
         if bar_settings.placement == ScrollbarPlacement::Left {
             origin.x += bar_width;
         }
         let mut grid_size = bounds.size;
-        grid_size.width = (grid_size.width - pad_x * 2. - bar_width).max(cell_width * 2.);
+        grid_size.width = (grid_size.width - pad_x * 2. + gutter - bar_width).max(cell_width * 2.);
         // alacritty panics on a grid without rows
         grid_size.height = (grid_size.height - pad_y * 2.).max(line_height);
         if window_settings.padding_balance {
@@ -306,6 +324,7 @@ impl Element for TerminalElement {
         let (rects, batched_text_runs, box_glyphs) = layout_grid(
             &content.cells,
             content.display_offset,
+            (content.cursor.shape != CursorShape::Hidden).then_some(content.cursor.point),
             content.selection,
             SearchHighlights {
                 matches: &content.search_matches,
@@ -359,6 +378,42 @@ impl Element for TerminalElement {
             }
         });
 
+        // only while the cursor is on screen, it belongs to the line being typed
+        let hint_line = terminal
+            .hint_line()
+            .filter(|hint| {
+                cursor.is_some()
+                    && !hint.text.is_empty()
+                    && (cursor_line as usize) + 1 < dimensions.num_lines()
+            })
+            .map(|hint| {
+                let text = window.text_system().shape_line(
+                    hint.text.clone().into(),
+                    font_size,
+                    &[TextRun {
+                        len: hint.text.len(),
+                        font: fonts.italic.clone(),
+                        color: hint.color,
+                        background_color: None,
+                        underline: None,
+                        strikethrough: None,
+                    }],
+                    Some(cell_width),
+                );
+                (point(px(0.), line_height * (cursor_line as f32 + 1.)), text)
+            });
+
+        let decorations = decorations::layout_decorations(
+            terminal,
+            &dimensions,
+            bounds,
+            window.mouse_position(),
+            &fonts.regular,
+            font_size,
+            theme,
+            window,
+        );
+
         let show_scrollbar = self.scrollbar_visible
             && match bar_settings.enable {
                 ScrollbarEnable::On => true,
@@ -377,9 +432,9 @@ impl Element for TerminalElement {
 
         let link_underlines = self
             .link
-            .as_ref()
-            .map(|link| link_underlines(link, content.display_offset, &dimensions))
-            .unwrap_or_default();
+            .iter()
+            .flat_map(|link| link_underlines(link, content.display_offset, &dimensions))
+            .collect();
         let link_color = theme.terminal_foreground;
         let images = content
             .images
@@ -451,6 +506,8 @@ impl Element for TerminalElement {
             hint_labels,
             hint_background,
             images,
+            hint_line,
+            decorations,
         }
     }
 
@@ -535,14 +592,40 @@ impl Element for TerminalElement {
                 )
                 .ok();
             }
+            if let Some((at, text)) = &layout.hint_line {
+                let at = *at + origin + layout.glyph_offset;
+                let background = self.terminal.read(cx).theme(cx).terminal_background;
+                // covers what the grid has there, the hint reads as a line of its own
+                window.paint_quad(fill(
+                    Bounds::new(at, size(text.width, layout.dimensions.line_height)),
+                    background,
+                ));
+                text.paint(
+                    at,
+                    layout.dimensions.line_height,
+                    gpui::TextAlign::Left,
+                    None,
+                    window,
+                    cx,
+                )
+                .ok();
+            }
             // layout is kept while hidden, the input handler still needs its bounds for ime
             if let Some(cursor) = &layout.cursor
                 && self.cursor_on
             {
                 cursor.paint(origin, window, cx);
             }
+            let line_height = layout.dimensions.line_height;
+            for (at, icon) in &layout.decorations.gutter {
+                icon.paint(*at, line_height, gpui::TextAlign::Left, None, window, cx)
+                    .ok();
+            }
             if let Some((scrollbar, _)) = &layout.scrollbar {
                 scrollbar.paint(window);
+            }
+            for text_box in &layout.decorations.boxes {
+                text_box.paint(line_height, window, cx);
             }
             if let Some(flash) = self.bell_flash {
                 window.paint_quad(fill(bounds, flash));
@@ -591,5 +674,48 @@ impl IntoElement for TerminalElement {
 
     fn into_element(self) -> Self::Element {
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use alacritty_terminal::index::{Column, Line};
+
+    use super::*;
+
+    /// 10 columns by 3 lines of 5x10 cells
+    fn dims() -> TerminalBounds {
+        TerminalBounds::new(
+            px(10.),
+            px(5.),
+            Bounds::new(point(px(0.), px(0.)), size(px(50.), px(30.))),
+        )
+    }
+
+    #[test]
+    fn wrapped_link_is_underlined_on_each_visible_row() {
+        let link: Match = AlacPoint::new(Line(-1), Column(7))..=AlacPoint::new(Line(1), Column(2));
+        let underline = |x: f32, row: f32, cells: f32| {
+            Bounds::new(
+                point(px(5. * x), px(10. * (row + 1.) - 2.)),
+                size(px(5. * cells), px(1.)),
+            )
+        };
+        // its first row is in the history, out of view
+        assert_eq!(
+            link_underlines(&link, 0, &dims()),
+            [underline(0., 0., 10.), underline(0., 1., 3.)]
+        );
+        // scrolled up a line: from its start column, the whole middle row, up to its end
+        assert_eq!(
+            link_underlines(&link, 1, &dims()),
+            [
+                underline(7., 0., 3.),
+                underline(0., 1., 10.),
+                underline(0., 2., 3.)
+            ]
+        );
+        // scrolled up so far it is below the view
+        assert!(link_underlines(&link, 5, &dims()).is_empty());
     }
 }

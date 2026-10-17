@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use gpui::{App, Global};
 use serde::{Deserialize, Serialize};
 
-use super::{Command, state_dir};
+use super::{Command, load_json, save_json, state_dir};
 
 /// pin choices made in the palette, keyed by command label
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
@@ -26,32 +26,15 @@ impl Pins {
 
     /// load pins from the file, empty when it is missing or invalid
     pub fn load() -> Self {
-        let Some(path) = Self::path() else {
-            return Self::default();
-        };
-        let Ok(json) = std::fs::read_to_string(&path) else {
-            return Self::default();
-        };
-        serde_json_lenient::from_str(&json).unwrap_or_else(|error| {
-            eprintln!("invalid pins in {}: {error}", path.display());
-            Self::default()
-        })
+        Self::path()
+            .and_then(|path| load_json(&path, "pins"))
+            .unwrap_or_default()
     }
 
     /// write pins to the state dir
     pub fn save(&self) {
-        let Some(path) = Self::path() else {
-            return;
-        };
-        let result = path
-            .parent()
-            .map_or(Ok(()), std::fs::create_dir_all)
-            .and_then(|()| {
-                serde_json_lenient::to_string_pretty(self).map_err(std::io::Error::other)
-            })
-            .and_then(|json| std::fs::write(&path, json));
-        if let Err(error) = result {
-            eprintln!("failed to write {}: {error}", path.display());
+        if let Some(path) = Self::path() {
+            save_json(&path, self);
         }
     }
 
@@ -87,11 +70,10 @@ mod tests {
     use crate::settings::tests::{temp_dir, with_config_home};
 
     fn command(pinned: bool) -> Command {
+        let actions = vec![CommandAction::ReloadConfig.into()];
         Command {
-            name: "reload".into(),
-            category: Some("config".into()),
             pinned,
-            actions: vec![CommandAction::ReloadConfig],
+            ..Command::new("reload", Some("config".into()), actions)
         }
     }
 

@@ -1,0 +1,72 @@
+{
+ "name": "kill",
+ "description": "Send a signal to processes",
+ "options": [
+  {
+   "name": [
+    "-s",
+    "--signal"
+   ],
+   "description": "Specify the <signal> to be sent",
+   "args": {
+    "name": "signal",
+    "suggestions": [
+     "HUP",
+     "INT",
+     "QUIT",
+     "KILL",
+     "USR1",
+     "USR2",
+     "TERM",
+     "CONT",
+     "STOP"
+    ]
+   }
+  },
+  {
+   "name": [
+    "-q",
+    "--queue"
+   ],
+   "description": "Integer value to be sent with the signal",
+   "args": {
+    "name": "value"
+   }
+  },
+  {
+   "name": [
+    "-l",
+    "--list"
+   ],
+   "description": "List all signal names, or convert one to a name",
+   "args": {
+    "name": "signal"
+   }
+  },
+  {
+   "name": [
+    "-L",
+    "--table"
+   ],
+   "description": "List all signal names in a nice table"
+  },
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Display this help and exit"
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Output version information and exit"
+  }
+ ],
+ "args": {
+  "name": "pid",
+  "isVariadic": true
+ }
+}

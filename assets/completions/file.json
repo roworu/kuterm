@@ -1,0 +1,220 @@
+{
+ "name": "file",
+ "description": "Determine file type",
+ "options": [
+  {
+   "name": "--help",
+   "description": "Display this help and exit"
+  },
+  {
+   "name": [
+    "-v",
+    "--version"
+   ],
+   "description": "Output version information and exit"
+  },
+  {
+   "name": [
+    "-m",
+    "--magic-file"
+   ],
+   "description": "Use LIST as a colon-separated list of magic",
+   "args": {
+    "name": "list"
+   }
+  },
+  {
+   "name": [
+    "-z",
+    "--uncompress"
+   ],
+   "description": "Try to look inside compressed files"
+  },
+  {
+   "name": [
+    "-Z",
+    "--uncompress-noreport"
+   ],
+   "description": "Only print the contents of compressed files"
+  },
+  {
+   "name": [
+    "-b",
+    "--brief"
+   ],
+   "description": "Do not prepend filenames to output lines"
+  },
+  {
+   "name": [
+    "-c",
+    "--checking-printout"
+   ],
+   "description": "Print the parsed form of the magic file, use in"
+  },
+  {
+   "name": [
+    "-e",
+    "--exclude"
+   ],
+   "description": "Exclude TEST from the list of test to be",
+   "args": {
+    "name": "test"
+   }
+  },
+  {
+   "name": "--exclude-quiet",
+   "description": "Like exclude, but ignore unknown tests",
+   "args": {
+    "name": "test"
+   }
+  },
+  {
+   "name": [
+    "-f",
+    "--files-from"
+   ],
+   "description": "Read the filenames to be examined from FILE",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": [
+    "-F",
+    "--separator"
+   ],
+   "description": "Use string as separator instead of `:'",
+   "args": {
+    "name": "string"
+   }
+  },
+  {
+   "name": [
+    "-i",
+    "--mime"
+   ],
+   "description": "Output MIME type strings (--mime-type and"
+  },
+  {
+   "name": "--apple",
+   "description": "Output the Apple CREATOR/TYPE"
+  },
+  {
+   "name": "--extension",
+   "description": "Output a slash-separated list of extensions"
+  },
+  {
+   "name": "--mime-type",
+   "description": "Output the MIME type"
+  },
+  {
+   "name": "--mime-encoding",
+   "description": "Output the MIME encoding"
+  },
+  {
+   "name": [
+    "-k",
+    "--keep-going"
+   ],
+   "description": "Don't stop at the first match"
+  },
+  {
+   "name": [
+    "-l",
+    "--list"
+   ],
+   "description": "List magic strength"
+  },
+  {
+   "name": [
+    "-L",
+    "--dereference"
+   ],
+   "description": "Follow symlinks (default if POSIXLY_CORRECT is set)"
+  },
+  {
+   "name": [
+    "-h",
+    "--no-dereference"
+   ],
+   "description": "Don't follow symlinks (default if POSIXLY_CORRECT is not set) (default)"
+  },
+  {
+   "name": [
+    "-n",
+    "--no-buffer"
+   ],
+   "description": "Do not buffer output"
+  },
+  {
+   "name": [
+    "-N",
+    "--no-pad"
+   ],
+   "description": "Do not pad output"
+  },
+  {
+   "name": [
+    "-0",
+    "--print0"
+   ],
+   "description": "Terminate filenames with ASCII NUL"
+  },
+  {
+   "name": [
+    "-p",
+    "--preserve-date"
+   ],
+   "description": "Preserve access times on files"
+  },
+  {
+   "name": [
+    "-P",
+    "--parameter"
+   ],
+   "description": "Set file engine parameter limits"
+  },
+  {
+   "name": [
+    "-r",
+    "--raw"
+   ],
+   "description": "Don't translate unprintable chars to \\ooo"
+  },
+  {
+   "name": [
+    "-s",
+    "--special-files"
+   ],
+   "description": "Treat special (block/char devices) files as"
+  },
+  {
+   "name": [
+    "-S",
+    "--no-sandbox"
+   ],
+   "description": "Disable system call sandboxing"
+  },
+  {
+   "name": [
+    "-C",
+    "--compile"
+   ],
+   "description": "Compile file specified by -m"
+  },
+  {
+   "name": [
+    "-d",
+    "--debug"
+   ],
+   "description": "Print debugging messages"
+  }
+ ],
+ "args": {
+  "name": "file",
+  "template": "filepaths",
+  "isVariadic": true,
+  "isOptional": true
+ }
+}

@@ -95,6 +95,7 @@ mod tests {
         let at = Point::new(Line(0), Column(column));
         Link {
             range: at..=at,
+            rest: Vec::new(),
             target: column.to_string(),
             action: PatternAction::Copy,
             name: None,

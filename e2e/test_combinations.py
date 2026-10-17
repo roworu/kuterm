@@ -2,8 +2,6 @@
 ways: menu bar, title bar, tab bar, status bar, padding, a left scrollbar, ui font size, hidpi,
 fullscreen, splits and settings changed while running"""
 
-import time
-
 import numpy as np
 import pytest
 
@@ -67,7 +65,10 @@ def test_click_reports_the_right_cell(app_factory, layout):
     """a program asking for the mouse gets the cell under the pointer, not one shifted by the bars"""
     app = layout_app(app_factory, layout, script=READ.format(modes=SGR, seconds=3))
     app.wait_file("ready")
-    time.sleep(0.3)
+    app.wait_line(0, 6, top=app.top())
+    # under load a click right after the first frames can land a cell off with client
+    # decorations on wayland, so the window settles first
+    app.wait_still()
     app.click(*center(app, 4, 2))
     assert got(app) == b"\x1b[<0;5;3M\x1b[<0;5;3m"
 
@@ -77,7 +78,7 @@ def test_double_click_selects_the_word_under_the_pointer(app_factory, layout):
     """a double click selects the word in the cell under the pointer"""
     app = layout_app(app_factory, layout)
     app.run("clear; echo alpha bravo charlie")
-    time.sleep(1)
+    app.wait_line(0, 19, top=app.top())
     app.click(*center(app, 8, 0), repeat=2)
     app.snap("double click on bravo")
     app.key("ctrl+shift+c")
@@ -130,7 +131,8 @@ def test_notification_leaves_the_status_bar_uncovered(app_factory, layout):
                      commands={"commands": [{"name": "say hi", "actions": [{"notify": "hi from e2e"}]}]})
     app.pty_size()
     status = round(1.5 * app.ui_font_size() * app.scale)
-    before = app.shot()
+    # the shell draws its next prompt after the size was read
+    before = app.wait_still("the next prompt")
     app.palette("say hi")
     changed = lambda: np.abs(app.shot().astype(int) - before.astype(int)).max(axis=-1) > 0
     # the palette is gone and the notification is up in the bottom right corner
@@ -209,7 +211,10 @@ def test_hidpi_layout(app_factory, layout):
     app = layout_app(app_factory, layout, script=READ.format(modes=SGR, seconds=6),
                      env={"GPUI_X11_SCALE_FACTOR": "2"})
     app.wait_file("ready")
-    time.sleep(0.3)
+    app.wait_line(0, 6, top=app.top())
+    # under load a click right after the first frames can land a cell off with client
+    # decorations on wayland, so the window settles first
+    app.wait_still()
     assert bar_borders(app, app.shot()) == app.bars_above()
     app.snap(f"layout {layout} at scale 2")
     app.click(*center(app, 4, 2))

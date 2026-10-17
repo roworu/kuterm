@@ -1,0 +1,120 @@
+{
+ "name": "xz",
+ "description": "Compress or expand .xz and .lzma files",
+ "options": [
+  {
+   "name": [
+    "-z",
+    "--compress"
+   ],
+   "description": "Force compression"
+  },
+  {
+   "name": [
+    "-d",
+    "--decompress"
+   ],
+   "description": "Force decompression"
+  },
+  {
+   "name": [
+    "-t",
+    "--test"
+   ],
+   "description": "Test compressed file integrity"
+  },
+  {
+   "name": [
+    "-l",
+    "--list"
+   ],
+   "description": "List information about .xz files"
+  },
+  {
+   "name": [
+    "-k",
+    "--keep"
+   ],
+   "description": "Keep (don't delete) input files"
+  },
+  {
+   "name": [
+    "-f",
+    "--force"
+   ],
+   "description": "Force overwrite of output file and (de)compress links"
+  },
+  {
+   "name": [
+    "-c",
+    "--stdout"
+   ],
+   "description": "Write to standard output and don't delete input files"
+  },
+  {
+   "name": [
+    "-0",
+    "-9"
+   ],
+   "description": "Compression preset"
+  },
+  {
+   "name": [
+    "-e",
+    "--extreme"
+   ],
+   "description": "Try to improve compression ratio by using more CPU time"
+  },
+  {
+   "name": [
+    "-T",
+    "--threads"
+   ],
+   "description": "Use at most NUM threads",
+   "args": {
+    "name": "num"
+   }
+  },
+  {
+   "name": [
+    "-q",
+    "--quiet"
+   ],
+   "description": "Suppress warnings"
+  },
+  {
+   "name": [
+    "-v",
+    "--verbose"
+   ],
+   "description": "Be verbose"
+  },
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Display this short help and exit"
+  },
+  {
+   "name": [
+    "-H",
+    "--long-help"
+   ],
+   "description": "Display the long help (lists also the advanced options)"
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Display the version number and exit"
+  }
+ ],
+ "args": {
+  "name": "file",
+  "template": "filepaths",
+  "isVariadic": true,
+  "isOptional": true
+ }
+}

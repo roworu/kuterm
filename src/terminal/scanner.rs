@@ -29,10 +29,19 @@ const MAX_APC: usize = 96 << 20;
 pub enum ScanEvent {
     /// the shell is about to draw its prompt
     PromptStart,
-    /// a command started running, its output follows
-    CommandStart,
+    /// the prompt is drawn, what is typed next is the command line. carries the number of
+    /// the prompt's mark
+    PromptEnd(Option<usize>),
+    /// a command started running, its output follows. carries the numbers of the marks of
+    /// its prompt, none when no prompt was marked, and of its output
+    CommandStart {
+        prompt: Option<usize>,
+        output: usize,
+    },
     /// the command finished, with its exit code when the shell told it
     CommandEnd(Option<i32>),
+    /// the command line about to run, sent by the shell with osc 133;E
+    CommandLine(String),
     /// the shell is in this folder
     Cwd(PathBuf),
     Notify {
@@ -76,6 +85,8 @@ pub struct Scanner {
     /// marked prompt or output cells are being printed
     open_mark: bool,
     next_mark: usize,
+    /// number of the last prompt mark
+    last_prompt: Option<usize>,
     /// graphics command being read, none while it is too long to keep
     apc: Option<Vec<u8>>,
     graphics: Option<GraphicsParser>,
@@ -99,6 +110,7 @@ impl Scanner {
             overflow: false,
             open_mark: false,
             next_mark: 0,
+            last_prompt: None,
             apc: None,
             graphics,
         }
@@ -258,20 +270,32 @@ impl Scanner {
                 match parts.next() {
                     Some("A") => {
                         self.close_mark(out);
+                        self.last_prompt = Some(self.next_mark);
                         self.open_mark(PROMPT_MARK, out);
                         events.push(ScanEvent::PromptStart);
                     }
                     // the prompt is drawn, what is typed next is no part of it
-                    Some("B") => self.close_mark(out),
+                    Some("B") => {
+                        self.close_mark(out);
+                        events.push(ScanEvent::PromptEnd(self.last_prompt));
+                    }
                     Some("C") => {
                         self.close_mark(out);
+                        events.push(ScanEvent::CommandStart {
+                            prompt: self.last_prompt,
+                            output: self.next_mark,
+                        });
                         self.open_mark(OUTPUT_MARK, out);
-                        events.push(ScanEvent::CommandStart);
                     }
                     Some("D") => {
                         self.close_mark(out);
                         let exit = parts.next().and_then(|code| code.parse().ok());
                         events.push(ScanEvent::CommandEnd(exit));
+                    }
+                    Some("E") => {
+                        // the line itself has no ';', they come escaped
+                        let line = rest.strip_prefix("E;").unwrap_or_default();
+                        events.push(ScanEvent::CommandLine(unescape(line)));
                     }
                     _ => {}
                 }
@@ -314,6 +338,35 @@ impl Scanner {
             out.extend_from_slice(CLOSE_MARK);
         }
     }
+}
+
+/// a command line escaped like vs code's osc 633;E: `\\` for a backslash and `\xNN` for a
+/// byte, like `\x3b` for ';' and `\x0a` for a newline
+fn unescape(line: &str) -> String {
+    let mut bytes = Vec::with_capacity(line.len());
+    let mut rest = line.as_bytes();
+    while let Some((&byte, tail)) = rest.split_first() {
+        rest = tail;
+        if byte != b'\\' {
+            bytes.push(byte);
+            continue;
+        }
+        match rest {
+            [b'\\', tail @ ..] => {
+                bytes.push(b'\\');
+                rest = tail;
+            }
+            [b'x', a, b, tail @ ..] if a.is_ascii_hexdigit() && b.is_ascii_hexdigit() => {
+                let hex = [*a, *b];
+                let hex = std::str::from_utf8(&hex).unwrap_or("00");
+                bytes.push(u8::from_str_radix(hex, 16).unwrap_or(0));
+                rest = tail;
+            }
+            // a lone backslash stays as it is
+            _ => bytes.push(byte),
+        }
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 /// progress of an osc 9;4 `state;percent` report, none when it takes the progress down
@@ -495,7 +548,11 @@ mod tests {
             events,
             [
                 ScanEvent::PromptStart,
-                ScanEvent::CommandStart,
+                ScanEvent::PromptEnd(Some(0)),
+                ScanEvent::CommandStart {
+                    prompt: Some(0),
+                    output: 1
+                },
                 ScanEvent::CommandEnd(Some(2))
             ]
         );
@@ -505,6 +562,17 @@ mod tests {
             "\x1b]133;A\x07\x1b]8;id=kuterm-prompt-0;kuterm:\x1b\\$ \x1b]133;B\x07\x1b]8;;\x1b\\ls\r\n\
              \x1b]133;C\x07\x1b]8;id=kuterm-output-1;kuterm:\x1b\\file\r\n\x1b]133;D;2\x1b\\\x1b]8;;\x1b\\"
         );
+    }
+
+    #[test]
+    fn command_lines_are_unescaped() {
+        let (_, events) = scan(&[b"\x1b]133;E;echo a\\x3b b \\\\n\\x0aecho \\x1b \xc3\xa9\x07"]);
+        assert_eq!(
+            events,
+            [ScanEvent::CommandLine("echo a; b \\n\necho \x1b é".into())]
+        );
+        assert_eq!(super::unescape("a\\"), "a\\");
+        assert_eq!(super::unescape("\\xzz"), "\\xzz");
     }
 
     #[test]
@@ -602,5 +670,36 @@ mod tests {
         for input in [&b"\x1b]0;title\x07"[..], b"text\x1b", b"\x1b\x1b]7;x\x07"] {
             assert!(!scanner.passes_through(input), "{input:?}");
         }
+    }
+
+    #[test]
+    fn a_new_osc_drops_the_unfinished_one_and_unknown_marks_tell_nothing() {
+        // the notification never ended, the escape starting the mark replaced it
+        let (out, events) = scan(&[b"\x1b]9;lost\x1b]133;D;1\x07\x1b]133;Z\x07"]);
+        assert_eq!(events, [ScanEvent::CommandEnd(Some(1))]);
+        // the bytes still go on to alacritty, with the close of the open mark
+        assert!(out.starts_with(b"\x1b]9;lost\x1b]133;D;1\x07"));
+        assert!(out.ends_with(b"\x1b]133;Z\x07"));
+    }
+
+    #[test]
+    fn reader_passes_scanned_output_without_events_on() {
+        use std::io::Read;
+
+        let path = std::env::temp_dir().join(format!("kuterm-scan-{}", std::process::id()));
+        // a title is scanned, being an osc, but it is alacritty's and makes no event
+        std::fs::write(&path, b"\x1b]0;title\x07text").unwrap();
+        let events = super::ScanEvents::default();
+        let mut reader = super::ScanReader {
+            file: std::fs::File::open(&path).unwrap(),
+            scanner: Scanner::default(),
+            pending: Vec::new(),
+            events: events.clone(),
+        };
+        let mut got = Vec::new();
+        reader.read_to_end(&mut got).unwrap();
+        std::fs::remove_file(&path).ok();
+        assert_eq!(got, b"\x1b]0;title\x07text");
+        assert!(events.lock().unwrap().is_empty());
     }
 }

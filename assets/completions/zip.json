@@ -1,0 +1,108 @@
+{
+ "name": "zip",
+ "description": "Package and compress files",
+ "options": [
+  {
+   "name": "-f",
+   "description": "Freshen: only changed files"
+  },
+  {
+   "name": "-u",
+   "description": "Update: only changed or new files"
+  },
+  {
+   "name": "-d",
+   "description": "Delete entries in zipfile"
+  },
+  {
+   "name": "-m",
+   "description": "Move into zipfile (delete OS files)"
+  },
+  {
+   "name": "-r",
+   "description": "Recurse into directories"
+  },
+  {
+   "name": "-j",
+   "description": "Junk (don't record) directory names"
+  },
+  {
+   "name": "-0",
+   "description": "Store only"
+  },
+  {
+   "name": "-l",
+   "description": "Convert LF to CR LF (-ll CR LF to LF)"
+  },
+  {
+   "name": "-1",
+   "description": "Compress faster"
+  },
+  {
+   "name": "-9",
+   "description": "Compress better"
+  },
+  {
+   "name": "-q",
+   "description": "Quiet operation"
+  },
+  {
+   "name": "-v",
+   "description": "Verbose operation/print version info"
+  },
+  {
+   "name": "-c",
+   "description": "Add one-line comments"
+  },
+  {
+   "name": "-z",
+   "description": "Add zipfile comment"
+  },
+  {
+   "name": "-o",
+   "description": "Make zipfile as old as latest entry"
+  },
+  {
+   "name": "-x",
+   "description": "Exclude the following names"
+  },
+  {
+   "name": "-i",
+   "description": "Include only the following names"
+  },
+  {
+   "name": "-F",
+   "description": "Fix zipfile (-FF try harder) -D do not add directory entries"
+  },
+  {
+   "name": "-A",
+   "description": "Adjust self-extracting exe -J junk zipfile prefix (unzipsfx)"
+  },
+  {
+   "name": "-T",
+   "description": "Test zipfile integrity"
+  },
+  {
+   "name": "-X",
+   "description": "EXclude eXtra file attributes"
+  },
+  {
+   "name": "-y",
+   "description": "Store symbolic links as the link instead of the referenced file"
+  },
+  {
+   "name": "-e",
+   "description": "Encrypt -n don't compress these suffixes"
+  },
+  {
+   "name": "-h2",
+   "description": "Show more help"
+  }
+ ],
+ "args": {
+  "name": "file",
+  "template": "filepaths",
+  "isVariadic": true,
+  "isOptional": true
+ }
+}

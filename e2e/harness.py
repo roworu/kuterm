@@ -15,6 +15,7 @@ import shutil
 import signal
 import subprocess
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -74,7 +75,7 @@ def unique_theme(seed: int) -> dict:
     colors = iter(f"#{seed:02x}{i * 37 % 256:02x}{(i * 91 + 50) % 256:02x}" for i in range(1, 60))
     keys = ["tab_bar_background", "tab_active_background", "border", "text", "text_muted",
             "terminal_background", "terminal_foreground", "cursor", "selection", "scrollbar",
-            "bright_foreground", "dim_foreground", "danger_button", "danger_button_text"]
+            "bright_foreground", "dim_foreground", "danger_button", "danger_button_text", "attention"]
     theme = {key: next(colors) for key in keys}
     theme["ansi"] = [next(colors) for _ in range(16)]
     theme["ansi_dim"] = [next(colors) for _ in range(8)]
@@ -158,13 +159,19 @@ def ink_bbox(img: np.ndarray, background: tuple, threshold: int = 40) -> tuple |
 # which display server the apps run on: "x11" (xvfb and openbox) or "wayland" (headless sway)
 BACKEND = os.environ.get("E2E_BACKEND", "x11")
 
+# pytest-xdist worker like "gw2", every worker runs its own display, bus and runtime dir
+WORKER = os.environ.get("PYTEST_XDIST_WORKER", "")
+WORKER_NUMBER = int(WORKER[2:]) if WORKER else 0
+
 
 class Session:
     display = os.environ.get("DISPLAY", ":99")
     wayland_display = "wayland-1"
     sway_socket = ""
-    runtime_dir = "/tmp/e2e-runtime"
+    runtime_dir = f"/tmp/e2e-runtime-{WORKER}" if WORKER else "/tmp/e2e-runtime"
     bus_address = ""
+    # starts the window manager again when it died, set by conftest.py on x11
+    keep_wm = None
 
 
 def session_env() -> dict:
@@ -183,8 +190,10 @@ def session_env() -> dict:
         env.update({"DISPLAY": Session.display, "WAYLAND_DISPLAY": "", "GPUI_X11_SCALE_FACTOR": "1"})
     if Session.bus_address:
         env["DBUS_SESSION_BUS_ADDRESS"] = Session.bus_address
-    if "VK_ICD_FILENAMES" in os.environ:
-        env["VK_ICD_FILENAMES"] = os.environ["VK_ICD_FILENAMES"]
+    # LLVM_PROFILE_FILE lets a binary built for coverage write what the tests ran
+    for name in ("VK_ICD_FILENAMES", "LLVM_PROFILE_FILE"):
+        if name in os.environ:
+            env[name] = os.environ[name]
     return env
 
 
@@ -321,6 +330,45 @@ class Portal:
                 self.proc.wait()
 
 
+class Notifications:
+    """fake desktop notification service recording what apps show, see fake_notifications.py"""
+
+    def __init__(self) -> None:
+        self.proc = subprocess.Popen(
+            ["python3", str(Path(__file__).with_name("fake_notifications.py"))],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=True,
+            env={**session_env(), "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+        line = self.proc.stdout.readline().strip()
+        assert line == "ready", f"fake notifications failed to start: {line!r}"
+        self.shown: list = []
+        threading.Thread(target=self._read, daemon=True).start()
+
+    def _read(self) -> None:
+        for line in self.proc.stdout:
+            self.shown.append(json.loads(line))
+
+    def wait(self, check, msg: str = "a notification", timeout: float = 15) -> dict:
+        """first notification shown that check accepts"""
+        return wait_until(lambda: next((n for n in list(self.shown) if check(n)), None), timeout=timeout, msg=msg)
+
+    def invoke(self, nid: int, key: str) -> None:
+        """click the button with this key"""
+        self.proc.stdin.write(f"invoke {nid} {key}\n")
+        self.proc.stdin.flush()
+
+    def stop(self) -> None:
+        if self.proc.poll() is None:
+            self.proc.stdin.close()
+            try:
+                self.proc.wait(5)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+                self.proc.wait()
+
+
 class App:
     """one kuterm process with its own config folder, closed with close().
 
@@ -424,18 +472,21 @@ class App:
         return env
 
     def start(self) -> None:
+        if Session.keep_wm is not None:
+            Session.keep_wm()
         self.log = open(self.log_path, "w")
         self.proc = subprocess.Popen(
             [str(BIN), *self.args], cwd=self.home, env=self.app_env(), stdout=self.log, stderr=subprocess.STDOUT
         )
-        self.wid = wait_until(self._find_window, timeout=30, msg="the app window")
+        # many parallel sessions starting at once take a while on the software renderer
+        self.wid = wait_until(self._find_window, timeout=60, msg="the app window")
         if BACKEND == "wayland":
             # the output scale is set by the compositor, not by the app env
             self.scale = Input.scale()
         # give it focus like a user clicking it, the window manager usually does this on map already
         self.focus()
         # first frame: the window is no longer blank black
-        wait_until(self._painted, timeout=30, msg="the first painted frame")
+        wait_until(self._painted, timeout=60, msg="the first painted frame")
 
     def _painted(self) -> bool:
         if not self.alive():
@@ -698,12 +749,45 @@ class App:
 
     def palette(self, query: str, run: bool = True) -> None:
         """open the command palette with its default key, type a query and run the best match"""
+        # the middle columns below the bars, where the panel opens, away from the cursor
+        def area() -> np.ndarray:
+            img = self.shot()
+            w = img.shape[1]
+            return img[self.top() :, w * 2 // 5 : w * 3 // 5]
+
+        before = area()
         self.key("ctrl+shift+p")
-        time.sleep(0.4)
+        # keys only reach the palette once it is drawn, it filters and runs as they come
+        self.wait(lambda: (area() != before).any(), msg="palette open")
         self.type(query)
-        time.sleep(0.2)
         if run:
             self.key("Return")
+
+    def wait_line(self, row: int, cols: int, top: int = 0, timeout: float = 10.0) -> None:
+        """wait until row shows text over exactly its first cols cells, like the output of a
+        command run after clear: the typed command line before it is longer"""
+        x0, y0, _, y1 = self.cell_rect(0, row, top=top)
+        last, end = self.cell_rect(cols - 1, row, top=top)[0], self.cell_rect(cols, row, top=top)[0]
+        right = self.cell_rect(cols + 20, row, top=top)[2]
+
+        def check() -> bool:
+            band = self.shot()[y0:y1, x0:right]
+            box = ink_bbox(band, dominant(band))
+            return box is not None and last - x0 < box[2] <= end - x0 + 2
+
+        self.wait(check, msg=f"text over {cols} cells of row {row}", timeout=timeout)
+
+    def wait_still(self, msg: str = "the window to settle", timeout: float = 10.0) -> np.ndarray:
+        """wait until two screenshots in a row are the same, like after an animation"""
+        last = [None]
+
+        def check():
+            img = self.shot()
+            same = last[0] is not None and np.array_equal(img, last[0])
+            last[0] = img
+            return img if same else None
+
+        return self.wait(check, msg=msg, timeout=timeout)
 
     def step(self, n: int) -> None:
         """let the script run past `step n`"""
@@ -730,7 +814,8 @@ class App:
         """(rows, cols) the shell sees, read with stty in an interactive bash"""
         path = self.file(name)
         path.unlink(missing_ok=True)
-        self.run(f"stty size > {path}")
+        # the shell creates the file before stty writes to it
+        self.run(f"stty size > {path}.part && mv {path}.part {path}")
         return tuple(map(int, self.wait_file(name).split()))
 
     # layout, mirrors the element code so the tests can find cells and the bar

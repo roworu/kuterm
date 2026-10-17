@@ -20,12 +20,13 @@ permissions:
   contents: read
 
 jobs:
+  # only the debug binary, so e2e starts as soon as it is there
   build:
 
     runs-on: ubuntu-26.04
 
     steps:
-      
+
     - uses: actions/checkout@v7
       with:
         persist-credentials: false
@@ -38,7 +39,37 @@ jobs:
           libfontconfig-dev libfreetype-dev libxkbcommon-dev libxkbcommon-x11-dev \
           libwayland-dev libx11-xcb-dev libxcb1-dev libvulkan-dev \
           libasound2-dev libssl-dev libzstd-dev
-          
+
+    - uses: Swatinem/rust-cache@v2
+
+    - name: Build
+      run: cargo build --verbose
+
+    - name: Upload binary
+      uses: actions/upload-artifact@v7
+      with:
+        name: kuterm-debug
+        path: target/debug/kuterm
+
+  lint:
+
+    runs-on: ubuntu-26.04
+
+    steps:
+
+    - uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          clang cmake pkg-config \
+          libfontconfig-dev libfreetype-dev libxkbcommon-dev libxkbcommon-x11-dev \
+          libwayland-dev libx11-xcb-dev libxcb1-dev libvulkan-dev \
+          libasound2-dev libssl-dev libzstd-dev
+
     - uses: Swatinem/rust-cache@v2
 
     - name: Add format and lint components
@@ -47,11 +78,30 @@ jobs:
     - name: Format
       run: cargo fmt --check
 
-    - name: Build
-      run: cargo build --verbose
-
     - name: Clippy
       run: cargo clippy --all-targets -- -D warnings
+
+  # apart from lint, clippy artifacts are of no use to the tests and both run at once
+  test:
+
+    runs-on: ubuntu-26.04
+
+    steps:
+
+    - uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          clang cmake pkg-config \
+          libfontconfig-dev libfreetype-dev libxkbcommon-dev libxkbcommon-x11-dev \
+          libwayland-dev libx11-xcb-dev libxcb1-dev libvulkan-dev \
+          libasound2-dev libssl-dev libzstd-dev
+
+    - uses: Swatinem/rust-cache@v2
 
     - name: Run tests
       shell: bash
@@ -63,12 +113,6 @@ jobs:
       with:
         name: test-output
         path: test-output.txt
-
-    - name: Upload binary
-      uses: actions/upload-artifact@v7
-      with:
-        name: kuterm-debug
-        path: target/debug/kuterm
 
   # the built binary driven on a virtual x display and on a headless wayland compositor.
   # pull requests only, release branches go through one before release builds run
@@ -96,8 +140,10 @@ jobs:
     - name: Install podman
       run: command -v podman > /dev/null || (sudo apt-get update && sudo apt-get install -y --no-install-recommends podman)
 
-    # artifacts lose the executable bit
+    # runners have 4 vcpus, artifacts lose the executable bit
     - name: Run e2e tests
+      env:
+        E2E_WORKERS: 3
       run: |
         chmod +x dist/kuterm
         KUTERM_BIN=dist/kuterm sh e2e/run.sh --backend ${{ matrix.backend }}

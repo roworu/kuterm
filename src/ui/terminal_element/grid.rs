@@ -1,6 +1,7 @@
 //! turns grid cells into background rects and batched text runs
 
 use alacritty_terminal::{
+    index::Point as AlacPoint,
     selection::SelectionRange,
     term::{
         cell::{Cell, Flags},
@@ -52,6 +53,8 @@ pub(super) struct GridStyle<'a> {
     pub(super) minimum_contrast: f32,
     pub(super) dim_opacity: f32,
     pub(super) builtin_box_drawing: bool,
+    /// draw concealed text (sgr 8) anyway
+    pub(super) show_hidden: bool,
 }
 
 /// adjacent cells with same style, shaped and painted as one line
@@ -60,9 +63,11 @@ pub(super) struct BatchedTextRun {
     column: i32,
     text: String,
     cell_count: usize,
-    /// foreground, style flags and background (only when contrast is enforced) `style` was
-    /// built from, cheaper to compare than the style
-    key: (Color, Flags, Option<Hsla>),
+    /// foreground, style flags, background (only when contrast is enforced) and selection
+    /// `style` was built from, cheaper to compare than the style
+    key: (Color, Flags, Option<Hsla>, bool),
+    /// the cursor cell, shaped alone so ligatures break under the cursor
+    alone: bool,
     style: TextRun,
 }
 
@@ -152,9 +157,12 @@ pub(super) struct SearchHighlights<'a> {
     pub(super) active: Option<&'a Match>,
 }
 
+/// cells shaped in runs as long as their style allows, so ligatures form across cells. runs
+/// break at the cursor and at selection edges, like other terminals, so edited text stays readable
 pub(super) fn layout_grid(
     cells: &[IndexedCell],
     display_offset: usize,
+    cursor: Option<AlacPoint>,
     selection: Option<SelectionRange>,
     search: SearchHighlights,
     style: &GridStyle,
@@ -219,6 +227,10 @@ pub(super) fn layout_grid(
         if cell.flags.contains(Flags::WIDE_CHAR_SPACER) || is_blank(cell) {
             continue;
         }
+        // concealed text keeps its background but not its glyphs
+        if cell.flags.contains(Flags::HIDDEN) && !style.show_hidden {
+            continue;
+        }
 
         // contrast depends on what is behind the text, so the background splits runs then
         let contrast_background =
@@ -235,10 +247,13 @@ pub(super) fn layout_grid(
         }
 
         // most cells continue the run before them, so the style is only built for new runs
-        let key = (fg, cell.flags & STYLE_FLAGS, contrast_background);
+        let key = (fg, cell.flags & STYLE_FLAGS, contrast_background, selected);
+        let alone = cursor == Some(indexed.point);
         match runs.last_mut() {
             Some(run)
                 if run.key == key
+                    && !alone
+                    && !run.alone
                     && run.line == line
                     && run.column + run.cell_count as i32 == column =>
             {
@@ -251,6 +266,7 @@ pub(super) fn layout_grid(
                     text: String::new(),
                     cell_count: 0,
                     key,
+                    alone,
                     style: TextRun {
                         len: 0,
                         ..cell_style(cell, fg, contrast_background, style, theme)
@@ -409,12 +425,7 @@ fn cell_style(
 
 #[cfg(test)]
 mod tests {
-    use alacritty_terminal::{
-        Term,
-        event::VoidListener,
-        term::{Config, test::TermSize},
-        vte::ansi::Processor,
-    };
+
     use gpui::{Rgba, font, rgb};
 
     use super::*;
@@ -469,6 +480,7 @@ mod tests {
             minimum_contrast: 1.,
             dim_opacity: 0.7,
             builtin_box_drawing: false,
+            show_hidden: false,
         }
     }
 
@@ -479,9 +491,7 @@ mod tests {
         style: &GridStyle,
         theme: &Theme,
     ) -> (Vec<LayoutRect>, Vec<BatchedTextRun>, Vec<BoxGlyph>) {
-        let mut term = Term::new(Config::default(), &TermSize::new(40, 3), VoidListener);
-        let mut parser: Processor = Processor::new();
-        parser.advance(&mut term, bytes.as_bytes());
+        let term = crate::terminal::parsed_term(40, 3, bytes);
         let cells: Vec<IndexedCell> = term
             .renderable_content()
             .display_iter
@@ -494,7 +504,7 @@ mod tests {
             matches: &[],
             active: None,
         };
-        layout_grid(&cells, 0, selection, search, style, theme)
+        layout_grid(&cells, 0, None, selection, search, style, theme)
     }
 
     /// rects and runs of a real 40x3 alacritty term after feeding it `bytes`
@@ -613,6 +623,23 @@ mod tests {
             );
             assert!(rects.iter().all(|r| r.line == 0), "{name}");
         }
+    }
+
+    #[test]
+    fn concealed_text_shows_only_when_asked() {
+        let fonts = fonts();
+        let theme = Theme::bundled(true);
+        let (_, runs, _) =
+            layout_styled("a\x1b[8msecret\x1b[0mb", None, &plain_style(&fonts), &theme);
+        let text: String = runs.iter().map(|run| run.text.as_str()).collect();
+        assert_eq!(text, "ab");
+        let shown = GridStyle {
+            show_hidden: true,
+            ..plain_style(&fonts)
+        };
+        let (_, runs, _) = layout_styled("a\x1b[8msecret\x1b[0mb", None, &shown, &theme);
+        let text: String = runs.iter().map(|run| run.text.as_str()).collect();
+        assert_eq!(text, "asecretb");
     }
 
     #[test]
@@ -748,14 +775,60 @@ mod tests {
     }
 
     #[test]
+    fn ligatures_are_shaped_as_one_run_and_break_at_cursor_and_selection() {
+        use alacritty_terminal::index::{Column, Line};
+
+        let ligatures = TerminalFonts {
+            regular: Font {
+                features: gpui::FontFeatures(vec![("calt".into(), 1)].into()),
+                ..font("Fira Code")
+            },
+            ..fonts()
+        };
+        let style = plain_style(&ligatures);
+        let theme = Theme::bundled(true);
+        let term = crate::terminal::parsed_term(40, 3, b"a->b != ===");
+        let cells: Vec<IndexedCell> = term
+            .renderable_content()
+            .display_iter
+            .map(|indexed| IndexedCell {
+                point: indexed.point,
+                cell: indexed.cell.clone(),
+            })
+            .collect();
+        let at = |column| AlacPoint::new(Line(0), Column(column));
+        let texts = |cursor, selection| -> Vec<String> {
+            let search = SearchHighlights {
+                matches: &[],
+                active: None,
+            };
+            let (_, runs, _) = layout_grid(&cells, 0, cursor, selection, search, &style, &theme);
+            runs.into_iter().map(|run| run.text).collect()
+        };
+
+        let runs = texts(None, None);
+        assert_eq!(runs, ["a->b", "!=", "==="]);
+        let search = SearchHighlights {
+            matches: &[],
+            active: None,
+        };
+        let (_, runs, _) = layout_grid(&cells, 0, None, None, search, &style, &theme);
+        assert_eq!(runs[0].style.font.features, ligatures.regular.features);
+
+        // the cursor cell is drawn alone, its neighbours keep their runs
+        assert_eq!(texts(Some(at(2)), None), ["a-", ">", "b", "!=", "==="]);
+        // a selection edge splits a ligature too
+        let selection = SelectionRange::new(at(5), at(5), false);
+        assert_eq!(texts(None, Some(selection)), ["a->b", "!", "=", "==="]);
+    }
+
+    #[test]
     fn search_matches_get_their_backgrounds_under_the_selection() {
         use alacritty_terminal::index::{Column, Line, Point};
 
         let theme = Theme::default();
         let fonts = fonts();
-        let mut term = Term::new(Config::default(), &TermSize::new(40, 3), VoidListener);
-        let mut parser: Processor = Processor::new();
-        parser.advance(&mut term, b"aa bb aa cc");
+        let term = crate::terminal::parsed_term(40, 3, b"aa bb aa cc");
         let cells: Vec<IndexedCell> = term
             .renderable_content()
             .display_iter
@@ -770,7 +843,8 @@ mod tests {
             matches: &matches,
             active: Some(&matches[1]),
         };
-        let (rects, _, _) = layout_grid(&cells, 0, None, search, &plain_style(&fonts), &theme);
+        let (rects, _, _) =
+            layout_grid(&cells, 0, None, None, search, &plain_style(&fonts), &theme);
         let spans: Vec<(i32, usize, Hsla)> = rects
             .iter()
             .map(|rect| (rect.column, rect.num_of_cells, rect.color))
@@ -792,6 +866,7 @@ mod tests {
         let (rects, _, _) = layout_grid(
             &cells,
             0,
+            None,
             Some(selection),
             search,
             &plain_style(&fonts),
@@ -799,5 +874,40 @@ mod tests {
         );
         assert_eq!(rects[0].color, theme.selection);
         assert_eq!((rects[1].column, rects[1].color), (1, theme.search_match));
+    }
+
+    #[test]
+    fn underline_curl_and_strikeout_get_lines_in_the_text_color() {
+        let theme = Theme::bundled(true);
+        let runs = layout("\x1b[31;4mA\x1b[24;4:3mB\x1b[24;9mC\x1b[0mD", &theme);
+        let red = theme.ansi[1];
+        let line_color = |style: &TextRun| Hsla {
+            a: style.color.a.sqrt(),
+            ..style.color
+        };
+        let a = &run_at(&runs, 0).style;
+        let underline = a.underline.expect("sgr 4 draws no underline");
+        assert_color(a.color, red, "underlined text");
+        assert_eq!(underline.color, Some(line_color(a)));
+        assert!(!underline.wavy);
+        assert!(a.strikethrough.is_none());
+        let b = &run_at(&runs, 1).style;
+        assert!(b.underline.expect("sgr 4:3 draws no underline").wavy);
+        let c = &run_at(&runs, 2).style;
+        assert!(c.underline.is_none());
+        let strike = c.strikethrough.expect("sgr 9 draws no strikethrough");
+        assert_eq!(strike.color, Some(line_color(c)));
+        let d = &run_at(&runs, 3).style;
+        assert!(d.underline.is_none() && d.strikethrough.is_none());
+    }
+
+    #[test]
+    fn text_with_enough_contrast_keeps_its_color() {
+        let gray: Hsla = rgb(0x808080).into();
+        assert_eq!(
+            with_contrast(gpui::white(), gpui::black(), 4.5),
+            gpui::white()
+        );
+        assert_eq!(with_contrast(gray, gpui::black(), 3.), gray);
     }
 }

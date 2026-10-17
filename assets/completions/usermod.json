@@ -1,0 +1,245 @@
+{
+ "name": "usermod",
+ "description": "Modify a user account",
+ "options": [
+  {
+   "name": [
+    "-a",
+    "--append"
+   ],
+   "description": "Append the user to the supplemental GROUPS"
+  },
+  {
+   "name": [
+    "-b",
+    "--badname"
+   ],
+   "description": "Allow bad names (DEPRECATED)"
+  },
+  {
+   "name": [
+    "-c",
+    "--comment"
+   ],
+   "description": "New value of the GECOS field",
+   "args": {
+    "name": "comment"
+   }
+  },
+  {
+   "name": [
+    "-d",
+    "--home"
+   ],
+   "description": "New home directory for the user account",
+   "args": {
+    "name": "home_dir",
+    "template": "folders"
+   }
+  },
+  {
+   "name": [
+    "-e",
+    "--expiredate"
+   ],
+   "description": "Set account expiration date to EXPIRE_DATE",
+   "args": {
+    "name": "expire_date"
+   }
+  },
+  {
+   "name": [
+    "-f",
+    "--inactive"
+   ],
+   "description": "Set password inactive after expiration",
+   "args": {
+    "name": "inactive"
+   }
+  },
+  {
+   "name": [
+    "-g",
+    "--gid"
+   ],
+   "description": "Force use GROUP as new primary group",
+   "args": {
+    "name": "group"
+   }
+  },
+  {
+   "name": [
+    "-G",
+    "--groups"
+   ],
+   "description": "New list of supplementary GROUPS",
+   "args": {
+    "name": "groups"
+   }
+  },
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Display this help message and exit"
+  },
+  {
+   "name": [
+    "-l",
+    "--login"
+   ],
+   "description": "New value of the login name",
+   "args": {
+    "name": "new_login"
+   }
+  },
+  {
+   "name": [
+    "-L",
+    "--lock"
+   ],
+   "description": "Lock the user account"
+  },
+  {
+   "name": [
+    "-m",
+    "--move-home"
+   ],
+   "description": "Move contents of the home directory to the"
+  },
+  {
+   "name": [
+    "-o",
+    "--non-unique"
+   ],
+   "description": "Allow using duplicate (non-unique) UID"
+  },
+  {
+   "name": [
+    "-p",
+    "--password"
+   ],
+   "description": "Use encrypted password for the new password",
+   "args": {
+    "name": "password"
+   }
+  },
+  {
+   "name": [
+    "-P",
+    "--prefix"
+   ],
+   "description": "Prefix directory where are located the /etc/* files",
+   "args": {
+    "name": "prefix_dir",
+    "template": "folders"
+   }
+  },
+  {
+   "name": [
+    "-r",
+    "--remove"
+   ],
+   "description": "Remove the user from only the supplemental GROUPS"
+  },
+  {
+   "name": [
+    "-R",
+    "--root"
+   ],
+   "description": "Directory to chroot into",
+   "args": {
+    "name": "chroot_dir",
+    "template": "folders"
+   }
+  },
+  {
+   "name": [
+    "-s",
+    "--shell"
+   ],
+   "description": "New login shell for the user account",
+   "args": {
+    "name": "shell"
+   }
+  },
+  {
+   "name": [
+    "-u",
+    "--uid"
+   ],
+   "description": "New UID for the user account",
+   "args": {
+    "name": "uid"
+   }
+  },
+  {
+   "name": [
+    "-U",
+    "--unlock"
+   ],
+   "description": "Unlock the user account"
+  },
+  {
+   "name": [
+    "-v",
+    "--add-subuids"
+   ],
+   "description": "Add range of subordinate uids",
+   "args": {
+    "name": "first-last"
+   }
+  },
+  {
+   "name": [
+    "-V",
+    "--del-subuids"
+   ],
+   "description": "Remove range of subordinate uids",
+   "args": {
+    "name": "first-last"
+   }
+  },
+  {
+   "name": [
+    "-w",
+    "--add-subgids"
+   ],
+   "description": "Add range of subordinate gids",
+   "args": {
+    "name": "first-last"
+   }
+  },
+  {
+   "name": [
+    "-W",
+    "--del-subgids"
+   ],
+   "description": "Remove range of subordinate gids",
+   "args": {
+    "name": "first-last"
+   }
+  },
+  {
+   "name": [
+    "-Z",
+    "--selinux-user"
+   ],
+   "description": "New SELinux user mapping for the user account",
+   "args": {
+    "name": "seuser"
+   }
+  },
+  {
+   "name": "--selinux-range",
+   "description": "New SELinux MLS range for the user account",
+   "args": {
+    "name": "serange"
+   }
+  }
+ ],
+ "args": {
+  "name": "login"
+ }
+}

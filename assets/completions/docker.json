@@ -1,0 +1,908 @@
+{
+ "name": "docker",
+ "description": "Container runtime",
+ "subcommands": [
+  {
+   "name": "run",
+   "description": "Run a command in a new container",
+   "options": [
+    {
+     "name": [
+      "-d",
+      "--detach"
+     ],
+     "description": "Run in the background"
+    },
+    {
+     "name": [
+      "-i",
+      "--interactive"
+     ],
+     "description": "Keep stdin open"
+    },
+    {
+     "name": [
+      "-t",
+      "--tty"
+     ],
+     "description": "Allocate a terminal"
+    },
+    {
+     "name": "--rm",
+     "description": "Remove the container when it exits"
+    },
+    {
+     "name": "--name",
+     "description": "Container name",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": [
+      "-p",
+      "--publish"
+     ],
+     "description": "Publish a port, host:container",
+     "args": {
+      "name": "ports"
+     },
+     "isRepeatable": true
+    },
+    {
+     "name": [
+      "-v",
+      "--volume"
+     ],
+     "description": "Mount a volume, host:container",
+     "args": {
+      "name": "volume"
+     },
+     "isRepeatable": true
+    },
+    {
+     "name": [
+      "-e",
+      "--env"
+     ],
+     "description": "Set an environment variable",
+     "args": {
+      "name": "name=value"
+     },
+     "isRepeatable": true
+    },
+    {
+     "name": "--env-file",
+     "description": "Read environment variables from a file",
+     "args": {
+      "name": "file",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": [
+      "-w",
+      "--workdir"
+     ],
+     "description": "Working directory inside the container",
+     "args": {
+      "name": "dir"
+     }
+    },
+    {
+     "name": "--network",
+     "description": "Connect to a network",
+     "args": {
+      "name": "network"
+     }
+    },
+    {
+     "name": "--entrypoint",
+     "description": "Override the entrypoint",
+     "args": {
+      "name": "command"
+     }
+    },
+    {
+     "name": [
+      "-u",
+      "--user"
+     ],
+     "description": "Run as this user",
+     "args": {
+      "name": "user"
+     }
+    },
+    {
+     "name": "--platform",
+     "description": "Platform of the image",
+     "args": {
+      "name": "platform"
+     }
+    }
+   ],
+   "args": [
+    {
+     "name": "image"
+    },
+    {
+     "name": "command",
+     "isOptional": true,
+     "isVariadic": true
+    }
+   ],
+   "priority": 80
+  },
+  {
+   "name": "exec",
+   "description": "Run a command in a running container",
+   "options": [
+    {
+     "name": [
+      "-i",
+      "--interactive"
+     ],
+     "description": "Keep stdin open"
+    },
+    {
+     "name": [
+      "-t",
+      "--tty"
+     ],
+     "description": "Allocate a terminal"
+    },
+    {
+     "name": [
+      "-d",
+      "--detach"
+     ],
+     "description": "Run in the background"
+    },
+    {
+     "name": [
+      "-e",
+      "--env"
+     ],
+     "description": "Set an environment variable",
+     "args": {
+      "name": "name=value"
+     },
+     "isRepeatable": true
+    },
+    {
+     "name": [
+      "-u",
+      "--user"
+     ],
+     "description": "Run as this user",
+     "args": {
+      "name": "user"
+     }
+    },
+    {
+     "name": [
+      "-w",
+      "--workdir"
+     ],
+     "description": "Working directory",
+     "args": {
+      "name": "dir"
+     }
+    }
+   ],
+   "args": [
+    {
+     "name": "container"
+    },
+    {
+     "name": "command",
+     "isVariadic": true
+    }
+   ],
+   "priority": 75
+  },
+  {
+   "name": "build",
+   "description": "Build an image",
+   "options": [
+    {
+     "name": [
+      "-t",
+      "--tag"
+     ],
+     "description": "Name and tag",
+     "args": {
+      "name": "name:tag"
+     },
+     "isRepeatable": true
+    },
+    {
+     "name": [
+      "-f",
+      "--file"
+     ],
+     "description": "Dockerfile to use",
+     "args": {
+      "name": "file",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--no-cache",
+     "description": "Don't use the cache"
+    },
+    {
+     "name": "--build-arg",
+     "description": "Set a build argument",
+     "args": {
+      "name": "name=value"
+     },
+     "isRepeatable": true
+    },
+    {
+     "name": "--target",
+     "description": "Build this stage",
+     "args": {
+      "name": "stage"
+     }
+    },
+    {
+     "name": "--platform",
+     "description": "Target platform",
+     "args": {
+      "name": "platform"
+     }
+    },
+    {
+     "name": "--pull",
+     "description": "Always pull newer base images"
+    }
+   ],
+   "args": {
+    "name": "context",
+    "template": "folders"
+   },
+   "priority": 75
+  },
+  {
+   "name": "ps",
+   "description": "List containers",
+   "options": [
+    {
+     "name": [
+      "-a",
+      "--all"
+     ],
+     "description": "Show stopped containers too"
+    },
+    {
+     "name": [
+      "-q",
+      "--quiet"
+     ],
+     "description": "Only ids"
+    },
+    {
+     "name": [
+      "-f",
+      "--filter"
+     ],
+     "description": "Filter",
+     "args": {
+      "name": "filter"
+     }
+    },
+    {
+     "name": "--format",
+     "description": "Format the output",
+     "args": {
+      "name": "template"
+     }
+    }
+   ],
+   "priority": 70
+  },
+  {
+   "name": "images",
+   "description": "List images",
+   "options": [
+    {
+     "name": [
+      "-a",
+      "--all"
+     ],
+     "description": "Show intermediate images"
+    },
+    {
+     "name": [
+      "-q",
+      "--quiet"
+     ],
+     "description": "Only ids"
+    }
+   ]
+  },
+  {
+   "name": "pull",
+   "description": "Download an image",
+   "options": [
+    {
+     "name": "--platform",
+     "description": "Platform",
+     "args": {
+      "name": "platform"
+     }
+    }
+   ],
+   "args": {
+    "name": "image"
+   }
+  },
+  {
+   "name": "push",
+   "description": "Upload an image",
+   "args": {
+    "name": "image"
+   }
+  },
+  {
+   "name": "logs",
+   "description": "Show the logs of a container",
+   "options": [
+    {
+     "name": [
+      "-f",
+      "--follow"
+     ],
+     "description": "Follow the output"
+    },
+    {
+     "name": [
+      "-n",
+      "--tail"
+     ],
+     "description": "Lines from the end",
+     "args": {
+      "name": "n"
+     }
+    },
+    {
+     "name": [
+      "-t",
+      "--timestamps"
+     ],
+     "description": "Show timestamps"
+    },
+    {
+     "name": "--since",
+     "description": "Logs since",
+     "args": {
+      "name": "time"
+     }
+    }
+   ],
+   "args": {
+    "name": "container"
+   },
+   "priority": 70
+  },
+  {
+   "name": "start",
+   "description": "Start stopped containers",
+   "options": [
+    {
+     "name": [
+      "-a",
+      "--attach"
+     ],
+     "description": "Attach to the output"
+    },
+    {
+     "name": [
+      "-i",
+      "--interactive"
+     ],
+     "description": "Attach stdin"
+    }
+   ],
+   "args": {
+    "name": "container",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "stop",
+   "description": "Stop running containers",
+   "options": [
+    {
+     "name": [
+      "-t",
+      "--time"
+     ],
+     "description": "Seconds to wait",
+     "args": {
+      "name": "seconds"
+     }
+    }
+   ],
+   "args": {
+    "name": "container",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "restart",
+   "description": "Restart containers",
+   "args": {
+    "name": "container",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "rm",
+   "description": "Remove containers",
+   "options": [
+    {
+     "name": [
+      "-f",
+      "--force"
+     ],
+     "description": "Remove running containers"
+    },
+    {
+     "name": [
+      "-v",
+      "--volumes"
+     ],
+     "description": "Remove their anonymous volumes"
+    }
+   ],
+   "args": {
+    "name": "container",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "rmi",
+   "description": "Remove images",
+   "options": [
+    {
+     "name": [
+      "-f",
+      "--force"
+     ],
+     "description": "Force removal"
+    }
+   ],
+   "args": {
+    "name": "image",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "inspect",
+   "description": "Show low level information",
+   "options": [
+    {
+     "name": [
+      "-f",
+      "--format"
+     ],
+     "description": "Format the output",
+     "args": {
+      "name": "template"
+     }
+    }
+   ],
+   "args": {
+    "name": "object",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "cp",
+   "description": "Copy files between a container and the host",
+   "args": [
+    {
+     "name": "source",
+     "template": "filepaths"
+    },
+    {
+     "name": "destination",
+     "template": "filepaths"
+    }
+   ]
+  },
+  {
+   "name": "tag",
+   "description": "Give an image another name",
+   "args": [
+    {
+     "name": "source"
+    },
+    {
+     "name": "target"
+    }
+   ]
+  },
+  {
+   "name": "login",
+   "description": "Log in to a registry",
+   "options": [
+    {
+     "name": [
+      "-u",
+      "--username"
+     ],
+     "description": "Username",
+     "args": {
+      "name": "user"
+     }
+    },
+    {
+     "name": "--password-stdin",
+     "description": "Read the password from stdin"
+    }
+   ],
+   "args": {
+    "name": "server",
+    "isOptional": true
+   }
+  },
+  {
+   "name": "logout",
+   "description": "Log out from a registry",
+   "args": {
+    "name": "server",
+    "isOptional": true
+   }
+  },
+  {
+   "name": "compose",
+   "description": "Run multi container applications",
+   "subcommands": [
+    {
+     "name": "up",
+     "description": "Create and start containers",
+     "options": [
+      {
+       "name": [
+        "-d",
+        "--detach"
+       ],
+       "description": "Run in the background"
+      },
+      {
+       "name": "--build",
+       "description": "Build images first"
+      },
+      {
+       "name": "--force-recreate",
+       "description": "Recreate containers"
+      },
+      {
+       "name": "--remove-orphans",
+       "description": "Remove containers of removed services"
+      }
+     ],
+     "args": {
+      "name": "service",
+      "isOptional": true,
+      "isVariadic": true
+     }
+    },
+    {
+     "name": "down",
+     "description": "Stop and remove containers",
+     "options": [
+      {
+       "name": [
+        "-v",
+        "--volumes"
+       ],
+       "description": "Remove volumes too"
+      },
+      {
+       "name": "--rmi",
+       "description": "Remove images",
+       "args": {
+        "name": "type",
+        "suggestions": [
+         "all",
+         "local"
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "name": "ps",
+     "description": "List containers",
+     "options": [
+      {
+       "name": [
+        "-a",
+        "--all"
+       ],
+       "description": "Show stopped ones too"
+      }
+     ]
+    },
+    {
+     "name": "logs",
+     "description": "Show logs",
+     "options": [
+      {
+       "name": [
+        "-f",
+        "--follow"
+       ],
+       "description": "Follow the output"
+      },
+      {
+       "name": [
+        "-n",
+        "--tail"
+       ],
+       "description": "Lines from the end",
+       "args": {
+        "name": "n"
+       }
+      }
+     ],
+     "args": {
+      "name": "service",
+      "isOptional": true,
+      "isVariadic": true
+     }
+    },
+    {
+     "name": "build",
+     "description": "Build services",
+     "options": [
+      {
+       "name": "--no-cache",
+       "description": "Don't use the cache"
+      }
+     ],
+     "args": {
+      "name": "service",
+      "isOptional": true,
+      "isVariadic": true
+     }
+    },
+    {
+     "name": "pull",
+     "description": "Pull service images",
+     "args": {
+      "name": "service",
+      "isOptional": true,
+      "isVariadic": true
+     }
+    },
+    {
+     "name": "exec",
+     "description": "Run a command in a service",
+     "args": [
+      {
+       "name": "service"
+      },
+      {
+       "name": "command",
+       "isVariadic": true
+      }
+     ]
+    },
+    {
+     "name": "run",
+     "description": "Run a one-off command",
+     "options": [
+      {
+       "name": "--rm",
+       "description": "Remove the container after"
+      }
+     ],
+     "args": [
+      {
+       "name": "service"
+      },
+      {
+       "name": "command",
+       "isOptional": true,
+       "isVariadic": true
+      }
+     ]
+    },
+    {
+     "name": "restart",
+     "description": "Restart services",
+     "args": {
+      "name": "service",
+      "isOptional": true,
+      "isVariadic": true
+     }
+    },
+    {
+     "name": "stop",
+     "description": "Stop services",
+     "args": {
+      "name": "service",
+      "isOptional": true,
+      "isVariadic": true
+     }
+    }
+   ],
+   "options": [
+    {
+     "name": [
+      "-f",
+      "--file"
+     ],
+     "description": "Compose file",
+     "args": {
+      "name": "file",
+      "template": "filepaths"
+     },
+     "isPersistent": true,
+     "isRepeatable": true
+    },
+    {
+     "name": [
+      "-p",
+      "--project-name"
+     ],
+     "description": "Project name",
+     "args": {
+      "name": "name"
+     },
+     "isPersistent": true
+    }
+   ]
+  },
+  {
+   "name": "network",
+   "description": "Manage networks",
+   "subcommands": [
+    {
+     "name": "ls",
+     "description": "List networks"
+    },
+    {
+     "name": "create",
+     "description": "Create a network",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": "rm",
+     "description": "Remove networks",
+     "args": {
+      "name": "network",
+      "isVariadic": true
+     }
+    },
+    {
+     "name": "inspect",
+     "description": "Show a network",
+     "args": {
+      "name": "network"
+     }
+    }
+   ]
+  },
+  {
+   "name": "volume",
+   "description": "Manage volumes",
+   "subcommands": [
+    {
+     "name": "ls",
+     "description": "List volumes"
+    },
+    {
+     "name": "create",
+     "description": "Create a volume",
+     "args": {
+      "name": "name",
+      "isOptional": true
+     }
+    },
+    {
+     "name": "rm",
+     "description": "Remove volumes",
+     "args": {
+      "name": "volume",
+      "isVariadic": true
+     }
+    },
+    {
+     "name": "prune",
+     "description": "Remove unused volumes"
+    },
+    {
+     "name": "inspect",
+     "description": "Show a volume",
+     "args": {
+      "name": "volume"
+     }
+    }
+   ]
+  },
+  {
+   "name": "system",
+   "description": "Manage docker",
+   "subcommands": [
+    {
+     "name": "df",
+     "description": "Show disk usage"
+    },
+    {
+     "name": "prune",
+     "description": "Remove unused data",
+     "options": [
+      {
+       "name": [
+        "-a",
+        "--all"
+       ],
+       "description": "Remove all unused images"
+      },
+      {
+       "name": "--volumes",
+       "description": "Prune volumes too"
+      },
+      {
+       "name": [
+        "-f",
+        "--force"
+       ],
+       "description": "Don't ask"
+      }
+     ]
+    },
+    {
+     "name": "info",
+     "description": "Show system information"
+    }
+   ]
+  },
+  {
+   "name": "version",
+   "description": "Show the docker version"
+  },
+  {
+   "name": "info",
+   "description": "Show system information"
+  }
+ ],
+ "options": [
+  {
+   "name": [
+    "-v",
+    "--version"
+   ],
+   "description": "Print version"
+  },
+  {
+   "name": "--context",
+   "description": "Context to use",
+   "args": {
+    "name": "context"
+   }
+  },
+  {
+   "name": [
+    "-H",
+    "--host"
+   ],
+   "description": "Daemon socket",
+   "args": {
+    "name": "host"
+   }
+  },
+  {
+   "name": "--help",
+   "description": "Print usage"
+  }
+ ]
+}

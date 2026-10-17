@@ -1,0 +1,43 @@
+{
+ "name": "rmdir",
+ "description": "Remove empty directories",
+ "options": [
+  {
+   "name": "--ignore-fail-on-non-empty",
+   "description": "Ignore each failure that is solely because a directory is non-empty"
+  },
+  {
+   "name": [
+    "-p",
+    "--parents"
+   ],
+   "description": "Remove DIRECTORY and its ancestors"
+  },
+  {
+   "name": [
+    "-v",
+    "--verbose"
+   ],
+   "description": "Output a diagnostic for every directory processed"
+  },
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Print help"
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Print version"
+  }
+ ],
+ "args": {
+  "name": "directory",
+  "template": "folders",
+  "isVariadic": true
+ }
+}

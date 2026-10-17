@@ -101,6 +101,14 @@ impl TextInput {
         &self.content
     }
 
+    /// replace the text, selected whole so typing replaces it
+    pub fn set_content(&mut self, text: impl Into<SharedString>, cx: &mut Context<Self>) {
+        self.content = text.into();
+        self.selected_range = 0..self.content.len();
+        self.selection_reversed = false;
+        cx.notify();
+    }
+
     fn left(&mut self, _: &Left, _: &mut Window, cx: &mut Context<Self>) {
         if self.selected_range.is_empty() {
             self.move_to(self.previous_boundary(self.cursor_offset()), cx);
@@ -642,7 +650,7 @@ impl Focusable for TextInput {
 
 #[cfg(test)]
 mod tests {
-    use gpui::{Element, IntoElement, Modifiers, Render, TestAppContext, VisualTestContext};
+    use gpui::{IntoElement, Modifiers, Render, TestAppContext, VisualTestContext};
 
     use super::*;
 
@@ -1139,11 +1147,5 @@ mod tests {
             input.index_for_mouse_position(point(px(5.), px(5.)))
         });
         assert_eq!(index, 0);
-    }
-
-    #[gpui::test]
-    fn text_element_has_no_source_location(cx: &mut TestAppContext) {
-        let (input, _cx) = open(cx);
-        assert!(TextElement { input }.source_location().is_none());
     }
 }

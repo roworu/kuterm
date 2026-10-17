@@ -1,0 +1,232 @@
+{
+ "name": "cp",
+ "description": "Copy files and directories",
+ "options": [
+  {
+   "name": [
+    "-a",
+    "--archive"
+   ],
+   "description": "Same as -dR --preserve=all"
+  },
+  {
+   "name": "--attributes-only",
+   "description": "Don't copy the file data, just the attributes"
+  },
+  {
+   "name": "--backup",
+   "description": "Make a backup of each existing destination file",
+   "args": {
+    "name": "control",
+    "isOptional": true
+   }
+  },
+  {
+   "name": "-b",
+   "description": "Like --backup but does not accept an argument"
+  },
+  {
+   "name": "--copy-contents",
+   "description": "Copy contents of special files when recursive"
+  },
+  {
+   "name": "-d",
+   "description": "Same as --no-dereference --preserve=links"
+  },
+  {
+   "name": "--debug",
+   "description": "Explain how a file is copied"
+  },
+  {
+   "name": [
+    "-f",
+    "--force"
+   ],
+   "description": "If an existing destination file cannot be"
+  },
+  {
+   "name": [
+    "-i",
+    "--interactive"
+   ],
+   "description": "Prompt before overwrite (overrides a previous -n"
+  },
+  {
+   "name": "-H",
+   "description": "Follow command-line symbolic links in SOURCE"
+  },
+  {
+   "name": [
+    "-l",
+    "--link"
+   ],
+   "description": "Hard link files instead of copying"
+  },
+  {
+   "name": [
+    "-L",
+    "--dereference"
+   ],
+   "description": "Always follow symbolic links in SOURCE"
+  },
+  {
+   "name": [
+    "-n",
+    "--no-clobber"
+   ],
+   "description": "(deprecated) do not overwrite an existing file"
+  },
+  {
+   "name": [
+    "-P",
+    "--no-dereference"
+   ],
+   "description": "Never follow symbolic links in SOURCE"
+  },
+  {
+   "name": "-p",
+   "description": "Same as --preserve=mode,ownership,timestamps"
+  },
+  {
+   "name": "--preserve",
+   "description": "Preserve the specified attributes",
+   "args": {
+    "name": "attr_list",
+    "isOptional": true
+   }
+  },
+  {
+   "name": "--no-preserve",
+   "description": "Don't preserve the specified attributes",
+   "args": {
+    "name": "attr_list"
+   }
+  },
+  {
+   "name": "--parents",
+   "description": "Use full source file name under DIRECTORY"
+  },
+  {
+   "name": [
+    "-R",
+    "-r",
+    "--recursive"
+   ],
+   "description": "Copy directories recursively"
+  },
+  {
+   "name": "--reflink",
+   "description": "Control clone/CoW copies",
+   "args": {
+    "name": "when",
+    "isOptional": true
+   }
+  },
+  {
+   "name": "--remove-destination",
+   "description": "Remove each existing destination file before"
+  },
+  {
+   "name": "--sparse",
+   "description": "Control creation of sparse files",
+   "args": {
+    "name": "when"
+   }
+  },
+  {
+   "name": "--strip-trailing-slashes",
+   "description": "Remove any trailing slashes from each SOURCE"
+  },
+  {
+   "name": [
+    "-s",
+    "--symbolic-link"
+   ],
+   "description": "Make symbolic links instead of copying"
+  },
+  {
+   "name": [
+    "-S",
+    "--suffix"
+   ],
+   "description": "Override the usual backup suffix",
+   "args": {
+    "name": "suffix"
+   }
+  },
+  {
+   "name": [
+    "-t",
+    "--target-directory"
+   ],
+   "description": "Copy all SOURCE arguments into DIRECTORY",
+   "args": {
+    "name": "directory",
+    "template": "folders"
+   }
+  },
+  {
+   "name": [
+    "-T",
+    "--no-target-directory"
+   ],
+   "description": "Treat DEST as a normal file"
+  },
+  {
+   "name": "--update",
+   "description": "Control which existing files are updated",
+   "args": {
+    "name": "update",
+    "isOptional": true
+   }
+  },
+  {
+   "name": "-u",
+   "description": "Equivalent to --update[=older]"
+  },
+  {
+   "name": [
+    "-v",
+    "--verbose"
+   ],
+   "description": "Explain what is being done"
+  },
+  {
+   "name": "--keep-directory-symlink",
+   "description": "Follow existing symlinks to directories"
+  },
+  {
+   "name": [
+    "-x",
+    "--one-file-system"
+   ],
+   "description": "Stay on this file system"
+  },
+  {
+   "name": "-Z",
+   "description": "Set SELinux security context of destination"
+  },
+  {
+   "name": "--context",
+   "description": "Like -Z, or if CTX is specified then set the",
+   "args": {
+    "name": "ctx",
+    "isOptional": true
+   }
+  },
+  {
+   "name": "--help",
+   "description": "Display this help and exit"
+  },
+  {
+   "name": "--version",
+   "description": "Output version information and exit"
+  }
+ ],
+ "args": {
+  "name": "file",
+  "template": "filepaths",
+  "isVariadic": true,
+  "isOptional": true
+ }
+}

@@ -1,0 +1,14 @@
+{
+ "name": "which",
+ "description": "Locate a command in PATH",
+ "options": [
+  {
+   "name": "-a",
+   "description": "Print every match, not just the first"
+  }
+ ],
+ "args": {
+  "name": "command",
+  "isVariadic": true
+ }
+}

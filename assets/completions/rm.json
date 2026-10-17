@@ -1,0 +1,81 @@
+{
+ "name": "rm",
+ "description": "Remove files or directories",
+ "options": [
+  {
+   "name": [
+    "-f",
+    "--force"
+   ],
+   "description": "Ignore nonexistent files and arguments, never prompt"
+  },
+  {
+   "name": "-i",
+   "description": "Prompt before every removal"
+  },
+  {
+   "name": "-I",
+   "description": "Prompt once before removing more than three files, or"
+  },
+  {
+   "name": "--interactive",
+   "description": "Prompt according to WHEN: never, once (-I), or",
+   "args": {
+    "name": "when",
+    "isOptional": true
+   }
+  },
+  {
+   "name": "--one-file-system",
+   "description": "When removing a hierarchy recursively, skip any"
+  },
+  {
+   "name": "--no-preserve-root",
+   "description": "Do not treat '/' specially"
+  },
+  {
+   "name": "--preserve-root",
+   "description": "Do not remove '/' (default)",
+   "args": {
+    "name": "all",
+    "isOptional": true
+   }
+  },
+  {
+   "name": [
+    "-r",
+    "-R",
+    "--recursive"
+   ],
+   "description": "Remove directories and their contents recursively"
+  },
+  {
+   "name": [
+    "-d",
+    "--dir"
+   ],
+   "description": "Remove empty directories"
+  },
+  {
+   "name": [
+    "-v",
+    "--verbose"
+   ],
+   "description": "Explain what is being done"
+  },
+  {
+   "name": "--help",
+   "description": "Display this help and exit"
+  },
+  {
+   "name": "--version",
+   "description": "Output version information and exit"
+  }
+ ],
+ "args": {
+  "name": "file",
+  "template": "filepaths",
+  "isVariadic": true,
+  "isOptional": true
+ }
+}

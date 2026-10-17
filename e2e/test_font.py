@@ -37,16 +37,9 @@ def check_cells(app: App) -> None:
     assert abs(ys.min() - y0) <= 1 and abs(ys.max() + 1 - y1) <= 1, (ys.min(), ys.max(), y0, y1)
 
 
-@pytest.mark.parametrize("size", [8, 12, 18, 24, 40])
+@pytest.mark.parametrize("size", [8, 18, 40])
 def test_font_size_sets_cell_size(app_factory, size):
-    """terminal.font_size scales the cells"""
-    app = app_factory({"theme": {"mode": "dark"}, "terminal": {"font_size": size}}, script=SAMPLE)
-    check_cells(app)
-
-
-@pytest.mark.parametrize("size", [12, 30])
-def test_font_block_size_sets_cell_size(app_factory, size):
-    """terminal.font.size scales the cells like the old flat font_size key"""
+    """terminal.font.size scales the cells, the old flat font_size key maps to it in settings"""
     app = app_factory({"theme": {"mode": "dark"}, "terminal": {"font": {"size": size}}}, script=SAMPLE)
     check_cells(app)
 
@@ -105,8 +98,7 @@ def test_builtin_box_drawing_off_uses_the_font(app_factory):
                        "terminal": {"line_height": {"custom": 2.5}, "builtin_box_drawing": False}}, script=BLOCKS)
     app.wait(lambda: ink_bbox(app.shot()[: app.line_height(), :200], DARK["terminal_background"]) is not None,
              msg="blocks")
-    time.sleep(0.5)
-    img = app.shot()
+    img = app.wait_still("all blocks drawn")
     x0, y0, x1, y1 = app.cell_rect(0, 0, 4, 2)
     red = (abs(img.astype(int) - RED).max(axis=-1) <= 3)
     assert not red[y0:y1, (x0 + x1) // 2].all()
@@ -129,7 +121,7 @@ def test_minimum_contrast_lifts_invisible_text(app_factory):
     for minimum in [1, 4.5]:
         app = app_factory({"theme": {"mode": "dark"}, "terminal": {"minimum_contrast": minimum}}, script=script)
         app.wait(lambda: app.cells_color(0, 0, 4) != tuple(DARK["terminal_background"]), msg="blocks")
-        time.sleep(0.5)
+        app.wait_still("all blocks drawn")
         color = app.cells_color(0, 0, 4)
         assert close_to(color, RED, 3) == (minimum == 1), color
         app.snap(f"minimum_contrast {minimum}")
@@ -188,6 +180,21 @@ def test_other_installed_font(app_factory):
         app.wait(lambda: text_width(app, 300) > 50, msg="text")
         shots.append(app.shot()[: app.line_height(), : 300].copy())
         app.snap(f"font_family {family}")
+        app.close()
+    assert (shots[0] != shots[1]).any()
+
+
+def test_ligatures_follow_calt(app_factory):
+    """with +calt a ligature font joins -> != => across cells, -calt draws each char alone"""
+    shots = []
+    for feature in ["-calt", "+calt"]:
+        app = app_factory({"theme": {"mode": "dark"},
+                           "terminal": {"font_family": "Fira Code", "font_size": 24, "font_features": [feature]}},
+                          script="printf '%s\\n' '-> != =>'\n")
+        app.wait(lambda: text_width(app, 300) > 100, msg="text")
+        x0, y0, x1, y1 = app.cell_rect(0, 0, 8)
+        shots.append(app.wait_still("text drawn")[y0:y1, x0:x1].copy())
+        app.snap(f"Fira Code {feature}")
         app.close()
     assert (shots[0] != shots[1]).any()
 

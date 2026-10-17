@@ -1,0 +1,87 @@
+{
+ "name": "cat",
+ "description": "Concatenate files and print them",
+ "options": [
+  {
+   "name": [
+    "-A",
+    "--show-all"
+   ],
+   "description": "Equivalent to -vET"
+  },
+  {
+   "name": [
+    "-b",
+    "--number-nonblank"
+   ],
+   "description": "Number nonempty output lines, overrides -n"
+  },
+  {
+   "name": "-e",
+   "description": "Equivalent to -vE"
+  },
+  {
+   "name": [
+    "-E",
+    "--show-ends"
+   ],
+   "description": "Display $ at end of each line"
+  },
+  {
+   "name": [
+    "-n",
+    "--number"
+   ],
+   "description": "Number all output lines"
+  },
+  {
+   "name": [
+    "-s",
+    "--squeeze-blank"
+   ],
+   "description": "Suppress repeated empty output lines"
+  },
+  {
+   "name": "-t",
+   "description": "Equivalent to -vT"
+  },
+  {
+   "name": [
+    "-T",
+    "--show-tabs"
+   ],
+   "description": "Display TAB characters at ^I"
+  },
+  {
+   "name": [
+    "-v",
+    "--show-nonprinting"
+   ],
+   "description": "Use ^ and M- notation, except for LF (\\n) and TAB (\\t)"
+  },
+  {
+   "name": "-u",
+   "description": "Ignored"
+  },
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Print help"
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Print version"
+  }
+ ],
+ "args": {
+  "name": "file",
+  "template": "filepaths",
+  "isVariadic": true,
+  "isOptional": true
+ }
+}

@@ -1,0 +1,296 @@
+{
+ "name": "mount",
+ "description": "Mount a filesystem",
+ "options": [
+  {
+   "name": [
+    "-a",
+    "--all"
+   ],
+   "description": "Mount all filesystems mentioned in fstab"
+  },
+  {
+   "name": [
+    "-c",
+    "--no-canonicalize"
+   ],
+   "description": "Don't canonicalize paths"
+  },
+  {
+   "name": [
+    "-f",
+    "--fake"
+   ],
+   "description": "Dry run"
+  },
+  {
+   "name": [
+    "-F",
+    "--fork"
+   ],
+   "description": "Fork off for each device (use with -a)"
+  },
+  {
+   "name": [
+    "-T",
+    "--fstab"
+   ],
+   "description": "Alternative file to /etc/fstab",
+   "args": {
+    "name": "path",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": [
+    "-i",
+    "--internal-only"
+   ],
+   "description": "Don't call the mount.<type> helpers"
+  },
+  {
+   "name": [
+    "-l",
+    "--show-labels"
+   ],
+   "description": "Show also filesystem labels"
+  },
+  {
+   "name": "--map-groups",
+   "description": "Add the specified GID map to an ID-mapped mount",
+   "args": {
+    "name": "inner"
+   }
+  },
+  {
+   "name": "--map-users",
+   "description": "Add the specified UID map to an ID-mapped mount",
+   "args": {
+    "name": "inner"
+   }
+  },
+  {
+   "name": [
+    "-m",
+    "--mkdir"
+   ],
+   "description": "Alias to '-o X-mount.mkdir[=<mode>]'",
+   "args": {
+    "name": "mode",
+    "isOptional": true
+   }
+  },
+  {
+   "name": [
+    "-n",
+    "--no-mtab"
+   ],
+   "description": "Don't write to /etc/mtab"
+  },
+  {
+   "name": "--options-mode",
+   "description": "What to do with options loaded from fstab",
+   "args": {
+    "name": "mode"
+   }
+  },
+  {
+   "name": "--options-source",
+   "description": "Mount options source",
+   "args": {
+    "name": "source"
+   }
+  },
+  {
+   "name": "--options-source-force",
+   "description": "Force use of options from fstab/mtab"
+  },
+  {
+   "name": "--onlyonce",
+   "description": "Check if filesystem is already mounted"
+  },
+  {
+   "name": [
+    "-o",
+    "--options"
+   ],
+   "description": "Comma-separated list of mount options",
+   "args": {
+    "name": "list"
+   }
+  },
+  {
+   "name": [
+    "-O",
+    "--test-opts"
+   ],
+   "description": "Limit the set of filesystems (use with -a)",
+   "args": {
+    "name": "list"
+   }
+  },
+  {
+   "name": [
+    "-r",
+    "--read-only"
+   ],
+   "description": "Mount the filesystem read-only (same as -o ro)"
+  },
+  {
+   "name": [
+    "-t",
+    "--types"
+   ],
+   "description": "Limit the set of filesystem types",
+   "args": {
+    "name": "list"
+   }
+  },
+  {
+   "name": "--source",
+   "description": "Explicitly specifies source (path, label, uuid)",
+   "args": {
+    "name": "src"
+   }
+  },
+  {
+   "name": "--target",
+   "description": "Explicitly specifies mountpoint",
+   "args": {
+    "name": "target"
+   }
+  },
+  {
+   "name": "--target-prefix",
+   "description": "Specifies path used for all mountpoints",
+   "args": {
+    "name": "path",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": [
+    "-v",
+    "--verbose"
+   ],
+   "description": "Say what is being done"
+  },
+  {
+   "name": [
+    "-w",
+    "--rw",
+    "--read-write"
+   ],
+   "description": "Mount the filesystem read-write (default)"
+  },
+  {
+   "name": [
+    "-N",
+    "--namespace"
+   ],
+   "description": "Perform mount in another namespace",
+   "args": {
+    "name": "ns"
+   }
+  },
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Display this help"
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Display version"
+  },
+  {
+   "name": [
+    "-L",
+    "--label"
+   ],
+   "description": "Synonym for LABEL=<label>",
+   "args": {
+    "name": "label"
+   }
+  },
+  {
+   "name": [
+    "-U",
+    "--uuid"
+   ],
+   "description": "Synonym for UUID=<uuid>",
+   "args": {
+    "name": "uuid"
+   }
+  },
+  {
+   "name": [
+    "-B",
+    "--bind"
+   ],
+   "description": "Mount a subtree somewhere else (same as -o bind)"
+  },
+  {
+   "name": [
+    "-M",
+    "--move"
+   ],
+   "description": "Move a subtree to some other place"
+  },
+  {
+   "name": [
+    "-R",
+    "--rbind"
+   ],
+   "description": "Mount a subtree and all submounts somewhere else"
+  },
+  {
+   "name": "--make-shared",
+   "description": "Mark a subtree as shared"
+  },
+  {
+   "name": "--make-slave",
+   "description": "Mark a subtree as slave"
+  },
+  {
+   "name": "--make-private",
+   "description": "Mark a subtree as private"
+  },
+  {
+   "name": "--make-unbindable",
+   "description": "Mark a subtree as unbindable"
+  },
+  {
+   "name": "--make-rshared",
+   "description": "Recursively mark a whole subtree as shared"
+  },
+  {
+   "name": "--make-rslave",
+   "description": "Recursively mark a whole subtree as slave"
+  },
+  {
+   "name": "--make-rprivate",
+   "description": "Recursively mark a whole subtree as private"
+  },
+  {
+   "name": "--make-runbindable",
+   "description": "Recursively mark a whole subtree as unbindable"
+  }
+ ],
+ "args": [
+  {
+   "name": "device",
+   "isOptional": true,
+   "template": "filepaths"
+  },
+  {
+   "name": "mountpoint",
+   "isOptional": true,
+   "template": "folders"
+  }
+ ]
+}

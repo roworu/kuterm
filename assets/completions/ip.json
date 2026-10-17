@@ -1,0 +1,390 @@
+{
+ "name": "ip",
+ "description": "Show and change routing, devices and tunnels",
+ "subcommands": [
+  {
+   "name": [
+    "address",
+    "addr",
+    "a"
+   ],
+   "description": "Protocol (IPv4 or IPv6) addresses on a device",
+   "priority": 78,
+   "subcommands": [
+    {
+     "name": "show",
+     "description": "Show objects",
+     "priority": 70
+    },
+    {
+     "name": "add",
+     "description": "Add an object"
+    },
+    {
+     "name": "del",
+     "description": "Delete an object"
+    },
+    {
+     "name": "set",
+     "description": "Change an object"
+    },
+    {
+     "name": "flush",
+     "description": "Delete all matching objects"
+    },
+    {
+     "name": "list",
+     "description": "List objects"
+    }
+   ]
+  },
+  {
+   "name": [
+    "link",
+    "l"
+   ],
+   "description": "Network devices",
+   "priority": 76,
+   "subcommands": [
+    {
+     "name": "show",
+     "description": "Show objects",
+     "priority": 70
+    },
+    {
+     "name": "add",
+     "description": "Add an object"
+    },
+    {
+     "name": "del",
+     "description": "Delete an object"
+    },
+    {
+     "name": "set",
+     "description": "Change an object"
+    },
+    {
+     "name": "flush",
+     "description": "Delete all matching objects"
+    },
+    {
+     "name": "list",
+     "description": "List objects"
+    }
+   ]
+  },
+  {
+   "name": [
+    "route",
+    "r"
+   ],
+   "description": "Routing table entries",
+   "priority": 76,
+   "subcommands": [
+    {
+     "name": "show",
+     "description": "Show objects",
+     "priority": 70
+    },
+    {
+     "name": "add",
+     "description": "Add an object"
+    },
+    {
+     "name": "del",
+     "description": "Delete an object"
+    },
+    {
+     "name": "set",
+     "description": "Change an object"
+    },
+    {
+     "name": "flush",
+     "description": "Delete all matching objects"
+    },
+    {
+     "name": "list",
+     "description": "List objects"
+    },
+    {
+     "name": "get",
+     "description": "Get a single route"
+    }
+   ]
+  },
+  {
+   "name": [
+    "neighbour",
+    "neighbor",
+    "neigh",
+    "n"
+   ],
+   "description": "ARP and NDISC cache entries",
+   "subcommands": [
+    {
+     "name": "show",
+     "description": "Show objects",
+     "priority": 70
+    },
+    {
+     "name": "add",
+     "description": "Add an object"
+    },
+    {
+     "name": "del",
+     "description": "Delete an object"
+    },
+    {
+     "name": "set",
+     "description": "Change an object"
+    },
+    {
+     "name": "flush",
+     "description": "Delete all matching objects"
+    },
+    {
+     "name": "list",
+     "description": "List objects"
+    }
+   ]
+  },
+  {
+   "name": "rule",
+   "description": "Rules in the routing policy database",
+   "subcommands": [
+    {
+     "name": "show",
+     "description": "Show objects",
+     "priority": 70
+    },
+    {
+     "name": "add",
+     "description": "Add an object"
+    },
+    {
+     "name": "del",
+     "description": "Delete an object"
+    },
+    {
+     "name": "set",
+     "description": "Change an object"
+    },
+    {
+     "name": "flush",
+     "description": "Delete all matching objects"
+    },
+    {
+     "name": "list",
+     "description": "List objects"
+    }
+   ]
+  },
+  {
+   "name": "netns",
+   "description": "Network namespaces",
+   "subcommands": [
+    {
+     "name": "list",
+     "description": "List namespaces"
+    },
+    {
+     "name": "add",
+     "description": "Add a namespace"
+    },
+    {
+     "name": "delete",
+     "description": "Delete a namespace"
+    },
+    {
+     "name": "exec",
+     "description": "Run a command in a namespace"
+    }
+   ]
+  },
+  {
+   "name": "tunnel",
+   "description": "Tunnels over IP",
+   "subcommands": [
+    {
+     "name": "show",
+     "description": "Show objects",
+     "priority": 70
+    },
+    {
+     "name": "add",
+     "description": "Add an object"
+    },
+    {
+     "name": "del",
+     "description": "Delete an object"
+    },
+    {
+     "name": "set",
+     "description": "Change an object"
+    },
+    {
+     "name": "flush",
+     "description": "Delete all matching objects"
+    },
+    {
+     "name": "list",
+     "description": "List objects"
+    }
+   ]
+  },
+  {
+   "name": "tuntap",
+   "description": "TUN and TAP devices",
+   "subcommands": [
+    {
+     "name": "show",
+     "description": "Show objects",
+     "priority": 70
+    },
+    {
+     "name": "add",
+     "description": "Add an object"
+    },
+    {
+     "name": "del",
+     "description": "Delete an object"
+    },
+    {
+     "name": "set",
+     "description": "Change an object"
+    },
+    {
+     "name": "flush",
+     "description": "Delete all matching objects"
+    },
+    {
+     "name": "list",
+     "description": "List objects"
+    }
+   ]
+  },
+  {
+   "name": "maddress",
+   "description": "Multicast addresses"
+  },
+  {
+   "name": "monitor",
+   "description": "Watch for netlink messages"
+  },
+  {
+   "name": "mroute",
+   "description": "Multicast routing cache entries"
+  },
+  {
+   "name": "nexthop",
+   "description": "Nexthop objects"
+  },
+  {
+   "name": "vrf",
+   "description": "Virtual routing and forwarding devices"
+  },
+  {
+   "name": "xfrm",
+   "description": "IPsec policies"
+  },
+  {
+   "name": "stats",
+   "description": "Interface statistics"
+  },
+  {
+   "name": "help",
+   "description": "Show help"
+  }
+ ],
+ "options": [
+  {
+   "name": "-4",
+   "description": "IPv4 only"
+  },
+  {
+   "name": "-6",
+   "description": "IPv6 only"
+  },
+  {
+   "name": [
+    "-br",
+    "-brief"
+   ],
+   "description": "Brief tabular output",
+   "priority": 70
+  },
+  {
+   "name": [
+    "-c",
+    "-color"
+   ],
+   "description": "Color the output"
+  },
+  {
+   "name": [
+    "-j",
+    "-json"
+   ],
+   "description": "JSON output"
+  },
+  {
+   "name": [
+    "-p",
+    "-pretty"
+   ],
+   "description": "Pretty JSON output"
+  },
+  {
+   "name": [
+    "-s",
+    "-stats"
+   ],
+   "description": "Show statistics"
+  },
+  {
+   "name": [
+    "-d",
+    "-details"
+   ],
+   "description": "Show details"
+  },
+  {
+   "name": [
+    "-o",
+    "-oneline"
+   ],
+   "description": "One line per record"
+  },
+  {
+   "name": [
+    "-r",
+    "-resolve"
+   ],
+   "description": "Resolve names"
+  },
+  {
+   "name": [
+    "-n",
+    "-netns"
+   ],
+   "description": "Run in this network namespace",
+   "args": {
+    "name": "netns"
+   }
+  },
+  {
+   "name": [
+    "-h",
+    "-human"
+   ],
+   "description": "Human readable numbers"
+  },
+  {
+   "name": [
+    "-V",
+    "-Version"
+   ],
+   "description": "Show the version"
+  }
+ ]
+}

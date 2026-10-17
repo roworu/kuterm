@@ -1,0 +1,141 @@
+{
+ "name": "gzip",
+ "description": "Compress or expand files",
+ "options": [
+  {
+   "name": [
+    "-c",
+    "--stdout"
+   ],
+   "description": "Write on standard output, keep original files unchanged"
+  },
+  {
+   "name": [
+    "-d",
+    "--decompress"
+   ],
+   "description": "Decompress"
+  },
+  {
+   "name": [
+    "-f",
+    "--force"
+   ],
+   "description": "Force overwrite of output file and compress links"
+  },
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Give this help"
+  },
+  {
+   "name": [
+    "-k",
+    "--keep"
+   ],
+   "description": "Keep (don't delete) input files"
+  },
+  {
+   "name": [
+    "-l",
+    "--list"
+   ],
+   "description": "List compressed file contents"
+  },
+  {
+   "name": [
+    "-L",
+    "--license"
+   ],
+   "description": "Display software license"
+  },
+  {
+   "name": [
+    "-n",
+    "--no-name"
+   ],
+   "description": "Do not save or restore the original name and timestamp"
+  },
+  {
+   "name": [
+    "-N",
+    "--name"
+   ],
+   "description": "Save or restore the original name and timestamp"
+  },
+  {
+   "name": [
+    "-q",
+    "--quiet"
+   ],
+   "description": "Suppress all warnings"
+  },
+  {
+   "name": [
+    "-r",
+    "--recursive"
+   ],
+   "description": "Operate recursively on directories"
+  },
+  {
+   "name": "--rsyncable",
+   "description": "Make rsync-friendly archive"
+  },
+  {
+   "name": [
+    "-S",
+    "--suffix"
+   ],
+   "description": "Use suffix SUF on compressed files",
+   "args": {
+    "name": "suf"
+   }
+  },
+  {
+   "name": "--synchronous"
+  },
+  {
+   "name": [
+    "-t",
+    "--test"
+   ],
+   "description": "Test compressed file integrity"
+  },
+  {
+   "name": [
+    "-v",
+    "--verbose"
+   ],
+   "description": "Verbose mode"
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Display version number"
+  },
+  {
+   "name": [
+    "-1",
+    "--fast"
+   ],
+   "description": "Compress faster"
+  },
+  {
+   "name": [
+    "-9",
+    "--best"
+   ],
+   "description": "Compress better"
+  }
+ ],
+ "args": {
+  "name": "file",
+  "template": "filepaths",
+  "isVariadic": true,
+  "isOptional": true
+ }
+}

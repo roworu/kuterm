@@ -1,8 +1,9 @@
-//! cpu, memory and listening tcp ports of each pane's process tree. one background thread
-//! samples every pane once a second, only while something asked for numbers lately
+//! cpu, memory, tcp traffic and listening tcp ports of each pane's process tree. one
+//! background thread samples every pane once a second, only while something asked for numbers
+//! lately
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet, VecDeque},
     sync::{LazyLock, Mutex},
     time::{Duration, Instant},
 };
@@ -10,6 +11,8 @@ use std::{
 const SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
 // a tree nobody asked about for this long is dropped, and the thread stops with the last one
 const IDLE_AFTER: Duration = Duration::from_secs(5);
+/// cpu percents kept for graphs, one per sample
+pub const CPU_HISTORY: usize = 24;
 
 /// numbers of one process tree, or of several added up
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -19,6 +22,12 @@ pub struct TreeSample {
     pub rss_bytes: u64,
     /// listening tcp ports, sorted
     pub ports: Vec<u16>,
+    /// tcp bytes received per second
+    pub received_per_sec: u64,
+    /// tcp bytes sent per second
+    pub sent_per_sec: u64,
+    /// cpu percent of the last samples, oldest first, up to `CPU_HISTORY`
+    pub cpu_history: Vec<f32>,
 }
 
 impl TreeSample {
@@ -26,9 +35,26 @@ impl TreeSample {
     pub fn total<'a>(samples: impl IntoIterator<Item = &'a TreeSample>) -> TreeSample {
         let mut total = TreeSample::default();
         for sample in samples {
+            // the newest samples line up, a tree sampled for less time is shorter
+            let len = sample.cpu_history.len();
+            if len > total.cpu_history.len() {
+                let missing = len - total.cpu_history.len();
+                total
+                    .cpu_history
+                    .splice(0..0, std::iter::repeat_n(0., missing));
+            }
+            let offset = total.cpu_history.len() - len;
+            for (sum, cpu) in total.cpu_history[offset..]
+                .iter_mut()
+                .zip(&sample.cpu_history)
+            {
+                *sum += cpu;
+            }
             total.cpu_percent += sample.cpu_percent;
             total.rss_bytes += sample.rss_bytes;
             total.ports.extend(&sample.ports);
+            total.received_per_sec += sample.received_per_sec;
+            total.sent_per_sec += sample.sent_per_sec;
         }
         total.ports.sort_unstable();
         total.ports.dedup();
@@ -39,8 +65,19 @@ impl TreeSample {
 struct Root {
     asked: Instant,
     sample: Option<TreeSample>,
-    /// cpu ticks of the tree and when they were read, for the next cpu percent
-    ticks: Option<(u64, Instant)>,
+    /// counters of the last measure, for the next rates
+    last: Option<Last>,
+    cpu_history: VecDeque<f32>,
+}
+
+/// counters of a tree when it was last measured
+#[derive(Debug)]
+struct Last {
+    /// cpu ticks of the tree
+    ticks: u64,
+    at: Instant,
+    /// tcp bytes received and sent by socket inode
+    sockets: HashMap<u64, (u64, u64)>,
 }
 
 #[derive(Default)]
@@ -69,7 +106,8 @@ impl ProcessSampler {
         let entry = state.roots.entry(root).or_insert_with(|| Root {
             asked: Instant::now(),
             sample: None,
-            ticks: None,
+            last: None,
+            cpu_history: VecDeque::new(),
         });
         entry.asked = Instant::now();
         let sample = entry.sample.clone();
@@ -82,7 +120,7 @@ impl ProcessSampler {
 
     fn run(&self) {
         loop {
-            let roots: Vec<(u32, Option<(u64, Instant)>)> = {
+            let roots: Vec<(u32, Option<Last>)> = {
                 let mut state = self.state.lock().unwrap();
                 state
                     .roots
@@ -93,22 +131,35 @@ impl ProcessSampler {
                 }
                 state
                     .roots
-                    .iter()
-                    .map(|(&pid, root)| (pid, root.ticks))
+                    .iter_mut()
+                    .map(|(&pid, root)| (pid, root.last.take()))
                     .collect()
             };
             // read outside the lock, panes asking meanwhile get the last numbers
-            let listening = listening_ports();
+            let tables = Tables {
+                listening: listening_ports(),
+                traffic: tcp_traffic(),
+            };
             let measured: Vec<_> = roots
                 .into_iter()
-                .map(|(pid, ticks)| (pid, measure(pid, ticks, &listening)))
+                .map(|(pid, last)| (pid, measure(pid, last.as_ref(), &tables)))
                 .collect();
             {
                 let mut state = self.state.lock().unwrap();
                 for (pid, measured) in measured {
                     if let Some(root) = state.roots.get_mut(&pid) {
-                        (root.sample, root.ticks) = match measured {
-                            Some((sample, ticks)) => (Some(sample), Some(ticks)),
+                        (root.sample, root.last) = match measured {
+                            // the first measure has no cpu use yet, so it is not graphed
+                            Some((mut sample, last)) => {
+                                if root.sample.is_some() {
+                                    root.cpu_history.push_back(sample.cpu_percent);
+                                }
+                                if root.cpu_history.len() > CPU_HISTORY {
+                                    root.cpu_history.pop_front();
+                                }
+                                sample.cpu_history = root.cpu_history.iter().copied().collect();
+                                (Some(sample), Some(last))
+                            }
                             None => (None, None),
                         };
                     }
@@ -119,13 +170,19 @@ impl ProcessSampler {
     }
 }
 
-/// numbers of the tree under `root`, cpu measured since `last` ticks, none when it is gone
+/// socket tables of the whole machine, read once per tick for every tree
+#[derive(Default)]
+struct Tables {
+    /// inode to listening tcp port
+    listening: HashMap<u64, u16>,
+    /// inode to tcp bytes received and sent
+    traffic: HashMap<u64, (u64, u64)>,
+}
+
+/// numbers of the tree under `root`, rates measured since `last`, none when it is gone
 #[cfg(target_os = "linux")]
-fn measure(
-    root: u32,
-    last: Option<(u64, Instant)>,
-    listening: &HashMap<u64, u16>,
-) -> Option<(TreeSample, (u64, Instant))> {
+fn measure(root: u32, last: Option<&Last>, tables: &Tables) -> Option<(TreeSample, Last)> {
+    let (listening, traffic) = (&tables.listening, &tables.traffic);
     let now = Instant::now();
     let mut pids = vec![root];
     let mut ix = 0;
@@ -136,6 +193,8 @@ fn measure(
     let page = page_size();
     let mut ticks = 0;
     let mut sample = TreeSample::default();
+    // forked children share their parent's sockets, so each is counted once
+    let mut inodes = HashSet::new();
     for (n, &pid) in pids.iter().enumerate() {
         let stat = std::fs::read_to_string(format!("/proc/{pid}/stat"));
         let Some(cpu) = stat.ok().as_deref().and_then(cpu_ticks) else {
@@ -150,29 +209,47 @@ fn measure(
             .ok()
             .and_then(|statm| statm.split_whitespace().nth(1)?.parse::<u64>().ok())
             .map_or(0, |pages| pages * page);
-        sample
-            .ports
-            .extend(socket_inodes(pid).filter_map(|inode| listening.get(&inode)));
+        inodes.extend(socket_inodes(pid));
     }
+    sample.ports = inodes
+        .iter()
+        .filter_map(|inode| listening.get(inode).copied())
+        .collect();
     sample.ports.sort_unstable();
     sample.ports.dedup();
-    if let Some((last_ticks, at)) = last {
-        let seconds = now.duration_since(at).as_secs_f32();
+    let sockets: HashMap<u64, (u64, u64)> = inodes
+        .iter()
+        .filter_map(|inode| Some((*inode, *traffic.get(inode)?)))
+        .collect();
+    if let Some(last) = last {
+        let seconds = now.duration_since(last.at).as_secs_f32();
         // exited children take their ticks with them, which is no negative use
-        let used = ticks.saturating_sub(last_ticks) as f32 / clock_ticks();
+        let used = ticks.saturating_sub(last.ticks) as f32 / clock_ticks();
+        // sockets opened since the last measure moved all their bytes in between
+        let (mut received, mut sent) = (0, 0);
+        for (inode, (now_received, now_sent)) in &sockets {
+            let (was_received, was_sent) = last.sockets.get(inode).copied().unwrap_or_default();
+            received += now_received.saturating_sub(was_received);
+            sent += now_sent.saturating_sub(was_sent);
+        }
         if seconds > 0. {
             sample.cpu_percent = used / seconds * 100.;
+            sample.received_per_sec = (received as f32 / seconds) as u64;
+            sample.sent_per_sec = (sent as f32 / seconds) as u64;
         }
     }
-    Some((sample, (ticks, now)))
+    Some((
+        sample,
+        Last {
+            ticks,
+            at: now,
+            sockets,
+        },
+    ))
 }
 
 #[cfg(not(target_os = "linux"))]
-fn measure(
-    _root: u32,
-    _last: Option<(u64, Instant)>,
-    _listening: &HashMap<u64, u16>,
-) -> Option<(TreeSample, (u64, Instant))> {
+fn measure(_root: u32, _last: Option<&Last>, _tables: &Tables) -> Option<(TreeSample, Last)> {
     None
 }
 
@@ -214,6 +291,148 @@ fn parse_listening(table: &str) -> Vec<(u64, u16)> {
             ))
         })
         .collect()
+}
+
+/// tcp bytes received and sent of every tcp socket by inode. /proc has no byte counts per
+/// socket, so they come from the kernel's sock_diag netlink, the way `ss -i` reads them
+#[cfg(target_os = "linux")]
+fn tcp_traffic() -> HashMap<u64, (u64, u64)> {
+    let mut traffic = HashMap::new();
+    for family in [libc::AF_INET, libc::AF_INET6] {
+        if let Err(error) = dump_tcp(family as u8, &mut traffic) {
+            eprintln!("failed to read tcp traffic: {error}");
+        }
+    }
+    traffic
+}
+
+#[cfg(not(target_os = "linux"))]
+fn tcp_traffic() -> HashMap<u64, (u64, u64)> {
+    HashMap::new()
+}
+
+// netlink message types and sizes from linux/netlink.h and linux/inet_diag.h
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+const SOCK_DIAG_BY_FAMILY: u16 = 20;
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+const NLMSG_HEADER: usize = 16;
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+const INET_DIAG_INFO: u16 = 2;
+
+/// send a sock_diag dump request, `body` after the netlink header, and hand every message of
+/// the answer to `message`
+#[cfg(target_os = "linux")]
+fn sock_diag_dump(body: &[u8], mut message: impl FnMut(&[u8])) -> std::io::Result<()> {
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+
+    let fd = unsafe {
+        libc::socket(
+            libc::AF_NETLINK,
+            libc::SOCK_DGRAM | libc::SOCK_CLOEXEC,
+            libc::NETLINK_SOCK_DIAG,
+        )
+    };
+    if fd < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+    let mut request = vec![0u8; NLMSG_HEADER];
+    request.extend_from_slice(body);
+    let len = request.len() as u32;
+    request[0..4].copy_from_slice(&len.to_ne_bytes());
+    request[4..6].copy_from_slice(&SOCK_DIAG_BY_FAMILY.to_ne_bytes());
+    let flags = (libc::NLM_F_REQUEST | libc::NLM_F_DUMP) as u16;
+    request[6..8].copy_from_slice(&flags.to_ne_bytes());
+    let mut kernel: libc::sockaddr_nl = unsafe { std::mem::zeroed() };
+    kernel.nl_family = libc::AF_NETLINK as u16;
+    let sent = unsafe {
+        libc::sendto(
+            fd.as_raw_fd(),
+            request.as_ptr().cast(),
+            request.len(),
+            0,
+            (&raw const kernel).cast(),
+            size_of::<libc::sockaddr_nl>() as u32,
+        )
+    };
+    if sent < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let mut buf = vec![0u8; 64 << 10];
+    loop {
+        let read = unsafe { libc::recv(fd.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len(), 0) };
+        if read < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        if netlink_messages(&buf[..read as usize], &mut message)? {
+            return Ok(());
+        }
+    }
+}
+
+/// hand the sock_diag messages of one netlink read to `message`, true once the dump is done
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn netlink_messages(mut buf: &[u8], message: &mut impl FnMut(&[u8])) -> std::io::Result<bool> {
+    const NLMSG_ERROR: u16 = 2;
+    const NLMSG_DONE: u16 = 3;
+    while buf.len() >= NLMSG_HEADER {
+        let len = u32::from_ne_bytes(buf[0..4].try_into().unwrap()) as usize;
+        let kind = u16::from_ne_bytes(buf[4..6].try_into().unwrap());
+        if len < NLMSG_HEADER || len > buf.len() {
+            break;
+        }
+        match kind {
+            NLMSG_DONE => return Ok(true),
+            NLMSG_ERROR => return Err(std::io::Error::other("sock_diag dump refused")),
+            SOCK_DIAG_BY_FAMILY => message(&buf[NLMSG_HEADER..len]),
+            _ => {}
+        }
+        buf = buf.get(len.next_multiple_of(4)..).unwrap_or_default();
+    }
+    Ok(false)
+}
+
+/// payload of the first netlink attribute of type `kind` in `attrs`
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn attribute(mut attrs: &[u8], kind: u16) -> Option<&[u8]> {
+    while attrs.len() >= 4 {
+        let len = u16::from_ne_bytes([attrs[0], attrs[1]]) as usize;
+        if len < 4 || len > attrs.len() {
+            return None;
+        }
+        if u16::from_ne_bytes([attrs[2], attrs[3]]) == kind {
+            return Some(&attrs[4..len]);
+        }
+        attrs = attrs.get(len.next_multiple_of(4)..).unwrap_or_default();
+    }
+    None
+}
+
+/// add the traffic of every tcp socket of one address family
+#[cfg(target_os = "linux")]
+fn dump_tcp(family: u8, traffic: &mut HashMap<u64, (u64, u64)>) -> std::io::Result<()> {
+    // inet_diag_req_v2 asking for tcp_info of sockets in any state
+    let mut request = [0u8; 56];
+    request[0] = family;
+    request[1] = libc::IPPROTO_TCP as u8;
+    request[2] = 1 << (INET_DIAG_INFO - 1);
+    request[4..8].copy_from_slice(&u32::MAX.to_ne_bytes());
+    sock_diag_dump(&request, |msg| traffic.extend(parse_diag(msg)))
+}
+
+/// inode and (received, sent) bytes of one inet_diag_msg with its tcp_info
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn parse_diag(msg: &[u8]) -> Option<(u64, (u64, u64))> {
+    // inet_diag_msg is 72 bytes and ends with the inode
+    const MSG: usize = 72;
+    // tcpi_bytes_acked and tcpi_bytes_received in tcp_info, older kernels send it shorter
+    const SENT: usize = 120;
+    const RECEIVED: usize = 128;
+    let u64_at =
+        |info: &[u8], at: usize| Some(u64::from_ne_bytes(info.get(at..at + 8)?.try_into().ok()?));
+    let inode = u32::from_ne_bytes(msg.get(MSG - 4..MSG)?.try_into().ok()?);
+    let info = attribute(msg.get(MSG..)?, INET_DIAG_INFO)?;
+    Some((inode.into(), (u64_at(info, RECEIVED)?, u64_at(info, SENT)?)))
 }
 
 /// inodes of the sockets `pid` holds open
@@ -269,16 +488,24 @@ mod tests {
             cpu_percent: 10.,
             rss_bytes: 100,
             ports: vec![5173, 8080],
+            cpu_history: vec![1., 2., 3.],
+            ..TreeSample::default()
         };
         let b = TreeSample {
             cpu_percent: 2.5,
             rss_bytes: 50,
             ports: vec![3000, 8080],
+            received_per_sec: 7,
+            sent_per_sec: 9,
+            cpu_history: vec![10.],
         };
         let total = TreeSample::total([&a, &b]);
         assert_eq!(total.cpu_percent, 12.5);
         assert_eq!(total.rss_bytes, 150);
         assert_eq!(total.ports, [3000, 5173, 8080]);
+        assert_eq!((total.received_per_sec, total.sent_per_sec), (7, 9));
+        // the newest samples line up
+        assert_eq!(total.cpu_history, [1., 2., 13.]);
         assert_eq!(TreeSample::total([]), TreeSample::default());
     }
 
@@ -290,7 +517,11 @@ mod tests {
         // a listening socket held by this process
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
-        let (sample, _) = measure(std::process::id(), None, &listening_ports()).unwrap();
+        let tables = Tables {
+            listening: listening_ports(),
+            ..Tables::default()
+        };
+        let (sample, _) = measure(std::process::id(), None, &tables).unwrap();
         assert!(sample.ports.contains(&port), "{port} not in {sample:?}");
         assert!(sample.rss_bytes > 0);
 
@@ -301,15 +532,69 @@ mod tests {
             .spawn()
             .unwrap();
         let root = parent.id();
-        let (_, ticks) = measure(root, None, &HashMap::new()).unwrap();
+        let (_, last) = measure(root, None, &Tables::default()).unwrap();
         std::thread::sleep(Duration::from_millis(500));
-        let (sample, _) = measure(root, Some(ticks), &HashMap::new()).unwrap();
+        let (sample, _) = measure(root, Some(&last), &Tables::default()).unwrap();
         // the busy child goes with its parent's group
         unsafe { libc::kill(-(root as i32), libc::SIGKILL) };
         parent.wait().ok();
         assert!(sample.cpu_percent > 10., "{sample:?}");
         assert!(sample.rss_bytes > 0);
-        assert!(measure(root, None, &HashMap::new()).is_none());
+        assert!(measure(root, None, &Tables::default()).is_none());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn tcp_traffic_of_a_tree_is_a_rate() {
+        use std::io::{Read, Write};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut client = std::net::TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (mut server, _) = listener.accept().unwrap();
+        let pid = std::process::id();
+        let tables = || Tables {
+            traffic: tcp_traffic(),
+            ..Tables::default()
+        };
+        let (first, last) = measure(pid, None, &tables()).unwrap();
+        // the first measure has nothing to compare with
+        assert_eq!((first.received_per_sec, first.sent_per_sec), (0, 0));
+        client.write_all(&[7; 100_000]).unwrap();
+        let mut got = vec![0; 100_000];
+        server.read_exact(&mut got).unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+        let (sample, _) = measure(pid, Some(&last), &tables()).unwrap();
+        // both ends live in this process, other tests may add their own sockets
+        assert!(sample.sent_per_sec >= 100_000, "{sample:?}");
+        assert!(sample.received_per_sec >= 100_000, "{sample:?}");
+    }
+
+    #[test]
+    fn diag_messages_give_inode_and_bytes() {
+        let mut msg = vec![0u8; 72];
+        msg[68..72].copy_from_slice(&4242u32.to_ne_bytes());
+        // an attribute that is not tcp_info comes first and is skipped
+        msg.extend(8u16.to_ne_bytes());
+        msg.extend(1u16.to_ne_bytes());
+        msg.extend([0; 4]);
+        let mut info = vec![0u8; 136];
+        info[120..128].copy_from_slice(&300u64.to_ne_bytes());
+        info[128..136].copy_from_slice(&500u64.to_ne_bytes());
+        msg.extend((4 + info.len() as u16).to_ne_bytes());
+        msg.extend(INET_DIAG_INFO.to_ne_bytes());
+        msg.extend(&info);
+        let mut buf = Vec::new();
+        for (kind, body) in [(SOCK_DIAG_BY_FAMILY, &msg[..]), (3, &[0u8; 4][..])] {
+            buf.extend(((NLMSG_HEADER + body.len()) as u32).to_ne_bytes());
+            buf.extend(kind.to_ne_bytes());
+            buf.extend([0; 10]);
+            buf.extend(body);
+        }
+        let mut traffic = HashMap::new();
+        assert!(netlink_messages(&buf, &mut |msg| traffic.extend(parse_diag(msg))).unwrap());
+        assert_eq!(traffic, HashMap::from([(4242, (500, 300))]));
+        // a tcp_info cut short by an old kernel gives nothing
+        assert_eq!(parse_diag(&msg[..msg.len() - 8]), None);
     }
 
     #[cfg(target_os = "linux")]
@@ -327,5 +612,31 @@ mod tests {
             std::thread::sleep(Duration::from_millis(50));
         };
         assert!(sample.rss_bytes > 0);
+    }
+
+    #[test]
+    fn netlink_reads_stop_at_errors_and_cut_messages() {
+        let message = |kind: u16, body: &[u8]| {
+            let mut buf = Vec::new();
+            buf.extend(((NLMSG_HEADER + body.len()) as u32).to_ne_bytes());
+            buf.extend(kind.to_ne_bytes());
+            buf.extend([0; 10]);
+            buf.extend(body);
+            buf
+        };
+        let mut seen = Vec::new();
+        // a kind it doesn't know is skipped, the dump goes on until done
+        let mut buf = message(99, &[1, 2, 3, 4]);
+        buf.extend(message(SOCK_DIAG_BY_FAMILY, &[5, 6, 7, 8]));
+        buf.extend(message(3, &[]));
+        assert!(netlink_messages(&buf, &mut |msg| seen.push(msg.to_vec())).unwrap());
+        assert_eq!(seen, [vec![5, 6, 7, 8]]);
+        // the kernel refusing the dump is an error
+        assert!(netlink_messages(&message(2, &[0; 4]), &mut |_| {}).is_err());
+        // a message longer than the read waits for the next one
+        let cut = message(SOCK_DIAG_BY_FAMILY, &[0; 8]);
+        let mut called = false;
+        let done = netlink_messages(&cut[..cut.len() - 4], &mut |_| called = true).unwrap();
+        assert!(!done && !called);
     }
 }

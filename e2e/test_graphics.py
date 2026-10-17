@@ -3,7 +3,6 @@
 import base64
 import io
 
-import numpy as np
 from PIL import Image
 
 from harness import App, bundled_theme, mask_bbox, near

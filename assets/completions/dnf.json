@@ -1,0 +1,2232 @@
+{
+ "name": "dnf",
+ "description": "Fedora and RHEL package manager",
+ "subcommands": [
+  {
+   "name": "do",
+   "description": "Do transaction",
+   "options": [
+    {
+     "name": "--action",
+     "description": "Action to be done on the following items",
+     "args": {
+      "name": "install"
+     }
+    },
+    {
+     "name": "--type",
+     "description": "Type of the following items",
+     "args": {
+      "name": "auto"
+     }
+    },
+    {
+     "name": "--installed-from-repo",
+     "description": "Filters installed packages by the ID of the repository they were installed from",
+     "args": {
+      "name": "repo_id"
+     }
+    },
+    {
+     "name": "--from-repo",
+     "description": "The following items can be selected only from the specified repositories",
+     "args": {
+      "name": "repo_id"
+     }
+    },
+    {
+     "name": "--from-vendor",
+     "description": "The following items can be selected only from the specified vendors",
+     "args": {
+      "name": "vendor"
+     }
+    },
+    {
+     "name": "--allowerasing",
+     "description": "Allow removing of installed packages to resolve problems"
+    },
+    {
+     "name": "--skip-broken",
+     "description": "Allow resolving of depsolve problems by skipping packages"
+    },
+    {
+     "name": "--skip-unavailable",
+     "description": "Allow skipping unavailable packages"
+    },
+    {
+     "name": "--allow-downgrade",
+     "description": "Allow downgrade of dependencies for resolve of requested operation"
+    },
+    {
+     "name": "--no-allow-downgrade",
+     "description": "Disable downgrade of dependencies for resolve of requested operation"
+    },
+    {
+     "name": "--advisories",
+     "description": "Include content contained in advisories with specified name",
+     "args": {
+      "name": "advisory_name"
+     }
+    },
+    {
+     "name": "--advisory-severities",
+     "description": "Include content contained in advisories with specified severity",
+     "args": {
+      "name": "advisory_severity"
+     }
+    },
+    {
+     "name": "--bzs",
+     "description": "Include content contained in advisories that fix a Bugzilla ID, Eg",
+     "args": {
+      "name": "bugzilla_id"
+     }
+    },
+    {
+     "name": "--cves",
+     "description": "Include content contained in advisories that fix a CVE (Common Vulnerabilities…",
+     "args": {
+      "name": "cve_id"
+     }
+    },
+    {
+     "name": "--security",
+     "description": "Include content contained in security advisories"
+    },
+    {
+     "name": "--bugfix",
+     "description": "Include content contained in bugfix advisories"
+    },
+    {
+     "name": "--enhancement",
+     "description": "Include content contained in enhancement advisories"
+    },
+    {
+     "name": "--newpackage",
+     "description": "Include content contained in newpackage advisories"
+    },
+    {
+     "name": "--downloadonly",
+     "description": "Only download packages for a transaction"
+    },
+    {
+     "name": "--offline",
+     "description": "Store the transaction to be performed offline"
+    },
+    {
+     "name": "--store",
+     "description": "Store the current transaction in a directory at the specified path instead of r…",
+     "args": {
+      "name": "stored_transaction_path"
+     }
+    },
+    {
+     "name": "--transient",
+     "description": "Set up a transient overlay on /usr that will be discarded on reboot"
+    }
+   ]
+  },
+  {
+   "name": "install",
+   "description": "Install software",
+   "priority": 76,
+   "options": [
+    {
+     "name": "--allowerasing",
+     "description": "Allow removing of installed packages to resolve problems"
+    },
+    {
+     "name": "--skip-broken",
+     "description": "Allow resolving of depsolve problems by skipping packages"
+    },
+    {
+     "name": "--skip-unavailable",
+     "description": "Allow skipping unavailable packages"
+    },
+    {
+     "name": "--allow-downgrade",
+     "description": "Allow downgrade of dependencies for resolve of requested operation"
+    },
+    {
+     "name": "--no-allow-downgrade",
+     "description": "Disable downgrade of dependencies for resolve of requested operation"
+    },
+    {
+     "name": "--from-repo",
+     "description": "The following items can be selected only from the specified repositories",
+     "args": {
+      "name": "repo_id"
+     }
+    },
+    {
+     "name": "--from-vendor",
+     "description": "The following items can be selected only from the specified vendors",
+     "args": {
+      "name": "vendor"
+     }
+    },
+    {
+     "name": "--downloadonly",
+     "description": "Only download packages for a transaction"
+    },
+    {
+     "name": "--offline",
+     "description": "Store the transaction to be performed offline"
+    },
+    {
+     "name": "--advisories",
+     "description": "Include content contained in advisories with specified name",
+     "args": {
+      "name": "advisory_name"
+     }
+    },
+    {
+     "name": "--advisory-severities",
+     "description": "Include content contained in advisories with specified severity",
+     "args": {
+      "name": "advisory_severity"
+     }
+    },
+    {
+     "name": "--bzs",
+     "description": "Include content contained in advisories that fix a Bugzilla ID, Eg",
+     "args": {
+      "name": "bugzilla_id"
+     }
+    },
+    {
+     "name": "--cves",
+     "description": "Include content contained in advisories that fix a CVE (Common Vulnerabilities…",
+     "args": {
+      "name": "cve_id"
+     }
+    },
+    {
+     "name": "--security",
+     "description": "Include content contained in security advisories"
+    },
+    {
+     "name": "--bugfix",
+     "description": "Include content contained in bugfix advisories"
+    },
+    {
+     "name": "--enhancement",
+     "description": "Include content contained in enhancement advisories"
+    },
+    {
+     "name": "--newpackage",
+     "description": "Include content contained in newpackage advisories"
+    },
+    {
+     "name": "--store",
+     "description": "Store the current transaction in a directory at the specified path instead of r…",
+     "args": {
+      "name": "stored_transaction_path"
+     }
+    },
+    {
+     "name": "--transient",
+     "description": "Set up a transient overlay on /usr that will be discarded on reboot"
+    },
+    {
+     "name": "--advisory",
+     "description": "Alias for '--advisories'",
+     "args": {
+      "name": "advisory_name"
+     }
+    },
+    {
+     "name": "--bz",
+     "description": "Alias for '--bzs'",
+     "args": {
+      "name": "bugzilla_id"
+     }
+    },
+    {
+     "name": "--cve",
+     "description": "Alias for '--cves'",
+     "args": {
+      "name": "cve_id"
+     }
+    }
+   ],
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "upgrade",
+   "description": "Upgrade software",
+   "priority": 76,
+   "options": [
+    {
+     "name": "--minimal",
+     "description": "Upgrade packages only to the lowest versions that fix advisories of type bugfix…"
+    },
+    {
+     "name": "--allowerasing",
+     "description": "Allow removing of installed packages to resolve problems"
+    },
+    {
+     "name": "--skip-unavailable",
+     "description": "Allow skipping unavailable packages"
+    },
+    {
+     "name": "--allow-downgrade",
+     "description": "Allow downgrade of dependencies for resolve of requested operation"
+    },
+    {
+     "name": "--no-allow-downgrade",
+     "description": "Disable downgrade of dependencies for resolve of requested operation"
+    },
+    {
+     "name": "--installed-from-repo",
+     "description": "Filters installed packages by the ID of the repository they were installed from",
+     "args": {
+      "name": "repo_id"
+     }
+    },
+    {
+     "name": "--from-repo",
+     "description": "The following items can be selected only from the specified repositories",
+     "args": {
+      "name": "repo_id"
+     }
+    },
+    {
+     "name": "--from-vendor",
+     "description": "The following items can be selected only from the specified vendors",
+     "args": {
+      "name": "vendor"
+     }
+    },
+    {
+     "name": "--destdir",
+     "description": "Set directory used for downloading packages to",
+     "args": {
+      "name": "destdir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--downloadonly",
+     "description": "Only download packages for a transaction"
+    },
+    {
+     "name": "--offline",
+     "description": "Store the transaction to be performed offline"
+    },
+    {
+     "name": "--advisories",
+     "description": "Include content contained in advisories with specified name",
+     "args": {
+      "name": "advisory_name"
+     }
+    },
+    {
+     "name": "--advisory-severities",
+     "description": "Include content contained in advisories with specified severity",
+     "args": {
+      "name": "advisory_severity"
+     }
+    },
+    {
+     "name": "--bzs",
+     "description": "Include content contained in advisories that fix a Bugzilla ID, Eg",
+     "args": {
+      "name": "bugzilla_id"
+     }
+    },
+    {
+     "name": "--cves",
+     "description": "Include content contained in advisories that fix a CVE (Common Vulnerabilities…",
+     "args": {
+      "name": "cve_id"
+     }
+    },
+    {
+     "name": "--security",
+     "description": "Include content contained in security advisories"
+    },
+    {
+     "name": "--bugfix",
+     "description": "Include content contained in bugfix advisories"
+    },
+    {
+     "name": "--enhancement",
+     "description": "Include content contained in enhancement advisories"
+    },
+    {
+     "name": "--newpackage",
+     "description": "Include content contained in newpackage advisories"
+    },
+    {
+     "name": "--store",
+     "description": "Store the current transaction in a directory at the specified path instead of r…",
+     "args": {
+      "name": "stored_transaction_path"
+     }
+    },
+    {
+     "name": "--transient",
+     "description": "Set up a transient overlay on /usr that will be discarded on reboot"
+    },
+    {
+     "name": "--advisory",
+     "description": "Alias for '--advisories'",
+     "args": {
+      "name": "advisory_name"
+     }
+    },
+    {
+     "name": "--bz",
+     "description": "Alias for '--bzs'",
+     "args": {
+      "name": "bugzilla_id"
+     }
+    },
+    {
+     "name": "--cve",
+     "description": "Alias for '--cves'",
+     "args": {
+      "name": "cve_id"
+     }
+    }
+   ],
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "remove",
+   "description": "Remove (uninstall) software",
+   "priority": 76,
+   "options": [
+    {
+     "name": "--installed-from-repo",
+     "description": "Filters installed packages by the ID of the repository they were installed from",
+     "args": {
+      "name": "repo_id"
+     }
+    },
+    {
+     "name": "--no-autoremove",
+     "description": "Disable removal of dependencies that are no longer used"
+    },
+    {
+     "name": "--oldinstallonly",
+     "description": "Remove old installonly packages"
+    },
+    {
+     "name": "--duplicates",
+     "description": "Remove older versions of duplicate packages and reinstall the newest version"
+    },
+    {
+     "name": "--limit",
+     "description": "Limit the number of installonly package versions to keep (must be >=1, used wit…",
+     "args": {
+      "name": "limit"
+     }
+    },
+    {
+     "name": "--offline",
+     "description": "Store the transaction to be performed offline"
+    },
+    {
+     "name": "--store",
+     "description": "Store the current transaction in a directory at the specified path instead of r…",
+     "args": {
+      "name": "stored_transaction_path"
+     }
+    },
+    {
+     "name": "--transient",
+     "description": "Set up a transient overlay on /usr that will be discarded on reboot"
+    },
+    {
+     "name": "--noautoremove",
+     "description": "Alias for '--no-autoremove'"
+    }
+   ],
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "distro-sync",
+   "description": "Upgrade or downgrade installed software to the latest available versions",
+   "options": [
+    {
+     "name": "--allowerasing",
+     "description": "Allow removing of installed packages to resolve problems"
+    },
+    {
+     "name": "--skip-broken",
+     "description": "Allow resolving of depsolve problems by skipping packages"
+    },
+    {
+     "name": "--skip-unavailable",
+     "description": "Allow skipping unavailable packages"
+    },
+    {
+     "name": "--installed-from-repo",
+     "description": "Filters installed packages by the ID of the repository they were installed from",
+     "args": {
+      "name": "repo_id"
+     }
+    },
+    {
+     "name": "--from-repo",
+     "description": "The following items can be selected only from the specified repositories",
+     "args": {
+      "name": "repo_id"
+     }
+    },
+    {
+     "name": "--from-vendor",
+     "description": "The following items can be selected only from the specified vendors",
+     "args": {
+      "name": "vendor"
+     }
+    },
+    {
+     "name": "--downloadonly",
+     "description": "Only download packages for a transaction"
+    },
+    {
+     "name": "--offline",
+     "description": "Store the transaction to be performed offline"
+    },
+    {
+     "name": "--store",
+     "description": "Store the current transaction in a directory at the specified path instead of r…",
+     "args": {
+      "name": "stored_transaction_path"
+     }
+    },
+    {
+     "name": "--transient",
+     "description": "Set up a transient overlay on /usr that will be discarded on reboot"
+    }
+   ]
+  },
+  {
+   "name": "downgrade",
+   "description": "Downgrade software",
+   "options": [
+    {
+     "name": "--allowerasing",
+     "description": "Allow removing of installed packages to resolve problems"
+    },
+    {
+     "name": "--skip-broken",
+     "description": "Allow resolving of depsolve problems by skipping packages"
+    },
+    {
+     "name": "--skip-unavailable",
+     "description": "Allow skipping unavailable packages"
+    },
+    {
+     "name": "--allow-downgrade",
+     "description": "Allow downgrade of dependencies for resolve of requested operation"
+    },
+    {
+     "name": "--no-allow-downgrade",
+     "description": "Disable downgrade of dependencies for resolve of requested operation"
+    },
+    {
+     "name": "--installed-from-repo",
+     "description": "Filters installed packages by the ID of the repository they were installed from",
+     "args": {
+      "name": "repo_id"
+     }
+    },
+    {
+     "name": "--from-repo",
+     "description": "The following items can be selected only from the specified repositories",
+     "args": {
+      "name": "repo_id"
+     }
+    },
+    {
+     "name": "--from-vendor",
+     "description": "The following items can be selected only from the specified vendors",
+     "args": {
+      "name": "vendor"
+     }
+    },
+    {
+     "name": "--downloadonly",
+     "description": "Only download packages for a transaction"
+    },
+    {
+     "name": "--offline",
+     "description": "Store the transaction to be performed offline"
+    },
+    {
+     "name": "--store",
+     "description": "Store the current transaction in a directory at the specified path instead of r…",
+     "args": {
+      "name": "stored_transaction_path"
+     }
+    },
+    {
+     "name": "--transient",
+     "description": "Set up a transient overlay on /usr that will be discarded on reboot"
+    }
+   ],
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "reinstall",
+   "description": "Reinstall software",
+   "options": [
+    {
+     "name": "--allowerasing",
+     "description": "Allow removing of installed packages to resolve problems"
+    },
+    {
+     "name": "--skip-broken",
+     "description": "Allow resolving of depsolve problems by skipping packages"
+    },
+    {
+     "name": "--skip-unavailable",
+     "description": "Allow skipping unavailable packages"
+    },
+    {
+     "name": "--allow-downgrade",
+     "description": "Allow downgrade of dependencies for resolve of requested operation"
+    },
+    {
+     "name": "--no-allow-downgrade",
+     "description": "Disable downgrade of dependencies for resolve of requested operation"
+    },
+    {
+     "name": "--installed-from-repo",
+     "description": "Filters installed packages by the ID of the repository they were installed from",
+     "args": {
+      "name": "repo_id"
+     }
+    },
+    {
+     "name": "--from-repo",
+     "description": "The following items can be selected only from the specified repositories",
+     "args": {
+      "name": "repo_id"
+     }
+    },
+    {
+     "name": "--from-vendor",
+     "description": "The following items can be selected only from the specified vendors",
+     "args": {
+      "name": "vendor"
+     }
+    },
+    {
+     "name": "--downloadonly",
+     "description": "Only download packages for a transaction"
+    },
+    {
+     "name": "--offline",
+     "description": "Store the transaction to be performed offline"
+    },
+    {
+     "name": "--store",
+     "description": "Store the current transaction in a directory at the specified path instead of r…",
+     "args": {
+      "name": "stored_transaction_path"
+     }
+    },
+    {
+     "name": "--transient",
+     "description": "Set up a transient overlay on /usr that will be discarded on reboot"
+    }
+   ],
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "debuginfo-install",
+   "description": "Install debuginfo packages",
+   "options": [
+    {
+     "name": "--allowerasing",
+     "description": "Allow removing of installed packages to resolve problems"
+    },
+    {
+     "name": "--skip-broken",
+     "description": "Allow resolving of depsolve problems by skipping packages"
+    },
+    {
+     "name": "--skip-unavailable",
+     "description": "Allow skipping unavailable packages"
+    },
+    {
+     "name": "--offline",
+     "description": "Store the transaction to be performed offline"
+    },
+    {
+     "name": "--store",
+     "description": "Store the current transaction in a directory at the specified path instead of r…",
+     "args": {
+      "name": "stored_transaction_path"
+     }
+    },
+    {
+     "name": "--transient",
+     "description": "Set up a transient overlay on /usr that will be discarded on reboot"
+    }
+   ]
+  },
+  {
+   "name": "swap",
+   "description": "Remove software and install another in one transaction",
+   "options": [
+    {
+     "name": "--allowerasing",
+     "description": "Allow removing of installed packages to resolve problems"
+    },
+    {
+     "name": "--installed-from-repo",
+     "description": "Filters installed packages by the ID of the repository they were installed from",
+     "args": {
+      "name": "repo_id"
+     }
+    },
+    {
+     "name": "--from-repo",
+     "description": "The following items can be selected only from the specified repositories",
+     "args": {
+      "name": "repo_id"
+     }
+    },
+    {
+     "name": "--from-vendor",
+     "description": "The following items can be selected only from the specified vendors",
+     "args": {
+      "name": "vendor"
+     }
+    },
+    {
+     "name": "--offline",
+     "description": "Store the transaction to be performed offline"
+    },
+    {
+     "name": "--store",
+     "description": "Store the current transaction in a directory at the specified path instead of r…",
+     "args": {
+      "name": "stored_transaction_path"
+     }
+    },
+    {
+     "name": "--transient",
+     "description": "Set up a transient overlay on /usr that will be discarded on reboot"
+    }
+   ],
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "mark",
+   "description": "Change the reason of an installed package",
+   "options": [
+    {
+     "name": "--skip-unavailable",
+     "description": "Allow skipping unavailable packages"
+    },
+    {
+     "name": "--offline",
+     "description": "Store the transaction to be performed offline"
+    },
+    {
+     "name": "--store",
+     "description": "Store the current transaction in a directory at the specified path instead of r…",
+     "args": {
+      "name": "stored_transaction_path"
+     }
+    },
+    {
+     "name": "--transient",
+     "description": "Set up a transient overlay on /usr that will be discarded on reboot"
+    }
+   ]
+  },
+  {
+   "name": "autoremove",
+   "description": "Remove all unneeded packages originally installed as dependencies",
+   "priority": 75,
+   "options": [
+    {
+     "name": "--offline",
+     "description": "Store the transaction to be performed offline"
+    },
+    {
+     "name": "--store",
+     "description": "Store the current transaction in a directory at the specified path instead of r…",
+     "args": {
+      "name": "stored_transaction_path"
+     }
+    },
+    {
+     "name": "--transient",
+     "description": "Set up a transient overlay on /usr that will be discarded on reboot"
+    }
+   ]
+  },
+  {
+   "name": "provides",
+   "description": "Find what package provides the given value",
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "replay",
+   "description": "Replay a transaction that was previously stored to a directory",
+   "options": [
+    {
+     "name": "--skip-broken",
+     "description": "Allow resolving of depsolve problems by skipping packages"
+    },
+    {
+     "name": "--skip-unavailable",
+     "description": "Allow skipping unavailable packages"
+    },
+    {
+     "name": "--ignore-extras",
+     "description": "Don't consider extra packages pulled into the transaction as errors"
+    },
+    {
+     "name": "--ignore-installed",
+     "description": "Don't consider mismatches between installed and stored transaction packages as…"
+    }
+   ]
+  },
+  {
+   "name": "check-upgrade",
+   "description": "Check for available package upgrades",
+   "options": [
+    {
+     "name": "--minimal",
+     "description": "Reports the lowest versions of packages that fix advisories of type bugfix, enh…"
+    },
+    {
+     "name": "--changelogs",
+     "description": "Show changelogs before update"
+    },
+    {
+     "name": "--advisories",
+     "description": "Include content contained in advisories with specified name",
+     "args": {
+      "name": "advisory_name"
+     }
+    },
+    {
+     "name": "--advisory-severities",
+     "description": "Include content contained in advisories with specified severity",
+     "args": {
+      "name": "advisory_severity"
+     }
+    },
+    {
+     "name": "--bzs",
+     "description": "Include content contained in advisories that fix a Bugzilla ID, Eg",
+     "args": {
+      "name": "bugzilla_id"
+     }
+    },
+    {
+     "name": "--cves",
+     "description": "Include content contained in advisories that fix a CVE (Common Vulnerabilities…",
+     "args": {
+      "name": "cve_id"
+     }
+    },
+    {
+     "name": "--security",
+     "description": "Include content contained in security advisories"
+    },
+    {
+     "name": "--bugfix",
+     "description": "Include content contained in bugfix advisories"
+    },
+    {
+     "name": "--enhancement",
+     "description": "Include content contained in enhancement advisories"
+    },
+    {
+     "name": "--newpackage",
+     "description": "Include content contained in newpackage advisories"
+    },
+    {
+     "name": "--json",
+     "description": "Request json output format"
+    }
+   ]
+  },
+  {
+   "name": "check",
+   "description": "Check for problems in the packagedb",
+   "options": [
+    {
+     "name": "--dependencies",
+     "description": "Show missing dependencies and conflicts"
+    },
+    {
+     "name": "--duplicates",
+     "description": "Show duplicated packages"
+    },
+    {
+     "name": "--obsoleted",
+     "description": "Show obsoleted packages"
+    }
+   ]
+  },
+  {
+   "name": "leaves",
+   "description": "List groups of installed packages not required by other installed packages"
+  },
+  {
+   "name": "repoquery",
+   "description": "Search for packages matching various criteria",
+   "options": [
+    {
+     "name": [
+      "-i",
+      "--info"
+     ],
+     "description": "Show detailed information about the packages"
+    },
+    {
+     "name": "--querytags",
+     "description": "Display available tags for --queryformat"
+    },
+    {
+     "name": "--queryformat",
+     "description": "Display format for packages",
+     "args": {
+      "name": "queryformat"
+     }
+    },
+    {
+     "name": "--changelogs",
+     "description": "Display package changelogs"
+    },
+    {
+     "name": "--files",
+     "description": "Like --queryformat=\"%{files}\" but deduplicated and sorted"
+    },
+    {
+     "name": "--sourcerpm",
+     "description": "Like --queryformat=\"%{sourcerpm}\" but deduplicated and sorted"
+    },
+    {
+     "name": "--location",
+     "description": "Like --queryformat=\"%{location}\" but deduplicated and sorted"
+    },
+    {
+     "name": "--conflicts",
+     "description": "Like --queryformat=\"%{conflicts}\" but deduplicated and sorted"
+    },
+    {
+     "name": "--depends",
+     "description": "Like --queryformat=\"%{depends}\" but deduplicated and sorted"
+    },
+    {
+     "name": "--enhances",
+     "description": "Like --queryformat=\"%{enhances}\" but deduplicated and sorted"
+    },
+    {
+     "name": "--obsoletes",
+     "description": "Like --queryformat=\"%{obsoletes}\" but deduplicated and sorted"
+    },
+    {
+     "name": "--provides",
+     "description": "Like --queryformat=\"%{provides}\" but deduplicated and sorted"
+    },
+    {
+     "name": "--recommends",
+     "description": "Like --queryformat=\"%{recommends}\" but deduplicated and sorted"
+    },
+    {
+     "name": "--requires",
+     "description": "Like --queryformat=\"%{requires}\" but deduplicated and sorted"
+    },
+    {
+     "name": "--requires-pre",
+     "description": "Like --queryformat=\"%{requires_pre}\" but deduplicated and sorted"
+    },
+    {
+     "name": "--suggests",
+     "description": "Like --queryformat=\"%{suggests}\" but deduplicated and sorted"
+    },
+    {
+     "name": "--supplements",
+     "description": "Like --queryformat=\"%{supplements}\" but deduplicated and sorted"
+    },
+    {
+     "name": "--qf",
+     "description": "Alias for '--queryformat'",
+     "args": {
+      "name": "queryformat"
+     }
+    },
+    {
+     "name": [
+      "-l",
+      "--list"
+     ],
+     "description": "Alias for '--files'"
+    },
+    {
+     "name": "--available",
+     "description": "Query available packages (default)"
+    },
+    {
+     "name": "--installed",
+     "description": "Query installed packages"
+    },
+    {
+     "name": "--installed-from-repo",
+     "description": "Filters installed packages by the ID of the repository they were installed from",
+     "args": {
+      "name": "repo_id"
+     }
+    },
+    {
+     "name": "--leaves",
+     "description": "Limit to groups of installed packages not required by other installed packages"
+    },
+    {
+     "name": "--userinstalled",
+     "description": "Limit to packages that are not installed as dependencies or weak dependencies"
+    },
+    {
+     "name": "--duplicates",
+     "description": "Limit to installed duplicate packages (i.e"
+    },
+    {
+     "name": "--unneeded",
+     "description": "Limit to unneeded installed packages (i.e"
+    },
+    {
+     "name": "--installonly",
+     "description": "Limit to installed installonly packages"
+    },
+    {
+     "name": "--extras",
+     "description": "Limit to installed packages that are not present in any available repository"
+    },
+    {
+     "name": "--upgrades",
+     "description": "Limit to available packages that provide an upgrade for some already installed…"
+    },
+    {
+     "name": "--advisories",
+     "description": "Include content contained in advisories with specified name",
+     "args": {
+      "name": "advisory_name"
+     }
+    },
+    {
+     "name": "--advisory-severities",
+     "description": "Include content contained in advisories with specified severity",
+     "args": {
+      "name": "advisory_severity"
+     }
+    },
+    {
+     "name": "--bzs",
+     "description": "Include content contained in advisories that fix a Bugzilla ID, Eg",
+     "args": {
+      "name": "bugzilla_id"
+     }
+    },
+    {
+     "name": "--cves",
+     "description": "Include content contained in advisories that fix a CVE (Common Vulnerabilities…",
+     "args": {
+      "name": "cve_id"
+     }
+    },
+    {
+     "name": "--security",
+     "description": "Include content contained in security advisories"
+    },
+    {
+     "name": "--bugfix",
+     "description": "Include content contained in bugfix advisories"
+    },
+    {
+     "name": "--enhancement",
+     "description": "Include content contained in enhancement advisories"
+    },
+    {
+     "name": "--newpackage",
+     "description": "Include content contained in newpackage advisories"
+    },
+    {
+     "name": "--latest-limit",
+     "description": "Limit to N latest packages for a given name.arch (or all except N latest if N i…",
+     "args": {
+      "name": "n"
+     }
+    },
+    {
+     "name": "--whatdepends",
+     "description": "Limit to packages that require, enhance, recommend, suggest or supplement any o…",
+     "args": {
+      "name": "capability"
+     }
+    },
+    {
+     "name": "--whatconflicts",
+     "description": "Limit to packages that conflict with any of <capabilities>",
+     "args": {
+      "name": "capability"
+     }
+    },
+    {
+     "name": "--whatenhances",
+     "description": "Limit to packages that enhance any of <capabilities>",
+     "args": {
+      "name": "capability"
+     }
+    },
+    {
+     "name": "--whatobsoletes",
+     "description": "Limit to packages that obsolete any of <capabilities>",
+     "args": {
+      "name": "capability"
+     }
+    },
+    {
+     "name": "--whatprovides",
+     "description": "Limit to packages that provide any of <capabilities>",
+     "args": {
+      "name": "capability"
+     }
+    },
+    {
+     "name": "--whatrecommends",
+     "description": "Limit to packages that recommend any of <capabilities>",
+     "args": {
+      "name": "capability"
+     }
+    },
+    {
+     "name": "--whatrequires",
+     "description": "Limit to packages that require any of <capabilities>",
+     "args": {
+      "name": "capability"
+     }
+    },
+    {
+     "name": "--whatsupplements",
+     "description": "Limit to packages that supplement any of <capabilities>",
+     "args": {
+      "name": "capability"
+     }
+    },
+    {
+     "name": "--whatsuggests",
+     "description": "Limit to packages that suggest any of <capabilities>",
+     "args": {
+      "name": "capability"
+     }
+    },
+    {
+     "name": "--arch",
+     "description": "Limit to packages of these architectures",
+     "args": {
+      "name": "arch"
+     }
+    },
+    {
+     "name": [
+      "-f",
+      "--file"
+     ],
+     "description": "Limit to packages that own these files",
+     "args": {
+      "name": "file",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--exactdeps",
+     "description": "Limit to packages that require <capability> specified by --whatrequires"
+    },
+    {
+     "name": "--recent",
+     "description": "Limit to only recently changed packages"
+    },
+    {
+     "name": "--srpm",
+     "description": "After filtering is finished use packages' corresponding source RPMs for output…"
+    },
+    {
+     "name": "--disable-modular-filtering",
+     "description": "Include packages of inactive module streams"
+    },
+    {
+     "name": "--providers-of",
+     "description": "After filtering is finished get selected attribute of packages and output packa…",
+     "args": {
+      "name": "package_attribute"
+     }
+    },
+    {
+     "name": "--recursive",
+     "description": "Used with --whatrequires or --providers-of=requires options to query the packag…"
+    },
+    {
+     "name": "--advisory",
+     "description": "Alias for '--advisories'",
+     "args": {
+      "name": "advisory_name"
+     }
+    },
+    {
+     "name": "--bz",
+     "description": "Alias for '--bzs'",
+     "args": {
+      "name": "bugzilla_id"
+     }
+    },
+    {
+     "name": "--cve",
+     "description": "Alias for '--cves'",
+     "args": {
+      "name": "cve_id"
+     }
+    }
+   ]
+  },
+  {
+   "name": "search",
+   "description": "Search for software matching all specified strings",
+   "priority": 76,
+   "options": [
+    {
+     "name": "--all",
+     "description": "Search also package description and URL"
+    },
+    {
+     "name": "--showduplicates",
+     "description": "Show all versions of the packages, not only the latest ones"
+    },
+    {
+     "name": "--name",
+     "description": "Limit the search to the Name field"
+    },
+    {
+     "name": "--summary",
+     "description": "Limit the search to the Summary field"
+    }
+   ],
+   "args": {
+    "name": "pattern"
+   }
+  },
+  {
+   "name": "list",
+   "description": "Lists packages depending on the packages' relation to the system",
+   "priority": 75,
+   "options": [
+    {
+     "name": "--showduplicates",
+     "description": "Show all versions of the packages, not only the latest ones"
+    },
+    {
+     "name": "--installed-from-repo",
+     "description": "Filters installed packages by the ID of the repository they were installed from",
+     "args": {
+      "name": "repo_id"
+     }
+    },
+    {
+     "name": "--installed",
+     "description": "List installed packages"
+    },
+    {
+     "name": "--available",
+     "description": "List available packages"
+    },
+    {
+     "name": "--extras",
+     "description": "List extras, that is packages installed on the system that are not available in…"
+    },
+    {
+     "name": "--obsoletes",
+     "description": "List packages installed on the system that are obsoleted by packages in any kno…"
+    },
+    {
+     "name": "--recent",
+     "description": "List packages recently added into the repositories"
+    },
+    {
+     "name": "--upgrades",
+     "description": "List upgrades available for the installed packages"
+    },
+    {
+     "name": "--autoremove",
+     "description": "List packages which will be removed by the 'dnf autoremove' command"
+    },
+    {
+     "name": "--json",
+     "description": "Request json output format"
+    },
+    {
+     "name": "--updates",
+     "description": "Alias for '--upgrades'"
+    }
+   ],
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "info",
+   "description": "Lists packages depending on the packages' relation to the system with additiona…",
+   "priority": 75,
+   "options": [
+    {
+     "name": "--showduplicates",
+     "description": "Show all versions of the packages, not only the latest ones"
+    },
+    {
+     "name": "--installed-from-repo",
+     "description": "Filters installed packages by the ID of the repository they were installed from",
+     "args": {
+      "name": "repo_id"
+     }
+    },
+    {
+     "name": "--installed",
+     "description": "List installed packages"
+    },
+    {
+     "name": "--available",
+     "description": "List available packages"
+    },
+    {
+     "name": "--extras",
+     "description": "List extras, that is packages installed on the system that are not available in…"
+    },
+    {
+     "name": "--obsoletes",
+     "description": "List packages installed on the system that are obsoleted by packages in any kno…"
+    },
+    {
+     "name": "--recent",
+     "description": "List packages recently added into the repositories"
+    },
+    {
+     "name": "--upgrades",
+     "description": "List upgrades available for the installed packages"
+    },
+    {
+     "name": "--autoremove",
+     "description": "List packages which will be removed by the 'dnf autoremove' command"
+    },
+    {
+     "name": "--json",
+     "description": "Request json output format"
+    },
+    {
+     "name": "--updates",
+     "description": "Alias for '--upgrades'"
+    }
+   ],
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "group",
+   "description": "Manage comps groups"
+  },
+  {
+   "name": "environment",
+   "description": "Manage comps environments"
+  },
+  {
+   "name": "module",
+   "description": "Manage modules"
+  },
+  {
+   "name": "history",
+   "description": "Manage transaction history"
+  },
+  {
+   "name": "repo",
+   "description": "Manage repositories"
+  },
+  {
+   "name": "advisory",
+   "description": "Manage advisories"
+  },
+  {
+   "name": "versionlock",
+   "description": "Manage versionlock configuration"
+  },
+  {
+   "name": "system-upgrade",
+   "description": "Prepare system for upgrade to a new release"
+  },
+  {
+   "name": "offline-distrosync",
+   "description": "Store a distro-sync transaction to be performed offline"
+  },
+  {
+   "name": "offline-upgrade",
+   "description": "Store an upgrade transaction to be performed offline"
+  },
+  {
+   "name": "offline",
+   "description": "Manage offline transactions"
+  },
+  {
+   "name": "config-manager",
+   "description": "Manage configuration"
+  },
+  {
+   "name": "clean",
+   "description": "Remove or expire cached data"
+  },
+  {
+   "name": "download",
+   "description": "Download software to the current directory",
+   "options": [
+    {
+     "name": "--arch",
+     "description": "Limit to packages of given architectures",
+     "args": {
+      "name": "arch"
+     }
+    },
+    {
+     "name": "--resolve",
+     "description": "Resolve and download needed dependencies"
+    },
+    {
+     "name": "--alldeps",
+     "description": "When running with --resolve, download all dependencies (do not exclude already…"
+    },
+    {
+     "name": "--from-repo",
+     "description": "The following items can be selected only from the specified repositories",
+     "args": {
+      "name": "repo_id"
+     }
+    },
+    {
+     "name": "--from-vendor",
+     "description": "The following items can be selected only from the specified vendors",
+     "args": {
+      "name": "vendor"
+     }
+    },
+    {
+     "name": "--destdir",
+     "description": "Set directory used for downloading packages to",
+     "args": {
+      "name": "destdir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--skip-unavailable",
+     "description": "Allow skipping unavailable packages"
+    },
+    {
+     "name": "--srpm",
+     "description": "Download the src.rpm instead"
+    },
+    {
+     "name": "--debuginfo",
+     "description": "Download the -debuginfo package instead"
+    },
+    {
+     "name": "--debugsource",
+     "description": "Download the -debugsource package instead"
+    },
+    {
+     "name": "--url",
+     "description": "Print a URL where the rpms can be downloaded instead of downloading"
+    },
+    {
+     "name": "--urlprotocol",
+     "description": "When running with --url, limit to specific protocols",
+     "args": {
+      "name": "value"
+     }
+    },
+    {
+     "name": "--allmirrors",
+     "description": "When running with --url, prints URLs from all available mirrors"
+    },
+    {
+     "name": "--source",
+     "description": "Alias for '--srpm'"
+    }
+   ]
+  },
+  {
+   "name": "makecache",
+   "description": "Generate the metadata cache"
+  },
+  {
+   "name": "builddep",
+   "description": "Install build dependencies for package or spec file",
+   "options": [
+    {
+     "name": [
+      "-D",
+      "--define"
+     ],
+     "description": "Define the RPM macro named \"macro\" to the value \"expr\" when parsing spec files",
+     "args": {
+      "name": "value"
+     }
+    },
+    {
+     "name": "--with",
+     "description": "Enable conditional build OPTION when parsing spec files",
+     "args": {
+      "name": "option"
+     }
+    },
+    {
+     "name": "--without",
+     "description": "Disable conditional build OPTION when parsing spec files",
+     "args": {
+      "name": "option"
+     }
+    },
+    {
+     "name": "--allowerasing",
+     "description": "Allow removing of installed packages to resolve problems"
+    },
+    {
+     "name": "--skip-unavailable",
+     "description": "Allow skipping unavailable packages"
+    },
+    {
+     "name": "--allow-downgrade",
+     "description": "Allow downgrade of dependencies for resolve of requested operation"
+    },
+    {
+     "name": "--no-allow-downgrade",
+     "description": "Disable downgrade of dependencies for resolve of requested operation"
+    },
+    {
+     "name": "--from-repo",
+     "description": "The following items can be selected only from the specified repositories",
+     "args": {
+      "name": "repo_id"
+     }
+    },
+    {
+     "name": "--from-vendor",
+     "description": "The following items can be selected only from the specified vendors",
+     "args": {
+      "name": "vendor"
+     }
+    },
+    {
+     "name": "--store",
+     "description": "Store the current transaction in a directory at the specified path instead of r…",
+     "args": {
+      "name": "stored_transaction_path"
+     }
+    },
+    {
+     "name": "--transient",
+     "description": "Set up a transient overlay on /usr that will be discarded on reboot"
+    },
+    {
+     "name": "--offline",
+     "description": "Store the transaction to be performed offline"
+    },
+    {
+     "name": "--spec",
+     "description": "Treat following commandline arguments as spec files"
+    },
+    {
+     "name": "--srpm",
+     "description": "Treat following commandline arguments as source rpm"
+    }
+   ]
+  },
+  {
+   "name": "changelog",
+   "description": "Show package changelogs",
+   "options": [
+    {
+     "name": "--since",
+     "description": "Show changelog entries since date in the YYYY-MM-DD format",
+     "args": {
+      "name": "yyyy-mm-dd"
+     }
+    },
+    {
+     "name": "--count",
+     "description": "Limit the number of changelog entries shown per package",
+     "args": {
+      "name": "value"
+     }
+    },
+    {
+     "name": "--upgrades",
+     "description": "Show new changelog entries for packages that provide an upgrade for an already…"
+    }
+   ]
+  },
+  {
+   "name": "copr",
+   "description": "Manage Copr repositories (add-ons provided by users/community/third-party)",
+   "options": [
+    {
+     "name": "--hub",
+     "description": "Copr hub (the web-UI/API server) hostname",
+     "args": {
+      "name": "hostname"
+     }
+    }
+   ]
+  },
+  {
+   "name": "needs-restarting",
+   "description": "Determine whether system or systemd services need restarting",
+   "options": [
+    {
+     "name": [
+      "-s",
+      "--services"
+     ],
+     "description": "List systemd services started before their dependencies were updated"
+    },
+    {
+     "name": [
+      "-p",
+      "--processes"
+     ],
+     "description": "List processes started before their dependencies were updated"
+    },
+    {
+     "name": [
+      "-e",
+      "--exclude-services"
+     ],
+     "description": "Exclude processes managed by systemd services (use with --processes)"
+    },
+    {
+     "name": [
+      "-r",
+      "--reboothint"
+     ],
+     "description": "Has no effect, kept for compatibility with DNF 4"
+    },
+    {
+     "name": "--json",
+     "description": "Request json output format"
+    }
+   ]
+  },
+  {
+   "name": "repoclosure",
+   "description": "Print list of unresolved dependencies for repositories",
+   "options": [
+    {
+     "name": "--check",
+     "description": "Specify repo ids to check",
+     "args": {
+      "name": "repo_id"
+     }
+    },
+    {
+     "name": "--arch",
+     "description": "Only check packages of specified architectures",
+     "args": {
+      "name": "arch"
+     }
+    },
+    {
+     "name": "--newest",
+     "description": "Only consider the latest version of a package from each repo"
+    },
+    {
+     "name": "--json",
+     "description": "Request json output format"
+    }
+   ]
+  },
+  {
+   "name": "repomanage",
+   "description": "Manage a directory with repodata or with rpm packages",
+   "options": [
+    {
+     "name": [
+      "-k",
+      "--keep"
+     ],
+     "description": "Set package count N for --new and --old (default: 1)",
+     "args": {
+      "name": "n"
+     }
+    },
+    {
+     "name": [
+      "-o",
+      "--old"
+     ],
+     "description": "Print all packages except the N newest for each name.arch"
+    },
+    {
+     "name": [
+      "-n",
+      "--new"
+     ],
+     "description": "Print N newest packages for each name.arch (default)"
+    },
+    {
+     "name": [
+      "-s",
+      "--space"
+     ],
+     "description": "Print packages separated by spaces instead of new lines"
+    }
+   ]
+  },
+  {
+   "name": "reposync",
+   "description": "Synchronize a remote DNF repository to a local directory",
+   "options": [
+    {
+     "name": [
+      "-a",
+      "--arch"
+     ],
+     "description": "Limit downloaded packages to given architectures",
+     "args": {
+      "name": "arch"
+     }
+    },
+    {
+     "name": "--srpm",
+     "description": "Download source packages"
+    },
+    {
+     "name": [
+      "-n",
+      "--newest-only"
+     ],
+     "description": "Download only newest packages per-repo"
+    },
+    {
+     "name": "--remote-time",
+     "description": "Set timestamps of the downloaded files according to remote side"
+    },
+    {
+     "name": "--norepopath",
+     "description": "Don't add the reponame to the download path"
+    },
+    {
+     "name": "--delete",
+     "description": "Delete local packages no longer present in repository"
+    },
+    {
+     "name": [
+      "-u",
+      "--urls"
+     ],
+     "description": "Print URLs where the rpms can be downloaded instead of downloading"
+    },
+    {
+     "name": [
+      "-g",
+      "--gpgcheck"
+     ],
+     "description": "Remove packages that fail OpenPGP signature checking after downloading"
+    },
+    {
+     "name": "--download-metadata",
+     "description": "Download all repository metadata"
+    },
+    {
+     "name": "--min-buildtime",
+     "description": "Download only packages with buildtime newer or equal to YYYY-MM-DD",
+     "args": {
+      "name": "yyyy-mm-dd"
+     }
+    },
+    {
+     "name": "--destdir",
+     "description": "Root path under which the downloaded repositories are stored",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--safe-write-path",
+     "description": "Filesystem path considered safe for writing",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--metadata-path",
+     "description": "Root path under which the downloaded metadata are stored",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": [
+      "-p",
+      "--download-path"
+     ],
+     "description": "Alias for '--destdir'",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--source",
+     "description": "Alias for '--srpm'"
+    }
+   ]
+  },
+  {
+   "name": "build-dep",
+   "description": "Compatibility alias for 'builddep'",
+   "options": [
+    {
+     "name": [
+      "-D",
+      "--define"
+     ],
+     "description": "Define the RPM macro named \"macro\" to the value \"expr\" when parsing spec files",
+     "args": {
+      "name": "value"
+     }
+    },
+    {
+     "name": "--with",
+     "description": "Enable conditional build OPTION when parsing spec files",
+     "args": {
+      "name": "option"
+     }
+    },
+    {
+     "name": "--without",
+     "description": "Disable conditional build OPTION when parsing spec files",
+     "args": {
+      "name": "option"
+     }
+    },
+    {
+     "name": "--allowerasing",
+     "description": "Allow removing of installed packages to resolve problems"
+    },
+    {
+     "name": "--skip-unavailable",
+     "description": "Allow skipping unavailable packages"
+    },
+    {
+     "name": "--allow-downgrade",
+     "description": "Allow downgrade of dependencies for resolve of requested operation"
+    },
+    {
+     "name": "--no-allow-downgrade",
+     "description": "Disable downgrade of dependencies for resolve of requested operation"
+    },
+    {
+     "name": "--from-repo",
+     "description": "The following items can be selected only from the specified repositories",
+     "args": {
+      "name": "repo_id"
+     }
+    },
+    {
+     "name": "--from-vendor",
+     "description": "The following items can be selected only from the specified vendors",
+     "args": {
+      "name": "vendor"
+     }
+    },
+    {
+     "name": "--store",
+     "description": "Store the current transaction in a directory at the specified path instead of r…",
+     "args": {
+      "name": "stored_transaction_path"
+     }
+    },
+    {
+     "name": "--transient",
+     "description": "Set up a transient overlay on /usr that will be discarded on reboot"
+    },
+    {
+     "name": "--offline",
+     "description": "Store the transaction to be performed offline"
+    },
+    {
+     "name": "--spec",
+     "description": "Treat following commandline arguments as spec files"
+    },
+    {
+     "name": "--srpm",
+     "description": "Treat following commandline arguments as source rpm"
+    }
+   ]
+  }
+ ],
+ "options": [
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Print help",
+   "isPersistent": true
+  },
+  {
+   "name": "--config",
+   "description": "Configuration file location",
+   "args": {
+    "name": "config_file_path"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-q",
+    "--quiet"
+   ],
+   "description": "In combination with a non-interactive command, shows just the relevant content",
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-C",
+    "--cacheonly"
+   ],
+   "description": "Run entirely from system cache, don't update the cache and use it even in case…",
+   "isPersistent": true
+  },
+  {
+   "name": "--color",
+   "description": "Control whether color is used",
+   "args": {
+    "name": "color"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--refresh",
+   "description": "Force refreshing metadata before running the command",
+   "isPersistent": true
+  },
+  {
+   "name": "--repofrompath",
+   "description": "Create additional repository using id and path",
+   "args": {
+    "name": "repo_id"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--setopt",
+   "description": "Set arbitrary config and repo options",
+   "args": {
+    "name": "repo_id"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--setvar",
+   "description": "Set arbitrary variable",
+   "args": {
+    "name": "var_name"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-y",
+    "--assumeyes"
+   ],
+   "description": "Automatically answer yes for all questions",
+   "isPersistent": true
+  },
+  {
+   "name": "--assumeno",
+   "description": "Automatically answer no for all questions",
+   "isPersistent": true
+  },
+  {
+   "name": "--best",
+   "description": "Try the best available package versions in transactions",
+   "isPersistent": true
+  },
+  {
+   "name": "--no-best",
+   "description": "Do not limit the transaction to the best candidate",
+   "isPersistent": true
+  },
+  {
+   "name": "--allow-vendor-change",
+   "description": "Allow automatic package replacements from different vendors",
+   "isPersistent": true
+  },
+  {
+   "name": "--no-allow-vendor-change",
+   "description": "Do not allow automatic package replacements from different vendors",
+   "isPersistent": true
+  },
+  {
+   "name": "--no-docs",
+   "description": "Don't install files that are marked as documentation (which includes man pages…",
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-x",
+    "--exclude"
+   ],
+   "description": "Exclude packages by name or glob",
+   "args": {
+    "name": "package"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--enable-repo",
+   "description": "Enable additional repositories",
+   "args": {
+    "name": "repo_id"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--disable-repo",
+   "description": "Disable repositories",
+   "args": {
+    "name": "repo_id"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--repo",
+   "description": "Enable just specific repositories",
+   "args": {
+    "name": "repo_id"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--no-gpgchecks",
+   "description": "Disable OpenPGP signature checking (if RPM policy allows)",
+   "isPersistent": true
+  },
+  {
+   "name": "--no-plugins",
+   "description": "Disable all libdnf5 plugins",
+   "isPersistent": true
+  },
+  {
+   "name": "--enable-plugin",
+   "description": "Enable libdnf5 plugins by name",
+   "args": {
+    "name": "plugin_name"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--disable-plugin",
+   "description": "Disable libdnf5 plugins by name",
+   "args": {
+    "name": "plugin_name"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--comment",
+   "description": "Add a comment to transaction",
+   "args": {
+    "name": "comment"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--installroot",
+   "description": "Set install root",
+   "args": {
+    "name": "absolute_path"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--use-host-config",
+   "description": "Use configuration, reposdir, and vars from the host system rather than the inst…",
+   "isPersistent": true
+  },
+  {
+   "name": "--releasever",
+   "description": "Override the value of $releasever in config and repo files",
+   "args": {
+    "name": "releasever"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--releasever-major",
+   "description": "Override the value of $releasever_major in config and repo files",
+   "args": {
+    "name": "releasever_major"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--releasever-minor",
+   "description": "Override the value of $releasever_minor in config and repo files",
+   "args": {
+    "name": "releasever_minor"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--show-new-leaves",
+   "description": "Show newly installed leaf packages and packages that became leaves after a tran…",
+   "isPersistent": true
+  },
+  {
+   "name": "--debugsolver",
+   "description": "Dump detailed solving results into files",
+   "isPersistent": true
+  },
+  {
+   "name": "--dump-main-config",
+   "description": "Print main configuration values to stdout",
+   "isPersistent": true
+  },
+  {
+   "name": "--dump-repo-config",
+   "description": "Print repository configuration values to stdout",
+   "args": {
+    "name": "repo_id"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--dump-variables",
+   "description": "Print variable values to stdout",
+   "isPersistent": true
+  },
+  {
+   "name": "--version",
+   "description": "Show DNF5 version and exit",
+   "isPersistent": true
+  },
+  {
+   "name": "--forcearch",
+   "description": "Force the use of a different architecture",
+   "args": {
+    "name": "forcearch"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--skip-file-locks",
+   "description": "Skip acquiring file locks, such as the lock on the system repository",
+   "isPersistent": true
+  },
+  {
+   "name": "-c",
+   "description": "Alias for '--config'",
+   "args": {
+    "name": "config_file_path"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--nobest",
+   "description": "Alias for '--no-best'",
+   "isPersistent": true
+  },
+  {
+   "name": "--nodocs",
+   "description": "Alias for '--no-docs'",
+   "isPersistent": true
+  },
+  {
+   "name": "--enablerepo",
+   "description": "Alias for '--enable-repo'",
+   "args": {
+    "name": "repo_id"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--disablerepo",
+   "description": "Alias for '--disable-repo'",
+   "args": {
+    "name": "repo_id"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--repoid",
+   "description": "Alias for '--repo'",
+   "args": {
+    "name": "repo_id"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--nogpgcheck",
+   "description": "Alias for '--no-gpgchecks'",
+   "isPersistent": true
+  },
+  {
+   "name": "--noplugins",
+   "description": "Alias for '--no-plugins'",
+   "isPersistent": true
+  },
+  {
+   "name": "--enableplugin",
+   "description": "Alias for '--enable-plugin'",
+   "args": {
+    "name": "plugin_name"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--disableplugin",
+   "description": "Alias for '--disable-plugin'",
+   "args": {
+    "name": "plugin_name"
+   },
+   "isPersistent": true
+  }
+ ]
+}

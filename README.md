@@ -8,6 +8,12 @@ highly configurable, gpu accelerated terminal
 
 <br clear="right">
 
+## tour
+
+showcase of going from none enabled features, to all at once:
+
+[![kuterm tour](assets/tour/tour.png)](assets/tour/tour.mp4)
+
 ## installation
 
 download binaries for linux, macos or windows from [releases](https://github.com/roworu/kuterm/releases).
@@ -32,6 +38,8 @@ partial changes work, missing values use defaults. you can just override things 
 
 you can check default settings used by terminal inside that repo: [Settings](https://github.com/roworu/kuterm/tree/main/assets)
 
+ready presets with videos, from minimal to everything turned on: [examples/presets](examples/presets)
+
 ## screenshots
 
 ![tabs](assets/screenshots/2.png)
@@ -45,3 +53,7 @@ needed build tasks for `zed` and `vscode` are in according folders:
 - `podman: build + test`: build and test dev version inside a podman (to not rely on system packages)
 - `run app`: run that dev build from `./target/podman/debug/kuterm`
 - `podman: e2e tests`: run the real app on a virtual display and check it by pixels, writes a report with screenshots of every tested feature to `e2e/artifacts/report.html`
+
+## known issues
+
+- a close tab or quit dialog closes by itself when a tab to the left of the active one exits while it is open: `close_tab_at` in `src/ui/workspace/closing.rs` keeps the dialog only while the active tab's index stays the same, it should compare the tab instead

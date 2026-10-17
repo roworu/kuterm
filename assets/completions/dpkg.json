@@ -1,0 +1,419 @@
+{
+ "name": "dpkg",
+ "description": "Debian package manager",
+ "options": [
+  {
+   "name": [
+    "-i",
+    "--install"
+   ],
+   "description": "Install .deb files",
+   "args": {
+    "name": "deb",
+    "template": "filepaths",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "--unpack",
+   "description": "Unpack .deb files without configuring them",
+   "args": {
+    "name": "deb",
+    "template": "filepaths",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": [
+    "-A",
+    "--record-avail"
+   ],
+   "description": "Record .deb files as available",
+   "args": {
+    "name": "deb",
+    "template": "filepaths",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "--configure",
+   "description": "Configure unpacked packages",
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "--triggers-only",
+   "description": "Process only pending triggers",
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": [
+    "-r",
+    "--remove"
+   ],
+   "description": "Remove packages, keep their config files",
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": [
+    "-P",
+    "--purge"
+   ],
+   "description": "Remove packages and their config files",
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": [
+    "-V",
+    "--verify"
+   ],
+   "description": "Verify the integrity of package(s)"
+  },
+  {
+   "name": "--get-selections",
+   "description": "Get list of selections to stdout"
+  },
+  {
+   "name": "--set-selections",
+   "description": "Set package selections from stdin"
+  },
+  {
+   "name": "--clear-selections",
+   "description": "Deselect every non-essential package"
+  },
+  {
+   "name": "--update-avail"
+  },
+  {
+   "name": "--merge-avail",
+   "description": "Merge with info from file"
+  },
+  {
+   "name": "--clear-avail",
+   "description": "Erase existing available info"
+  },
+  {
+   "name": [
+    "-s",
+    "--status"
+   ],
+   "description": "Display package status details",
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": [
+    "-p",
+    "--print-avail"
+   ],
+   "description": "Display available version details"
+  },
+  {
+   "name": [
+    "-L",
+    "--listfiles"
+   ],
+   "description": "List files 'owned' by package(s)",
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": [
+    "-l",
+    "--list"
+   ],
+   "description": "List packages concisely",
+   "args": {
+    "name": "pattern",
+    "isOptional": true
+   }
+  },
+  {
+   "name": [
+    "-S",
+    "--search"
+   ],
+   "description": "Find package(s) owning file(s)",
+   "args": {
+    "name": "pattern"
+   }
+  },
+  {
+   "name": [
+    "-C",
+    "--audit"
+   ],
+   "description": "Check for broken package(s)"
+  },
+  {
+   "name": "--yet-to-unpack",
+   "description": "Print packages selected for installation"
+  },
+  {
+   "name": "--predep-package",
+   "description": "Print pre-dependencies to unpack"
+  },
+  {
+   "name": "--add-architecture",
+   "description": "Add <arch> to the list of architectures",
+   "args": {
+    "name": "arch"
+   }
+  },
+  {
+   "name": "--remove-architecture",
+   "description": "Remove <arch> from the list of architectures",
+   "args": {
+    "name": "arch"
+   }
+  },
+  {
+   "name": "--print-architecture",
+   "description": "Print dpkg architecture"
+  },
+  {
+   "name": "--print-foreign-architectures",
+   "description": "Print allowed foreign architectures"
+  },
+  {
+   "name": "--assert-help",
+   "description": "Show help on assertions"
+  },
+  {
+   "name": "--assert-",
+   "description": "Assert support for the specified feature"
+  },
+  {
+   "name": "--validate-",
+   "description": "Validate a <thing>'s <string>"
+  },
+  {
+   "name": "--compare-versions",
+   "description": "Compare version numbers - see below",
+   "args": {
+    "name": "a"
+   }
+  },
+  {
+   "name": "--force-help",
+   "description": "Show help on forcing"
+  },
+  {
+   "name": [
+    "-Dh",
+    "--debug"
+   ],
+   "description": "Show help on debugging",
+   "args": {
+    "name": "help"
+   }
+  },
+  {
+   "name": [
+    "-?",
+    "--help"
+   ],
+   "description": "Show this help message"
+  },
+  {
+   "name": "--version",
+   "description": "Show the version"
+  },
+  {
+   "name": [
+    "-f",
+    "--field",
+    "-x",
+    "--extract",
+    "-X",
+    "--vextract",
+    "--ctrl-tarfile",
+    "--fsys-tarfile"
+   ],
+   "description": "On archives (type dpkg-deb --help)"
+  },
+  {
+   "name": "--admindir",
+   "description": "Use <directory> instead of /var/lib/dpkg",
+   "args": {
+    "name": "directory",
+    "template": "folders"
+   }
+  },
+  {
+   "name": "--root",
+   "description": "Install on a different root directory",
+   "args": {
+    "name": "directory",
+    "template": "folders"
+   }
+  },
+  {
+   "name": "--instdir",
+   "description": "Change installation dir without changing admin dir",
+   "args": {
+    "name": "directory",
+    "template": "folders"
+   }
+  },
+  {
+   "name": "--pre-invoke",
+   "description": "Set a pre-invoke hook",
+   "args": {
+    "name": "command"
+   }
+  },
+  {
+   "name": "--post-invoke",
+   "description": "Set a post-invoke hook",
+   "args": {
+    "name": "command"
+   }
+  },
+  {
+   "name": "--path-exclude",
+   "description": "Do not install paths which match a shell pattern",
+   "args": {
+    "name": "pattern"
+   }
+  },
+  {
+   "name": "--path-include",
+   "description": "Re-include a pattern after a previous exclusion",
+   "args": {
+    "name": "pattern"
+   }
+  },
+  {
+   "name": [
+    "-O",
+    "--selected-only"
+   ],
+   "description": "Skip packages not selected for install/upgrade"
+  },
+  {
+   "name": [
+    "-E",
+    "--skip-same-version"
+   ],
+   "description": "Skip packages with same installed version/arch"
+  },
+  {
+   "name": [
+    "-G",
+    "--refuse-downgrade"
+   ],
+   "description": "Skip packages with earlier version than installed"
+  },
+  {
+   "name": [
+    "-B",
+    "--auto-deconfigure"
+   ],
+   "description": "Install even if it would break some other package"
+  },
+  {
+   "name": "--verify-format",
+   "description": "Verify output format (supported: 'rpm')",
+   "args": {
+    "name": "format"
+   }
+  },
+  {
+   "name": "--no-pager",
+   "description": "Disables the use of any pager"
+  },
+  {
+   "name": "--no-debsig",
+   "description": "Do not try to verify package signatures"
+  },
+  {
+   "name": [
+    "--no-act",
+    "--dry-run",
+    "--simulate"
+   ],
+   "description": "Just say what we would do - do not do it"
+  },
+  {
+   "name": "-D",
+   "description": "Enable debugging (see -Dhelp or --debug=help)",
+   "args": {
+    "name": "octal"
+   }
+  },
+  {
+   "name": "--status-fd",
+   "description": "Send status change updates to file descriptor <n>",
+   "args": {
+    "name": "n"
+   }
+  },
+  {
+   "name": "--status-logger",
+   "description": "Send status change updates to <command>'s stdin",
+   "args": {
+    "name": "command"
+   }
+  },
+  {
+   "name": "--log",
+   "description": "Log status changes and actions to <filename>",
+   "args": {
+    "name": "filename",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "--ignore-depends",
+   "description": "Ignore dependencies involving <package>",
+   "args": {
+    "name": "package"
+   }
+  },
+  {
+   "name": "--force-",
+   "description": "Override problems (see --force-help)"
+  },
+  {
+   "name": "--no-force-",
+   "description": "Stop when problems encountered"
+  },
+  {
+   "name": "--refuse-",
+   "description": "Ditto"
+  },
+  {
+   "name": "--abort-after",
+   "description": "Abort after encountering <n> errors",
+   "args": {
+    "name": "n"
+   }
+  },
+  {
+   "name": "--robot",
+   "description": "Use machine-readable output on some commands"
+  }
+ ],
+ "args": {
+  "name": "file",
+  "template": "filepaths",
+  "isVariadic": true,
+  "isOptional": true
+ }
+}

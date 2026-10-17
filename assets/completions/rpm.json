@@ -1,0 +1,562 @@
+{
+ "name": "rpm",
+ "description": "RPM package manager",
+ "options": [
+  {
+   "name": [
+    "-a",
+    "--all"
+   ],
+   "description": "Query/verify all packages"
+  },
+  {
+   "name": [
+    "-f",
+    "--file"
+   ],
+   "description": "Query/verify package(s) owning installed"
+  },
+  {
+   "name": "--path",
+   "description": "Query/verify package(s) owning path"
+  },
+  {
+   "name": [
+    "-g",
+    "--group"
+   ],
+   "description": "Query/verify package(s) in group"
+  },
+  {
+   "name": [
+    "-p",
+    "--package"
+   ],
+   "description": "Query/verify a package file"
+  },
+  {
+   "name": [
+    "-q",
+    "--query"
+   ],
+   "description": "Rpm query mode"
+  },
+  {
+   "name": "--triggeredby",
+   "description": "Query the package(s) triggered by the"
+  },
+  {
+   "name": "--whatconflicts",
+   "description": "Query/verify the package(s) which"
+  },
+  {
+   "name": "--whatrequires",
+   "description": "Query/verify the package(s) which require"
+  },
+  {
+   "name": "--whatobsoletes",
+   "description": "Query/verify the package(s) which"
+  },
+  {
+   "name": "--whatprovides",
+   "description": "Query/verify the package(s) which provide"
+  },
+  {
+   "name": "--whatrecommends",
+   "description": "Query/verify the package(s) which"
+  },
+  {
+   "name": "--whatsuggests",
+   "description": "Query/verify the package(s) which"
+  },
+  {
+   "name": "--whatsupplements",
+   "description": "Query/verify the package(s) which"
+  },
+  {
+   "name": "--whatenhances",
+   "description": "Query/verify the package(s) which"
+  },
+  {
+   "name": "--nomanifest",
+   "description": "Do not process non-package files as"
+  },
+  {
+   "name": [
+    "-c",
+    "--configfiles"
+   ],
+   "description": "Only include configuration files"
+  },
+  {
+   "name": [
+    "-d",
+    "--docfiles"
+   ],
+   "description": "Only include documentation files"
+  },
+  {
+   "name": [
+    "-L",
+    "--licensefiles"
+   ],
+   "description": "Only include license files"
+  },
+  {
+   "name": [
+    "-A",
+    "--artifactfiles"
+   ],
+   "description": "Only include artifact files"
+  },
+  {
+   "name": "--noghost",
+   "description": "Exclude %%ghost files"
+  },
+  {
+   "name": "--noconfig",
+   "description": "Exclude %%config files"
+  },
+  {
+   "name": "--noartifact",
+   "description": "Exclude %%artifact files"
+  },
+  {
+   "name": "--dump",
+   "description": "Dump basic file information"
+  },
+  {
+   "name": [
+    "-l",
+    "--list"
+   ],
+   "description": "List files in package"
+  },
+  {
+   "name": "--queryformat",
+   "description": "Use the following query format",
+   "args": {
+    "name": "queryformat"
+   }
+  },
+  {
+   "name": [
+    "-s",
+    "--state"
+   ],
+   "description": "Display the states of the listed files"
+  },
+  {
+   "name": "--nofiledigest",
+   "description": "Don't verify digest of files"
+  },
+  {
+   "name": "--nofiles",
+   "description": "Don't verify files in package"
+  },
+  {
+   "name": "--nodeps",
+   "description": "Don't verify package dependencies"
+  },
+  {
+   "name": "--noscript",
+   "description": "Don't execute verify script(s)"
+  },
+  {
+   "name": "--allfiles",
+   "description": "Install all files, even configurations"
+  },
+  {
+   "name": "--allmatches",
+   "description": "Remove all packages which match <package>"
+  },
+  {
+   "name": "--badreloc",
+   "description": "Relocate files in non-relocatable package"
+  },
+  {
+   "name": [
+    "-e",
+    "--erase"
+   ],
+   "description": "Erase (uninstall) package",
+   "args": {
+    "name": "package"
+   }
+  },
+  {
+   "name": "--excludedocs",
+   "description": "Do not install documentation"
+  },
+  {
+   "name": "--excludepath",
+   "description": "Skip files with leading component <path>",
+   "args": {
+    "name": "path",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "--force",
+   "description": "Short hand for --replacepkgs"
+  },
+  {
+   "name": [
+    "-F",
+    "--freshen"
+   ],
+   "description": "Upgrade package(s) if already installed",
+   "args": {
+    "name": "packagefile",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": [
+    "-h",
+    "--hash"
+   ],
+   "description": "Print hash marks as package installs"
+  },
+  {
+   "name": "--ignorearch",
+   "description": "Don't verify package architecture"
+  },
+  {
+   "name": "--ignoreos",
+   "description": "Don't verify package operating system"
+  },
+  {
+   "name": "--ignoresize",
+   "description": "Don't check disk space before installing"
+  },
+  {
+   "name": "--noverify",
+   "description": "Short hand for --ignorepayload"
+  },
+  {
+   "name": [
+    "-i",
+    "--install"
+   ],
+   "description": "Install package(s)"
+  },
+  {
+   "name": "--justdb",
+   "description": "Update the database, but do not modify"
+  },
+  {
+   "name": "--nodb",
+   "description": "Do not update the database, but modify"
+  },
+  {
+   "name": "--nocontexts",
+   "description": "Don't install file security contexts"
+  },
+  {
+   "name": "--nocaps",
+   "description": "Don't install file capabilities"
+  },
+  {
+   "name": "--noorder",
+   "description": "Do not reorder package installation to"
+  },
+  {
+   "name": "--noscripts",
+   "description": "Do not execute package scriptlet(s)"
+  },
+  {
+   "name": "--notriggers",
+   "description": "Do not execute any scriptlet(s) triggered"
+  },
+  {
+   "name": "--oldpackage",
+   "description": "Upgrade to an old version of the package"
+  },
+  {
+   "name": "--percent",
+   "description": "Print percentages as package installs"
+  },
+  {
+   "name": "--prefix",
+   "description": "Relocate the package to <dir>, if",
+   "args": {
+    "name": "dir",
+    "template": "folders"
+   }
+  },
+  {
+   "name": "--relocate",
+   "description": "Relocate files from path <old> to <new>",
+   "args": {
+    "name": "old"
+   }
+  },
+  {
+   "name": "--replacefiles",
+   "description": "Ignore file conflicts between packages"
+  },
+  {
+   "name": "--replacepkgs",
+   "description": "Reinstall if the package is already"
+  },
+  {
+   "name": "--test",
+   "description": "Don't install, but tell if it would work"
+  },
+  {
+   "name": [
+    "-U",
+    "--upgrade"
+   ],
+   "description": "Upgrade package(s)",
+   "args": {
+    "name": "packagefile",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "--reinstall",
+   "description": "Reinstall package(s)",
+   "args": {
+    "name": "packagefile",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "--restore",
+   "description": "Restore package(s)",
+   "args": {
+    "name": "packagefile",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": [
+    "-D",
+    "--define"
+   ],
+   "description": "Define MACRO with value EXPR",
+   "args": {
+    "name": "value"
+   }
+  },
+  {
+   "name": "--undefine",
+   "description": "Undefine MACRO",
+   "args": {
+    "name": "macro"
+   }
+  },
+  {
+   "name": [
+    "-E",
+    "--eval"
+   ],
+   "description": "Print macro expansion of EXPR",
+   "args": {
+    "name": "value"
+   }
+  },
+  {
+   "name": "--target",
+   "description": "Specify target platform",
+   "args": {
+    "name": "cpu-vendor-os"
+   }
+  },
+  {
+   "name": "--macros",
+   "description": "Read <FILE:...> instead of default file(s)",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "--load",
+   "description": "Load a single macro file",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "--noplugins",
+   "description": "Don't enable any plugins"
+  },
+  {
+   "name": "--nodigest",
+   "description": "Don't verify package digest(s)"
+  },
+  {
+   "name": "--nosignature",
+   "description": "Don't verify package signature(s)"
+  },
+  {
+   "name": "--rcfile",
+   "description": "Read <FILE:...> instead of default file(s)",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": [
+    "-r",
+    "--root"
+   ],
+   "description": "Use ROOT as top level directory (default",
+   "args": {
+    "name": "root"
+   }
+  },
+  {
+   "name": "--dbpath",
+   "description": "Use database in DIRECTORY",
+   "args": {
+    "name": "directory",
+    "template": "folders"
+   }
+  },
+  {
+   "name": "--querytags",
+   "description": "Display known query tags"
+  },
+  {
+   "name": "--showrc",
+   "description": "Display final rpmrc and macro"
+  },
+  {
+   "name": "--quiet",
+   "description": "Provide less detailed output"
+  },
+  {
+   "name": [
+    "-v",
+    "--verbose"
+   ],
+   "description": "Provide more detailed output"
+  },
+  {
+   "name": "--version",
+   "description": "Print the version of rpm being used"
+  },
+  {
+   "name": "--scripts",
+   "description": "List install/erase scriptlets from"
+  },
+  {
+   "name": "--conflicts",
+   "description": "List capabilities this package conflicts"
+  },
+  {
+   "name": "--obsoletes",
+   "description": "List other packages removed by installing"
+  },
+  {
+   "name": "--provides",
+   "description": "List capabilities that this package"
+  },
+  {
+   "name": "--requires",
+   "description": "List capabilities required by package(s)"
+  },
+  {
+   "name": "--recommends",
+   "description": "List capabilities recommended by"
+  },
+  {
+   "name": "--suggests",
+   "description": "List capabilities suggested by package(s)"
+  },
+  {
+   "name": "--supplements",
+   "description": "List capabilities supplemented by"
+  },
+  {
+   "name": "--enhances",
+   "description": "List capabilities enhanced by package(s)"
+  },
+  {
+   "name": "--info",
+   "description": "List descriptive information from"
+  },
+  {
+   "name": "--changelog",
+   "description": "List change logs for this package"
+  },
+  {
+   "name": "--changes",
+   "description": "List changes for this package with full"
+  },
+  {
+   "name": "--xml",
+   "description": "List metadata in xml"
+  },
+  {
+   "name": "--json",
+   "description": "List metadata in JSON"
+  },
+  {
+   "name": "--triggers",
+   "description": "List trigger scriptlets from package(s)"
+  },
+  {
+   "name": "--filetriggers",
+   "description": "List filetrigger scriptlets from"
+  },
+  {
+   "name": "--last",
+   "description": "List package(s) by install time, most"
+  },
+  {
+   "name": "--dupes",
+   "description": "List duplicated packages"
+  },
+  {
+   "name": "--filesbypkg",
+   "description": "List all files from each package"
+  },
+  {
+   "name": "--fileclass",
+   "description": "List file names with their classes"
+  },
+  {
+   "name": "--filemime",
+   "description": "List file names with their mime types"
+  },
+  {
+   "name": "--filecolor",
+   "description": "List file names with their colors"
+  },
+  {
+   "name": "--fileprovide",
+   "description": "List file names with their provides"
+  },
+  {
+   "name": "--filerequire",
+   "description": "List file names with requires"
+  },
+  {
+   "name": "--filecaps",
+   "description": "List file names with their POSIX1.e"
+  },
+  {
+   "name": [
+    "-?",
+    "--help"
+   ],
+   "description": "Show this help message"
+  },
+  {
+   "name": "--usage",
+   "description": "Display brief usage message"
+  }
+ ],
+ "args": {
+  "name": "package",
+  "isVariadic": true,
+  "template": "filepaths"
+ }
+}

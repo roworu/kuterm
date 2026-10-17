@@ -1,0 +1,122 @@
+{
+ "name": "ln",
+ "description": "Make links between files",
+ "options": [
+  {
+   "name": "--backup",
+   "description": "Make a backup of each existing destination file",
+   "args": {
+    "name": "control",
+    "isOptional": true
+   }
+  },
+  {
+   "name": "-b",
+   "description": "Like --backup but does not accept an argument"
+  },
+  {
+   "name": [
+    "-f",
+    "--force"
+   ],
+   "description": "Remove existing destination files"
+  },
+  {
+   "name": [
+    "-i",
+    "--interactive"
+   ],
+   "description": "Prompt whether to remove existing destination files"
+  },
+  {
+   "name": [
+    "-n",
+    "--no-dereference"
+   ],
+   "description": "Treat LINK_NAME as a normal file if it is a"
+  },
+  {
+   "name": [
+    "-L",
+    "--logical"
+   ],
+   "description": "Follow TARGETs that are symbolic links"
+  },
+  {
+   "name": [
+    "-P",
+    "--physical"
+   ],
+   "description": "Make hard links directly to symbolic links"
+  },
+  {
+   "name": [
+    "-s",
+    "--symbolic"
+   ],
+   "description": "Make symbolic links instead of hard links"
+  },
+  {
+   "name": [
+    "-S",
+    "--suffix"
+   ],
+   "description": "Override the usual backup suffix",
+   "args": {
+    "name": "suffix"
+   }
+  },
+  {
+   "name": [
+    "-t",
+    "--target-directory"
+   ],
+   "description": "Specify the DIRECTORY in which to create the links",
+   "args": {
+    "name": "directory",
+    "template": "folders"
+   }
+  },
+  {
+   "name": [
+    "-T",
+    "--no-target-directory"
+   ],
+   "description": "Treat LINK_NAME as a normal file always"
+  },
+  {
+   "name": [
+    "-r",
+    "--relative"
+   ],
+   "description": "Create symbolic links relative to link location"
+  },
+  {
+   "name": [
+    "-v",
+    "--verbose"
+   ],
+   "description": "Print name of each linked file"
+  },
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Print help"
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Print version"
+  }
+ ],
+ "args": {
+  "name": "file",
+  "template": "filepaths",
+  "isVariadic": true,
+  "isOptional": true
+ }
+}

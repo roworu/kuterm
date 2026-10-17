@@ -1,0 +1,26 @@
+// Dracula, from github.com/dracula/dracula-theme (MIT licence).
+// terminal colors are the upstream palette, the ui colors are picked from it
+{
+  "tab_bar_background": "#21222c",
+  "tab_active_background": "#282a36",
+  "border": "#44475a",
+  "text": "#f8f8f2",
+  "text_muted": "#6272a4",
+  "danger_button": "#ff5555",
+  "danger_button_text": "#282a36",
+  "attention": "#ffb86c",
+  "terminal_background": "#282a36",
+  "terminal_foreground": "#f8f8f2",
+  "cursor": "#f8f8f2",
+  "selection": "#44475a",
+  "scrollbar": "#6272a4",
+  "search_match": "#646850",
+  "search_match_active": "#a1a76a",
+  "bright_foreground": "#ffffff",
+  "dim_foreground": "#9a9b9d",
+  "ansi": [
+    "#21222c", "#ff5555", "#50fa7b", "#f1fa8c", "#bd93f9", "#ff79c6", "#8be9fd", "#f8f8f2",
+    "#6272a4", "#ff6e6e", "#69ff94", "#ffffa5", "#d6acff", "#ff92df", "#a4ffff", "#ffffff",
+  ],
+  "ansi_dim": ["#232530", "#b4464a", "#42b163", "#abb16e", "#896eb5", "#b45d94", "#68a6b7", "#afb0b0"],
+}

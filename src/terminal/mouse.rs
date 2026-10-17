@@ -594,4 +594,22 @@ mod tests {
     fn alternate_scroll_zero_lines_sends_nothing() {
         assert_eq!(alternate_scroll(ALT, 0), None);
     }
+
+    #[test]
+    fn back_and_forward_buttons_are_not_reported() {
+        // the terminal mouse protocol has no code for them
+        for nav in [
+            gpui::NavigationDirection::Back,
+            gpui::NavigationDirection::Forward,
+        ] {
+            assert_eq!(
+                MouseButton::from_gpui(gpui::MouseButton::Navigate(nav)),
+                None
+            );
+        }
+        assert_eq!(
+            MouseButton::from_gpui(gpui::MouseButton::Middle),
+            Some(MouseButton::Middle)
+        );
+    }
 }

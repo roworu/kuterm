@@ -1,6 +1,6 @@
 //! everything drawn in the window: tabs, terminal views and the grid painter
 
-pub mod command_palette;
+pub mod dialogs;
 pub mod hints;
 pub mod search_bar;
 pub mod terminal_element;

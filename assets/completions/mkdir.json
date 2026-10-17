@@ -1,0 +1,60 @@
+{
+ "name": "mkdir",
+ "description": "Make directories",
+ "options": [
+  {
+   "name": [
+    "-m",
+    "--mode"
+   ],
+   "description": "Set file mode (not implemented on windows)",
+   "args": {
+    "name": "mode"
+   }
+  },
+  {
+   "name": [
+    "-p",
+    "--parents"
+   ],
+   "description": "Make parent directories as needed"
+  },
+  {
+   "name": [
+    "-v",
+    "--verbose"
+   ],
+   "description": "Print a message for each printed directory"
+  },
+  {
+   "name": "-Z",
+   "description": "Set SELinux security context of each created directory to the default type"
+  },
+  {
+   "name": "--context",
+   "description": "Like -Z, or if CTX is specified then set the SELinux or SMACK security context…",
+   "args": {
+    "name": "ctx"
+   }
+  },
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Print help"
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Print version"
+  }
+ ],
+ "args": {
+  "name": "directory",
+  "template": "folders",
+  "isVariadic": true
+ }
+}

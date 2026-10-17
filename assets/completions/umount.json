@@ -1,0 +1,143 @@
+{
+ "name": "umount",
+ "description": "Unmount filesystems",
+ "options": [
+  {
+   "name": [
+    "-a",
+    "--all"
+   ],
+   "description": "Unmount all filesystems"
+  },
+  {
+   "name": [
+    "-A",
+    "--all-targets"
+   ],
+   "description": "Unmount all mountpoints for the given device in the"
+  },
+  {
+   "name": [
+    "-c",
+    "--no-canonicalize"
+   ],
+   "description": "Don't canonicalize paths"
+  },
+  {
+   "name": [
+    "-d",
+    "--detach-loop"
+   ],
+   "description": "If mounted loop device, also free this loop device"
+  },
+  {
+   "name": "--fake",
+   "description": "Dry run"
+  },
+  {
+   "name": [
+    "-f",
+    "--force"
+   ],
+   "description": "Force unmount (in case of an unreachable NFS system)"
+  },
+  {
+   "name": [
+    "-i",
+    "--internal-only"
+   ],
+   "description": "Don't call the umount.<type> helpers"
+  },
+  {
+   "name": [
+    "-n",
+    "--no-mtab"
+   ],
+   "description": "Don't write to /etc/mtab"
+  },
+  {
+   "name": [
+    "-l",
+    "--lazy"
+   ],
+   "description": "Detach the filesystem now, clean up things later"
+  },
+  {
+   "name": [
+    "-O",
+    "--test-opts"
+   ],
+   "description": "Limit the set of filesystems (use with -a)",
+   "args": {
+    "name": "list"
+   }
+  },
+  {
+   "name": [
+    "-R",
+    "--recursive"
+   ],
+   "description": "Recursively unmount a target with all its children"
+  },
+  {
+   "name": [
+    "-r",
+    "--read-only"
+   ],
+   "description": "In case unmounting fails, try to remount read-only"
+  },
+  {
+   "name": [
+    "-t",
+    "--types"
+   ],
+   "description": "Limit the set of filesystem types",
+   "args": {
+    "name": "list"
+   }
+  },
+  {
+   "name": [
+    "-v",
+    "--verbose"
+   ],
+   "description": "Say what is being done"
+  },
+  {
+   "name": [
+    "-q",
+    "--quiet"
+   ],
+   "description": "Suppress 'not mounted' error messages"
+  },
+  {
+   "name": [
+    "-N",
+    "--namespace"
+   ],
+   "description": "Perform umount in another namespace",
+   "args": {
+    "name": "ns"
+   }
+  },
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Display this help"
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Display version"
+  }
+ ],
+ "args": {
+  "name": "mountpoint",
+  "template": "folders",
+  "isVariadic": true
+ }
+}

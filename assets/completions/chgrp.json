@@ -1,0 +1,105 @@
+{
+ "name": "chgrp",
+ "description": "Change group ownership",
+ "options": [
+  {
+   "name": "--help",
+   "description": "Print help information"
+  },
+  {
+   "name": [
+    "-c",
+    "--changes"
+   ],
+   "description": "Like verbose but report only when a change is made"
+  },
+  {
+   "name": [
+    "-f",
+    "--silent"
+   ]
+  },
+  {
+   "name": "--quiet",
+   "description": "Suppress most error messages"
+  },
+  {
+   "name": [
+    "-v",
+    "--verbose"
+   ],
+   "description": "Output a diagnostic for every file processed"
+  },
+  {
+   "name": "--preserve-root",
+   "description": "Fail to operate recursively on '/'"
+  },
+  {
+   "name": "--no-preserve-root",
+   "description": "Do not treat '/' specially (the default)"
+  },
+  {
+   "name": "--reference",
+   "description": "Use RFILE's group rather than specifying GROUP values",
+   "args": {
+    "name": "rfile",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "--from",
+   "description": "Change the group only if its current group matches GROUP",
+   "args": {
+    "name": "group"
+   }
+  },
+  {
+   "name": [
+    "-R",
+    "--recursive"
+   ],
+   "description": "Operate on files and directories recursively"
+  },
+  {
+   "name": "-H",
+   "description": "If a command line argument is a symbolic link to a directory, traverse it"
+  },
+  {
+   "name": "-L",
+   "description": "Traverse every symbolic link to a directory encountered"
+  },
+  {
+   "name": "-P",
+   "description": "Do not traverse any symbolic links (default)"
+  },
+  {
+   "name": "--dereference",
+   "description": "Affect the referent of each symbolic link (this is the default), rather than th…"
+  },
+  {
+   "name": [
+    "-h",
+    "--no-dereference"
+   ],
+   "description": "Affect symbolic links instead of any referenced file (useful only on systems th…"
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Print version"
+  }
+ ],
+ "args": [
+  {
+   "name": "group"
+  },
+  {
+   "name": "file",
+   "template": "filepaths",
+   "isVariadic": true,
+   "isOptional": false
+  }
+ ]
+}

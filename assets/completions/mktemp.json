@@ -1,0 +1,73 @@
+{
+ "name": "mktemp",
+ "description": "Create a temporary file or directory",
+ "options": [
+  {
+   "name": [
+    "-d",
+    "--directory"
+   ],
+   "description": "Make a directory instead of a file"
+  },
+  {
+   "name": [
+    "-u",
+    "--dry-run"
+   ],
+   "description": "Do not create anything"
+  },
+  {
+   "name": [
+    "-q",
+    "--quiet"
+   ],
+   "description": "Fail silently if an error occurs"
+  },
+  {
+   "name": "--suffix",
+   "description": "Append SUFFIX to TEMPLATE",
+   "args": {
+    "name": "suffix"
+   }
+  },
+  {
+   "name": "-p",
+   "description": "Short form of --tmpdir",
+   "args": {
+    "name": "dir",
+    "template": "folders"
+   }
+  },
+  {
+   "name": "--tmpdir",
+   "description": "Interpret TEMPLATE relative to DIR",
+   "args": {
+    "name": "dir",
+    "template": "folders",
+    "isOptional": true
+   }
+  },
+  {
+   "name": "-t",
+   "description": "Generate a template (using the supplied prefix and TMPDIR (TMP on windows) if s…"
+  },
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Print help"
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Print version"
+  }
+ ],
+ "args": {
+  "name": "template",
+  "isOptional": true
+ }
+}

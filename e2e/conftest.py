@@ -13,10 +13,13 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from harness import ARTIFACTS, BACKEND, BIN, App, Input, Session, session_env, sh, swaymsg, wait_until
+from harness import (ARTIFACTS, BACKEND, BIN, WORKER, WORKER_NUMBER, App, Input, Session, session_env, sh,
+                     swaymsg, wait_until)
 from report import Report
 
-DISPLAY = os.environ.get("E2E_DISPLAY", ":99")
+DISPLAY = os.environ.get("E2E_DISPLAY", f":{99 + WORKER_NUMBER}")
+# workers of a parallel run keep their screenshots apart, the controller merges the reports
+SHOTS = ARTIFACTS / f"shots-{BACKEND}" / WORKER
 
 REPORT = Report()
 
@@ -35,7 +38,15 @@ def pytest_configure(config):
         raise pytest.UsageError(f"--backend {backend} needs E2E_BACKEND={backend} set before pytest starts")
 
 
+def pytest_sessionstart(session):
+    # each backend keeps its own report, so a run on one leaves the other's. runs on the
+    # controller before any worker starts
+    if not WORKER:
+        shutil.rmtree(ARTIFACTS / f"shots-{BACKEND}", ignore_errors=True)
+
+
 def pytest_collection_modifyitems(config, items):
+    REPORT.order = {item.nodeid: i for i, item in enumerate(items)}
     other = "wayland_only" if BACKEND == "x11" else "x11_only"
     for item in items:
         if other in item.keywords:
@@ -44,22 +55,68 @@ def pytest_collection_modifyitems(config, items):
 
 def start_x11() -> list:
     """xvfb and openbox"""
+    # xvfbs of parallel workers race to create the socket folder, the loser listens only on
+    # the abstract socket, which some clients never try
+    Path("/tmp/.X11-unix").mkdir(mode=0o1777, exist_ok=True)
     procs = [subprocess.Popen(
         ["Xvfb", DISPLAY, "-screen", "0", "3840x2160x24", "-nolisten", "tcp", "-dpi", "96"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )]
     wait_until(lambda: subprocess.run(["xdpyinfo", "-display", DISPLAY], capture_output=True).returncode == 0,
                timeout=20, msg=f"xvfb on {DISPLAY}")
-    procs.append(subprocess.Popen(["openbox"], env=session_env(), stdout=subprocess.DEVNULL,
-                                  stderr=subprocess.DEVNULL))
-    # openbox is ready once it owns the wm selection
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline:
-        out = sh("xprop", "-root", "_NET_SUPPORTING_WM_CHECK", check=False, env=session_env())
-        if "window id" in out:
-            break
-        time.sleep(0.1)
-    return procs
+    wm = [start_openbox()]
+
+    def keep_wm() -> None:
+        # openbox of a session can die soon after it started, then windows are never mapped
+        if wm[0].poll() is not None:
+            wm[0] = start_openbox()
+
+    Session.keep_wm = keep_wm
+    return procs + [WmHandle(wm)]
+
+
+class WmHandle:
+    """the current openbox of the session, it may have been started again"""
+
+    def __init__(self, wm: list) -> None:
+        self.wm = wm
+
+    def terminate(self) -> None:
+        self.wm[0].terminate()
+
+    def wait(self, timeout=None) -> None:
+        self.wm[0].wait(timeout)
+
+    def kill(self) -> None:
+        self.wm[0].kill()
+
+
+def start_openbox() -> subprocess.Popen:
+    """openbox owning the wm selection of the display, alive a moment after"""
+    log = Path(Session.runtime_dir) / "openbox.log"
+    # sessions share no home, openbox keeps files there
+    home = Path(Session.runtime_dir) / "openbox-home"
+    home.mkdir(exist_ok=True)
+    env = {**session_env(), "HOME": str(home)}
+    # sessions starting together on a busy machine can leave openbox without the wm selection,
+    # then no window ever gets focus, so it gets another try
+    for _ in range(5):
+        wm = subprocess.Popen(["openbox", "--replace"], env=env, stdout=subprocess.DEVNULL,
+                              stderr=open(log, "a"))
+        # openbox is ready once it owns the wm selection and stays up
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and wm.poll() is None:
+            out = sh("xprop", "-root", "_NET_SUPPORTING_WM_CHECK", check=False, env=session_env())
+            if "window id" in out:
+                time.sleep(0.5)
+                if wm.poll() is None:
+                    return wm
+                break
+            time.sleep(0.1)
+        if wm.poll() is None:
+            wm.kill()
+        wm.wait()
+    raise RuntimeError(f"openbox did not start on {DISPLAY}:\n{log.read_text()}")
 
 
 def start_wayland() -> list:
@@ -84,8 +141,6 @@ def start_wayland() -> list:
 @pytest.fixture(scope="session", autouse=True)
 def display_session():
     assert BIN.exists(), f"binary {BIN} missing, run cargo build first"
-    # each backend keeps its own report, so a run on one leaves the other's
-    shutil.rmtree(ARTIFACTS / f"shots-{BACKEND}", ignore_errors=True)
     Session.display = DISPLAY
     runtime = Path(Session.runtime_dir)
     shutil.rmtree(runtime, ignore_errors=True)
@@ -122,7 +177,7 @@ def app_factory(request):
         last[id(app)] = img
         # the window title is not part of the screenshot, titles are tested too
         caption = f"{caption} (window title: {app.title()!r})"
-        path = ARTIFACTS / f"shots-{BACKEND}" / f"{len(REPORT.entries):04d}-{len(entry.shots):02d}.png"
+        path = SHOTS / f"{len(REPORT.entries):04d}-{len(entry.shots):02d}.png"
         path.parent.mkdir(parents=True, exist_ok=True)
         Image.fromarray(img).save(path, optimize=True)
         entry.shots.append((f"app {apps.index(app) + 1}: {caption}" if len(apps) > 1 else caption, path))
@@ -168,4 +223,9 @@ def pytest_runtest_makereport(item, call):
 
 
 def pytest_sessionfinish(session, exitstatus):
+    if WORKER:
+        REPORT.dump(SHOTS / "entries.json")
+        return
+    for path in sorted((ARTIFACTS / f"shots-{BACKEND}").glob("gw*/entries.json")):
+        REPORT.load(path)
     REPORT.write(ARTIFACTS / f"report-{BACKEND}.html")

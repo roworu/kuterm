@@ -1,0 +1,423 @@
+{
+ "name": "pacman",
+ "description": "Arch Linux package manager",
+ "options": [
+  {
+   "name": [
+    "-S",
+    "--sync"
+   ],
+   "description": "Install packages, -Syu updates the system",
+   "priority": 76
+  },
+  {
+   "name": [
+    "-R",
+    "--remove"
+   ],
+   "description": "Remove packages",
+   "priority": 75
+  },
+  {
+   "name": [
+    "-Q",
+    "--query"
+   ],
+   "description": "Query installed packages",
+   "priority": 75
+  },
+  {
+   "name": [
+    "-U",
+    "--upgrade"
+   ],
+   "description": "Install package files",
+   "args": {
+    "name": "file",
+    "template": "filepaths",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": [
+    "-F",
+    "--files"
+   ],
+   "description": "Query the files database"
+  },
+  {
+   "name": [
+    "-D",
+    "--database"
+   ],
+   "description": "Operate on the package database"
+  },
+  {
+   "name": [
+    "-T",
+    "--deptest"
+   ],
+   "description": "Check dependencies"
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Show the version"
+  },
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Show help, with an operation its options"
+  },
+  {
+   "name": [
+    "-b",
+    "--dbpath"
+   ],
+   "description": "Set an alternate database location",
+   "args": {
+    "name": "path",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": [
+    "-k",
+    "--check"
+   ],
+   "description": "Test local database for validity (-kk for sync databases)"
+  },
+  {
+   "name": [
+    "-q",
+    "--quiet"
+   ],
+   "description": "Suppress output of success messages"
+  },
+  {
+   "name": [
+    "-r",
+    "--root"
+   ],
+   "description": "Set an alternate installation root",
+   "args": {
+    "name": "path",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": [
+    "-v",
+    "--verbose"
+   ],
+   "description": "Be verbose"
+  },
+  {
+   "name": "--arch",
+   "description": "Set an alternate architecture",
+   "args": {
+    "name": "arch"
+   }
+  },
+  {
+   "name": "--asdeps",
+   "description": "Mark packages as non-explicitly installed"
+  },
+  {
+   "name": "--asexplicit",
+   "description": "Mark packages as explicitly installed"
+  },
+  {
+   "name": "--cachedir",
+   "args": {
+    "name": "dir",
+    "template": "folders"
+   }
+  },
+  {
+   "name": "--color",
+   "description": "Colorize the output",
+   "args": {
+    "name": "when"
+   }
+  },
+  {
+   "name": "--config",
+   "description": "Set an alternate configuration file",
+   "args": {
+    "name": "path",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "--confirm",
+   "description": "Always ask for confirmation"
+  },
+  {
+   "name": "--debug",
+   "description": "Display debug messages"
+  },
+  {
+   "name": "--disable-download-timeout",
+   "description": "Use relaxed timeouts for download"
+  },
+  {
+   "name": "--disable-sandbox",
+   "description": "Disables all sandbox features used for the downloader process"
+  },
+  {
+   "name": "--disable-sandbox-filesystem",
+   "description": "Disables the filesystem part of the downloader process sandbox"
+  },
+  {
+   "name": "--disable-sandbox-syscalls",
+   "description": "Disables the syscalls part of the downloader process sandbox"
+  },
+  {
+   "name": "--gpgdir",
+   "description": "Set an alternate home directory for GnuPG",
+   "args": {
+    "name": "path",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "--hookdir",
+   "description": "Set an alternate hook location",
+   "args": {
+    "name": "dir",
+    "template": "folders"
+   }
+  },
+  {
+   "name": "--logfile",
+   "args": {
+    "name": "path",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "--noconfirm",
+   "description": "Do not ask for any confirmation"
+  },
+  {
+   "name": "--sysroot",
+   "description": "Operate on a mounted guest system (root-only)"
+  },
+  {
+   "name": [
+    "-l",
+    "--list"
+   ],
+   "description": "List the files owned by the queried package"
+  },
+  {
+   "name": [
+    "-x",
+    "--regex"
+   ],
+   "description": "Enable searching using regular expressions"
+  },
+  {
+   "name": [
+    "-y",
+    "--refresh"
+   ],
+   "description": "Download fresh package databases from the server"
+  },
+  {
+   "name": "--machinereadable",
+   "description": "Produce machine-readable output"
+  },
+  {
+   "name": [
+    "-c",
+    "--changelog"
+   ],
+   "description": "View the changelog of a package"
+  },
+  {
+   "name": [
+    "-d",
+    "--deps"
+   ],
+   "description": "List packages installed as dependencies [filter]"
+  },
+  {
+   "name": [
+    "-e",
+    "--explicit"
+   ],
+   "description": "List packages explicitly installed [filter]"
+  },
+  {
+   "name": [
+    "-g",
+    "--groups"
+   ],
+   "description": "View all members of a package group"
+  },
+  {
+   "name": [
+    "-i",
+    "--info"
+   ],
+   "description": "View package information (-ii for backup files)"
+  },
+  {
+   "name": [
+    "-m",
+    "--foreign"
+   ],
+   "description": "List installed packages not found in sync db(s) [filter]"
+  },
+  {
+   "name": [
+    "-n",
+    "--native"
+   ],
+   "description": "List installed packages only found in sync db(s) [filter]"
+  },
+  {
+   "name": [
+    "-o",
+    "--owns"
+   ],
+   "description": "Query the package that owns <file>",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": [
+    "-p",
+    "--file"
+   ],
+   "args": {
+    "name": "package"
+   }
+  },
+  {
+   "name": [
+    "-s",
+    "--search"
+   ],
+   "args": {
+    "name": "regex"
+   }
+  },
+  {
+   "name": [
+    "-t",
+    "--unrequired"
+   ],
+   "description": "List packages not (optionally) required by any"
+  },
+  {
+   "name": [
+    "-u",
+    "--upgrades"
+   ],
+   "description": "List outdated packages [filter]"
+  },
+  {
+   "name": "--cascade",
+   "description": "Remove packages and all packages that depend on them"
+  },
+  {
+   "name": "--nodeps",
+   "description": "Skip dependency version checks (-dd to skip all checks)"
+  },
+  {
+   "name": "--nosave",
+   "description": "Remove configuration files"
+  },
+  {
+   "name": "--print",
+   "description": "Print the targets instead of performing the operation"
+  },
+  {
+   "name": "--recursive",
+   "description": "Remove unnecessary dependencies"
+  },
+  {
+   "name": "--unneeded",
+   "description": "Remove unneeded packages"
+  },
+  {
+   "name": "--assume-installed",
+   "description": "Add a virtual package to satisfy dependencies",
+   "args": {
+    "name": "package"
+   }
+  },
+  {
+   "name": "--dbonly",
+   "description": "Only modify database entries, not package files"
+  },
+  {
+   "name": "--noprogressbar",
+   "description": "Do not show a progress bar when downloading files"
+  },
+  {
+   "name": "--noscriptlet",
+   "description": "Do not execute the install scriptlet if one exists"
+  },
+  {
+   "name": "--print-format",
+   "description": "Specify how the targets should be printed",
+   "args": {
+    "name": "string"
+   }
+  },
+  {
+   "name": "--clean",
+   "description": "Remove old packages from cache directory (-cc for all)"
+  },
+  {
+   "name": "--sysupgrade",
+   "description": "Upgrade installed packages (-uu enables downgrades)"
+  },
+  {
+   "name": [
+    "-w",
+    "--downloadonly"
+   ],
+   "description": "Download packages but do not install/upgrade anything"
+  },
+  {
+   "name": "--ignore",
+   "description": "Ignore a package upgrade (can be used more than once)",
+   "args": {
+    "name": "pkg"
+   }
+  },
+  {
+   "name": "--ignoregroup",
+   "description": "Ignore a group upgrade (can be used more than once)",
+   "args": {
+    "name": "grp"
+   }
+  },
+  {
+   "name": "--needed",
+   "description": "Do not reinstall up to date packages"
+  },
+  {
+   "name": "--overwrite",
+   "description": "Overwrite conflicting files (can be used more than once)",
+   "args": {
+    "name": "glob"
+   }
+  }
+ ],
+ "args": {
+  "name": "package",
+  "isVariadic": true
+ }
+}

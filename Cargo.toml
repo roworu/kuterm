@@ -1,6 +1,6 @@
 [package]
 name = "kuterm"
-version = "0.0.12"
+version = "0.0.13"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "highly configurable, gpu accelerated terminal"
@@ -34,12 +34,20 @@ anyhow = "1"
 base64 = "0.23"
 image = { version = "0.25", default-features = false, features = ["png"] }
 futures = "0.3"
+# big completion specs are bundled gzipped, already in the tree through gpui
+flate2 = "1"
+# command inputs keep the order they are written in, already in the tree through serde_json
+indexmap = { version = "2", features = ["serde"] }
 # finds escapes in pty output, already in the tree through alacritty
 memchr = "2"
 # reloads config files when they change, without polling them
 notify = "8"
 serde = { version = "1", features = ["derive"] }
-serde_json_lenient = "0.2"
+serde_json_lenient = { version = "0.2", features = ["preserve_order"] }
+# question patterns of waiting programs, already in the tree through gpui
+regex = "1"
+# command values are quoted for the shell with this, already in the tree through gpui
+shlex = "1"
 skrifa = "0.48"
 
 [target.'cfg(unix)'.dependencies]
@@ -65,5 +73,10 @@ libc = "0.2"
 [dev-dependencies]
 gpui = { git = "https://github.com/roworu/zed", rev = "f66d64d287d16beea9a29ce19d8b50b073ea4a9d", features = ["test-support"] }
 
+[profile.dev]
+# full debuginfo makes ~900 MB binaries, linking them dominates rebuilds
+debug = "line-tables-only"
+
 [profile.dev.package."*"]
 opt-level = 2
+debug = false

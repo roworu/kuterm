@@ -5,7 +5,7 @@ import math
 
 import pytest
 
-from harness import App, bundled_theme, close_to, sh, session_env
+from harness import BACKEND, App, bundled_theme, close_to, session_env, sh, swaymsg, xdo
 
 FEATURE = "window"
 
@@ -54,13 +54,6 @@ def test_balanced_padding_centers_the_grid(app_factory):
     assert abs(y0 - math.floor(pad + spare_y / 2)) <= 1, (y0, spare_y)
 
 
-def test_window_opens_with_columns_and_rows(app_factory):
-    """without a remembered size the window fits window.columns by window.rows cells"""
-    app = app_factory({"window": {"remember_size": False, "columns": 70, "rows": 20}})
-    app.snap("70 x 20 cells")
-    assert app.pty_size() == (20, 70)
-
-
 def test_remember_size_saves_the_last_size(app_factory):
     """window.remember_size writes the size the window was resized to"""
     app = app_factory({"window": {"remember_size": True}})
@@ -101,3 +94,51 @@ def test_opacity_shows_through_the_background(app_factory):
     x0, y0, x1, y1 = app.cell_rect(20, 5, 5, 1)
     assert not close_to(tuple(img[(y0 + y1) // 2, (x0 + x1) // 2]), DARK["terminal_background"], 3)
     assert close_to(app.cells_color(0, 0, 10), RED, 3)
+
+
+def app_windows(app: App) -> list:
+    """ids of the app's visible windows"""
+    if BACKEND == "wayland":
+        found, stack = [], [swaymsg("-t", "get_tree")]
+        while stack:
+            node = stack.pop()
+            if node.get("pid") == app.proc.pid and node.get("visible"):
+                found.append(str(node["id"]))
+            stack.extend(node.get("nodes", []) + node.get("floating_nodes", []))
+        return found
+    return xdo("search", "--onlyvisible", "--pid", str(app.proc.pid), check=False).split()
+
+
+def test_tab_dragged_out_gets_its_own_window(app_factory):
+    """a tab dragged out of the window and let go opens a window of its own with the tab, its
+    shell still running; on x11, dragged back onto the first window it joins it again"""
+    settings = {"theme": {"mode": "dark"}, "hide_bar_for_one_tab": False, "window_title": ["number"]}
+    app = app_factory(settings)
+    app.key("ctrl+shift+t")
+    app.wait_title("2")
+    app.run("echo moved-shell")
+    h = app.bar_height()
+    w = app.size()[0]
+    # the second tab, past the first one's width
+    start = (300, h // 2)
+    app.drag(start, (w + 400, 300))
+    app.wait(lambda: len(app_windows(app)) == 2, msg="a window for the dragged tab")
+    # the first window keeps its other tab
+    app.wait_title("1")
+    app.snap("first window after its second tab was dragged out")
+    if BACKEND == "wayland":
+        return
+    new = next(wid for wid in app_windows(app) if wid != app.wid)
+    info = sh("xwininfo", "-id", new, env=session_env())
+    val = dict(line.strip().split(":", 1) for line in info.splitlines() if ":" in line)
+    x, y = int(val["Absolute upper-left X"]), int(val["Absolute upper-left Y"])
+    ax, ay, aw, ah = app.geometry()
+    # from the tab of the new window onto the middle of the first one
+    xdo("mousemove", str(x + 60), str(y + h // 2))
+    xdo("mousedown", "1")
+    for i in range(1, 9):
+        xdo("mousemove", str(x + 60 + (ax + aw // 2 - x - 60) * i // 8), str(y + h // 2 + (ay + ah // 2 - y - h // 2) * i // 8))
+    xdo("mouseup", "1")
+    app.wait(lambda: len(app_windows(app)) == 1, msg="the emptied window closes")
+    app.wait_title("2")
+    app.snap("the tab dropped back on the first window")

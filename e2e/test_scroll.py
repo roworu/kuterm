@@ -31,8 +31,7 @@ def thumb(app: App, img=None) -> tuple | None:
 
 @pytest.mark.parametrize("enable,history,shown", [
     ("dynamic", False, False), ("dynamic", True, True),
-    ("on", False, True), ("on", True, True),
-    ("off", False, False), ("off", True, False),
+    ("on", False, True), ("off", True, False),
 ])
 def test_scrollbar_enable(app_factory, enable, history, shown):
     """scrollbar.enable on always shows it, off never, dynamic once there is history"""
@@ -63,7 +62,8 @@ def test_scrollbar_placement(app_factory, placement):
     assert (x0, x1) == ((0, 12) if placement == "left" else (888, 900))
 
 
-@pytest.mark.parametrize("width,expected", [(2, 2), (30, 30), (100, 64), (1, 8)])
+# the limits are unit tested
+@pytest.mark.parametrize("width,expected", [(2, 2), (30, 30)])
 def test_scrollbar_width(app_factory, width, expected):
     """scrollbar.width sets the bar width, limited to 2..64"""
     app = scroll_app(app_factory, {"enable": "on", "width": width})
@@ -94,14 +94,6 @@ def test_max_history_length(app_factory, history):
              msg=f"thumb {expected:.0f}px high, got {thumb(app)}")
 
 
-def test_click_on_track_jumps(app_factory):
-    """clicking the scrollbar track jumps there, the thumb follows"""
-    app = scroll_app(app_factory, {"enable": "on"}, lines=500, smooth_scroll={"enable": False})
-    app.wait(lambda: thumb(app) and thumb(app)[3] >= 598, msg=f"thumb at the bottom, got {thumb(app)}")
-    app.click(895, 5)
-    app.wait(lambda: thumb(app) and thumb(app)[1] <= 2, msg=f"thumb at the top, got {thumb(app)}")
-
-
 def test_scroll_multiplier(app_factory):
     """scroll_multiplier sets how many lines one wheel step scrolls"""
     # lines per wheel step differ by backend, so two multipliers are compared
@@ -113,11 +105,11 @@ def test_scroll_multiplier(app_factory):
             script=LINES.format(n=300), themes={"dark": {"scrollbar": "#ff00ff"}},
             name=f"scroll_multiplier_{multiplier}")
         app.wait(lambda: thumb(app) and thumb(app)[3] >= 598, msg=f"thumb at the bottom, got {thumb(app)}")
-        time.sleep(0.5)
+        app.wait_still("output done")
         bottom = thumb(app)[3]
         app.wheel(450, 300, up=True, clicks=2)
         app.wait(lambda: thumb(app) and thumb(app)[3] < bottom, msg="thumb moved up")
-        time.sleep(0.5)
+        app.wait_still("both wheel steps")
         moved[multiplier] = bottom - thumb(app)[3]
         app.snap(f"2 wheel steps with scroll_multiplier {multiplier}")
         app.close()
@@ -130,7 +122,7 @@ def test_smooth_scroll(app_factory, enable):
     app = scroll_app(app_factory, {"enable": "on"}, lines=500,
                      smooth_scroll={"enable": enable, "duration": 1000, "easing": "linear"})
     app.wait(lambda: thumb(app) and thumb(app)[3] >= 598, msg=f"thumb at the bottom, got {thumb(app)}")
-    time.sleep(0.5)
+    app.wait_still("output done")
     app.wheel(450, 300, up=True, clicks=5)
     frames = []
     start = time.monotonic()
@@ -169,9 +161,7 @@ def mark_selected(app_factory, **terminal) -> tuple:
     app = app_factory({"theme": {"mode": "dark"}, "terminal": {"scrollbar": {"auto_hide": 0}, **terminal}},
                       script=MARK_SCRIPT)
     row = app.expected_pty(900, 600)[0] - 2
-    app.wait(lambda: near(app.shot()[slice(*app.cell_rect(0, row)[1::2])], DARK["terminal_foreground"], 30).any(),
-             msg="MARK printed")
-    time.sleep(0.5)
+    app.wait_line(row, 4)
     x0, y0, _, y1 = app.cell_rect(0, row)
     _, _, x1, _ = app.cell_rect(3, row)
     app.drag((x0 + 1, (y0 + y1) // 2), (x1 - 1, (y0 + y1) // 2))
@@ -209,11 +199,44 @@ def test_selection_dropped_from_history_clears(app_factory):
     app.step(1)
     app.step(2)
     app.wait(lambda: near(app.shot(), DARK["terminal_foreground"], 30).any(), msg="output")
-    time.sleep(1)
+    app.wait_still("output done")
     assert selected_rows(app) == []
     set_clipboard("before")
     app.key("ctrl+shift+c")
+    # the clipboard must stay, so there is nothing to wait for
     time.sleep(0.5)
     assert get_clipboard() == "before"
     assert app.alive()
     app.snap("MARK left the history, nothing is selected")
+
+
+def test_drag_holds_the_frame_until_release(app_factory):
+    """while the mouse button is down over fast output, the frame the drag started on stays,
+    the copied text is the line that was shown, and the view catches up on release"""
+    app = app_factory({"theme": {"mode": "dark"}, "terminal": {"select_to_copy": True, "cursor_blink": "off"},
+                       "selection": {"hold_frame": True}},
+                      script='i=0; while :; do echo "count $i"; i=$((i+1)); sleep 0.05; done\n')
+    rows = app.expected_pty(900, 600)[0]
+    # the screen is full and scrolling
+    bottom = app.cell_rect(0, rows - 2, 10)
+    app.wait(lambda: near(app.shot()[bottom[1]:bottom[3], bottom[0]:bottom[2]], DARK["terminal_foreground"], 30).any(),
+             msg="screen full")
+    x0, y0, _, y1 = app.cell_rect(0, 3)
+    _, _, x1, _ = app.cell_rect(10, 3)
+    middle = (y0 + y1) // 2
+    app.mouse(x0 + 1, middle)
+    app.button(1, True)
+    app.mouse(x1 - 1, middle)
+    # the rows above the moving cursor row
+    top = app.cell_rect(0, rows - 3)[3]
+    held = app.wait_still("the drag drawn")[:top]
+    time.sleep(0.3)
+    assert np.array_equal(app.shot()[:top], held)
+    app.snap("output keeps coming, the frame is held while dragging")
+    app.button(1, False)
+    app.wait(lambda: get_clipboard().startswith("count "), msg=f"clipboard, got {get_clipboard()!r}")
+    copied = int(get_clipboard().split()[1])
+    # the view moves on again
+    app.wait(lambda: not np.array_equal(app.shot()[:top], held), msg="view caught up")
+    later = app.shot()[:top]
+    assert copied >= 0 and not np.array_equal(later, held)

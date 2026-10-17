@@ -1,0 +1,103 @@
+{
+ "name": "gunzip",
+ "description": "Expand gzip files",
+ "options": [
+  {
+   "name": [
+    "-c",
+    "--stdout"
+   ],
+   "description": "Write on standard output, keep original files unchanged"
+  },
+  {
+   "name": [
+    "-f",
+    "--force"
+   ],
+   "description": "Force overwrite of output file and compress links"
+  },
+  {
+   "name": [
+    "-k",
+    "--keep"
+   ],
+   "description": "Keep (don't delete) input files"
+  },
+  {
+   "name": [
+    "-l",
+    "--list"
+   ],
+   "description": "List compressed file contents"
+  },
+  {
+   "name": [
+    "-n",
+    "--no-name"
+   ],
+   "description": "Do not save or restore the original name and timestamp"
+  },
+  {
+   "name": [
+    "-N",
+    "--name"
+   ],
+   "description": "Save or restore the original name and timestamp"
+  },
+  {
+   "name": [
+    "-q",
+    "--quiet"
+   ],
+   "description": "Suppress all warnings"
+  },
+  {
+   "name": [
+    "-r",
+    "--recursive"
+   ],
+   "description": "Operate recursively on directories"
+  },
+  {
+   "name": [
+    "-S",
+    "--suffix"
+   ],
+   "description": "Use suffix SUF on compressed files",
+   "args": {
+    "name": "suf"
+   }
+  },
+  {
+   "name": "--synchronous"
+  },
+  {
+   "name": [
+    "-t",
+    "--test"
+   ],
+   "description": "Test compressed file integrity"
+  },
+  {
+   "name": [
+    "-v",
+    "--verbose"
+   ],
+   "description": "Verbose mode"
+  },
+  {
+   "name": "--help",
+   "description": "Display this help and exit"
+  },
+  {
+   "name": "--version",
+   "description": "Display version information and exit"
+  }
+ ],
+ "args": {
+  "name": "file",
+  "template": "filepaths",
+  "isVariadic": true,
+  "isOptional": true
+ }
+}

@@ -1,5 +1,6 @@
+mod automation;
 mod cli;
-mod remote;
+mod completion;
 mod settings;
 mod terminal;
 mod theme;
@@ -13,16 +14,16 @@ use gpui::App;
 use gpui_platform::application;
 
 use crate::{
+    automation::{Request, mcp, msg, socket},
     cli::{Cli, USAGE},
-    remote::Request,
-    settings::{Config, ConfigFiles, Pins, RemoteControl, Settings},
+    settings::{Config, ConfigFiles, Pins, RemoteControl, Settings, StatusBarState},
     theme::{PortalAppearance, Theme},
     ui::{
         text_input,
         windows::open_workspace_window,
         workspace::{
-            Hide, HideOthers, NewTab, Quit, ShowAll, app_menus, dock_menu, open_urls, watch_config,
-            with_workspace,
+            Hide, HideOthers, NewTab, Quit, ShowAll, app_menus, dock_menu, open_urls,
+            parse_run_link, watch_config, with_workspace,
         },
     },
 };
@@ -72,6 +73,7 @@ fn init(portal: PortalAppearance, cx: &mut App) {
     cx.set_global(config.tab_icons);
     cx.set_global(config.commands);
     cx.set_global(Pins::load());
+    cx.set_global(StatusBarState::load());
     cx.set_global(ConfigFiles {
         paths: load.files,
         problems,
@@ -82,7 +84,7 @@ fn init(portal: PortalAppearance, cx: &mut App) {
     cx.bind_keys(text_input::bindings());
     if Settings::get(cx).remote_control == RemoteControl::Socket {
         #[cfg(unix)]
-        if let Some(path) = remote::listen(cx, ui::windows::handle_request) {
+        if let Some(path) = socket::listen(cx, ui::windows::handle_request) {
             cx.set_global(ui::workspace::RemoteSocket(path));
         }
     }
@@ -95,10 +97,10 @@ fn init(portal: PortalAppearance, cx: &mut App) {
     cx.on_action(|_: &Quit, cx| {
         with_workspace(cx, |workspace, window, cx| {
             workspace.request_quit(window, cx)
-        })
+        });
     });
     cx.on_action(|_: &NewTab, cx| {
-        with_workspace(cx, |workspace, window, cx| workspace.add_tab(window, cx))
+        with_workspace(cx, |workspace, window, cx| workspace.add_tab(window, cx));
     });
     cx.set_menus(app_menus());
     cx.set_dock_menu(dock_menu());
@@ -115,22 +117,28 @@ fn main() {
             println!("{USAGE}");
             return;
         }
+        Ok(Cli { mcp: true, .. }) => std::process::exit(mcp::run()),
         Ok(Cli {
             msg: Some(args), ..
         }) => {
             if args.iter().any(|arg| arg == "-h" || arg == "--help") {
-                println!("{}", remote::MSG_USAGE);
+                println!("{}", msg::MSG_USAGE);
                 return;
             }
-            std::process::exit(remote::run_msg(&args));
+            std::process::exit(msg::run_msg(&args));
         }
         Ok(cli) => {
             // a running kuterm takes over, this process has nothing left to do
+            if let Some(url) = &cli.url
+                && socket::send(&Request::OpenUrl { url: url.clone() }).is_ok_and(|reply| reply.ok)
+            {
+                return;
+            }
             if cli.single_instance {
                 let request = Request::NewWindow {
                     cwd: std::env::current_dir().ok(),
                 };
-                if remote::send(&request).is_ok_and(|reply| reply.ok) {
+                if socket::send(&request).is_ok_and(|reply| reply.ok) {
                     return;
                 }
             }
@@ -167,8 +175,19 @@ fn main() {
         })
         .detach();
 
-        if open_workspace_window(None, cx).is_none() {
+        // a run link opens the first tab in its folder with its command typed
+        let link = Cli::get().url.as_deref().and_then(parse_run_link);
+        let Some(window) =
+            open_workspace_window(link.as_ref().and_then(|link| link.cwd.clone()), cx)
+        else {
             std::process::exit(1);
+        };
+        if let Some(link) = link {
+            window
+                .update(cx, |workspace, _, cx| {
+                    workspace.send_text(&link.command, cx)
+                })
+                .ok();
         }
         cx.activate(true);
     });

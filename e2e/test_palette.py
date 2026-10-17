@@ -2,11 +2,13 @@
 
 import json
 import time
+from pathlib import Path
 
 import numpy as np
 import pytest
 
-from harness import BASH, App, as_rgb, close_to, dominant, get_clipboard, mask_bbox, near, set_clipboard, unique_theme
+from harness import (BASH, BIN, App, Session, as_rgb, close_to, dominant, get_clipboard, mask_bbox, near,
+                     set_clipboard, unique_theme)
 
 FEATURE = "command palette"
 
@@ -174,11 +176,13 @@ def test_click_on_pin_unpins_and_saves(app_factory):
     pin = mask_bbox(near(region, C["text_muted"], 40))
     assert pin is not None
     app.mouse(x1 - 60 + (pin[0] + pin[2]) // 2, top + 4 + (pin[1] + pin[3]) // 2)
-    time.sleep(0.3)
+    app.wait(lambda: not np.array_equal(app.shot()[top + 4 : top + 36, x1 - 60 : x1 - 4], region),
+             msg="unpin icon")
     app.snap("hovering the pin shows the unpin icon")
     app.click(x1 - 60 + (pin[0] + pin[2]) // 2, top + 4 + (pin[1] + pin[3]) // 2)
     pins = app.home / ".local/state/kuterm/pinned_commands.json"
-    app.wait(pins.exists, msg="pins saved")
+    # the file shows up before its content is written
+    app.wait(lambda: pins.exists() and json.loads(pins.read_text()), msg="pins saved")
     assert json.loads(pins.read_text())["overrides"] == {"zzz": False}
 
 
@@ -215,13 +219,21 @@ def test_pick_tab_action(app_factory):
     app.wait_title("3")
     app.palette("pick")
     h = app.bar_height()
-    # the tab bar has the panel color too, so look below it
-    box = app.wait(lambda: panel(app, app.shot()[h:]), msg="tab picker")
-    img = app.shot()[h:]
-    top = divider(img, box)
+
+    def listed() -> tuple:
+        """(how many rows of text the picker shows, those rows)"""
+        # the tab bar has the panel color too, so look below it
+        box = panel(app, app.shot()[h:])
+        if box is None:
+            return 0, []
+        img = app.shot()[h:]
+        top = divider(img, box)
+        rows = np.flatnonzero(near(img[top + 2 : box[3] - 2, box[0] + 4 : box[2] - 4], C["text"], 40).any(axis=1))
+        return (len(np.flatnonzero(np.diff(rows) > 4)) + 1 if len(rows) else 0), rows
+
     # one row of text per tab below the query
-    rows = np.flatnonzero(near(img[top + 2 : box[3] - 2, box[0] + 4 : box[2] - 4], C["text"], 40).any(axis=1))
-    assert len(rows) and len(np.flatnonzero(np.diff(rows) > 4)) + 1 == 3, rows
+    count, rows = app.wait(lambda: (c := listed())[0] == 3 and c, msg="three rows of tabs")
+    assert count == 3, rows
     app.snap("tab picker listing three tabs")
     app.key("Down", "Return")
     app.wait_title("2")
@@ -250,11 +262,10 @@ def test_copy_and_paste_actions(app_factory):
     app.key("Return")
     app.wait_file("pasted", "from clipboard")
     app.run("clear; echo COPYTHIS")
-    time.sleep(1)
+    app.wait_line(0, 8)
     x0, y0, _, y1 = app.cell_rect(0, 0)
     _, _, x1, _ = app.cell_rect(7, 0)
     app.drag((x0 + 1, (y0 + y1) // 2), (x1 - 1, (y0 + y1) // 2))
-    time.sleep(0.3)
     app.palette("copy it")
     app.wait(lambda: get_clipboard() == "COPYTHIS", msg=f"clipboard, got {get_clipboard()!r}")
 
@@ -265,8 +276,8 @@ def test_scroll_actions(app_factory):
         {"name": "to top", "actions": ["scroll_top"]}, {"name": "to bottom", "actions": ["scroll_bottom"]},
         {"name": "up some", "actions": [{"scroll_up": 20}]}, {"name": "down some", "actions": [{"scroll_down": 5}]},
     ], terminal={"scrollbar": {"enable": "on", "auto_hide": 0}, "smooth_scroll": {"enable": False}})
-    app.run("clear; seq 1 300")
-    time.sleep(1)
+    app.run("clear; seq 1 300; echo done.")
+    app.wait_line(app.layout_pty()[0] - 2, 5)
 
     def thumb():
         img = app.shot()
@@ -289,7 +300,6 @@ def test_about_page(app_factory):
     """the about action shows the version page until a key is pressed"""
     app = palette_app(app_factory, [{"name": "show about", "actions": ["about"]}])
     app.palette("show about")
-    time.sleep(0.5)
     app.wait(lambda: panel(app), msg="about page")
     app.snap("about page")
     app.key("space")
@@ -341,6 +351,73 @@ def test_broken_commands_section_is_reported(app_factory):
     app.wait(lambda: "invalid settings in" in app.output(), msg="error on stderr")
     assert "commands" in app.output() and "launch_rockets" in app.output()
     assert app.alive()
+
+
+def list_area(app: App) -> np.ndarray:
+    """pixels of the panel asking, the palette or the field of an input"""
+    img = app.shot()
+    box = panel(app, img)
+    return img[box[1] : box[3], box[0] : box[2]]
+
+
+def test_target_pane_works_on_the_named_pane(app_factory):
+    """an action with a "pane:" target works on that pane, not on the focused one"""
+    app = palette_app(app_factory, [
+        {"name": "split", "actions": ["split_right"]},
+        {"name": "name it", "actions": ["rename_pane"]},
+        {"name": "to the named pane", "actions": [
+            {"target": "pane:tests", "action": {"type": "tty > $T2_TMP/target\n"}}]},
+        {"name": "to the focused pane", "actions": [
+            {"type": "tty > $T2_TMP/focused\n"}]},
+    ], keybindings={"focus_pane_left": "ctrl-shift-h"}, hide_bar_for_one_tab=False)
+    app.palette("split")
+    bar = app.shot()[: app.bar_height()]
+    app.palette("name it")
+    # the name is typed in place, in the tab bar of the focused pane
+    app.wait(lambda: not np.array_equal(app.shot()[: app.bar_height()], bar), msg="name field")
+    app.type("tests")
+    app.key("Return")
+    app.key("ctrl+shift+h")
+    app.palette("to the named pane")
+    app.palette("to the focused pane")
+    target = app.wait_file("target")
+    focused = app.wait_file("focused")
+    app.snap("the named pane ran the command, the focused one a different pid")
+    assert target != focused, f"both commands ran in {target}"
+
+
+def test_keymap_run_runs_the_command(app_factory):
+    """a "keymap" entry with { "run": ... } runs the command like the palette does"""
+    app = palette_app(app_factory, [{"name": "bound", "actions": [{"type": "echo bound >> $T2_TMP/ran\n"}]}],
+                      keymap=[{"keys": "ctrl-shift-j", "action": {"run": "bound"}}])
+    app.palette("bound", run=False)
+    box = app.wait(lambda: panel(app), msg="palette")
+    img = app.shot()
+    top = divider(img, box)
+    # the bound key is listed in a muted color at the right end of the command's row
+    assert near(img[top + 4 : top + 36, box[0] : box[2]], C["text_muted"], 40).sum() > 20
+    app.snap("the palette lists the key bound to the command")
+    app.key("Escape")
+    app.wait(lambda: panel(app) is None, msg="palette closed")
+    app.key("ctrl+shift+j")
+    app.wait(lambda: ran(app) == ["bound"], msg=f"the key ran the command, got {ran(app)}")
+
+
+def test_run_command_over_the_socket_fills_inputs(app_factory):
+    """kuterm msg run-command fills a command's inputs, without opening the palette"""
+    app = palette_app(app_factory, [
+        {"name": "checkout", "inputs": {"branch": {"pick": ["main", "dev"]}},
+         "actions": [{"type": "echo {branch} >> $T2_TMP/ran\n"}]},
+    ], remote_control="socket")
+    socket = Path(Session.runtime_dir) / f"kuterm-{app.proc.pid}.sock"
+    app.wait(socket.exists, msg=f"socket {socket}")
+    app.run(f"{BIN} msg run-command checkout --input branch=dev")
+    app.wait(lambda: ran(app) == ["dev"], msg=f"the input filled the command, got {ran(app)}")
+    # without the input the command does not run, the error names what is missing
+    app.run(f"{BIN} msg run-command checkout > $T2_TMP/err 2>&1")
+    # the redirect makes the file before kuterm msg writes into it
+    app.wait(lambda: "branch" in app.file("err").read_text(), msg="the error naming the input")
+    app.snap("the palette listing the command that ran")
 
 
 def test_background_tab_notifies_when_done(app_factory):

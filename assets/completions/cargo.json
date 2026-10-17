@@ -1,0 +1,905 @@
+{
+ "name": "cargo",
+ "description": "Rust's package manager",
+ "subcommands": [
+  {
+   "name": [
+    "build",
+    "b"
+   ],
+   "description": "Compile the current package",
+   "options": [
+    {
+     "name": [
+      "-p",
+      "--package"
+     ],
+     "description": "Package to work on",
+     "args": {
+      "name": "spec"
+     }
+    },
+    {
+     "name": "--workspace",
+     "description": "Every package of the workspace"
+    },
+    {
+     "name": [
+      "-F",
+      "--features"
+     ],
+     "description": "Features to turn on",
+     "args": {
+      "name": "features"
+     }
+    },
+    {
+     "name": "--all-features",
+     "description": "Turn on all features"
+    },
+    {
+     "name": "--no-default-features",
+     "description": "Leave the default feature off"
+    },
+    {
+     "name": "--release",
+     "description": "Build optimized artifacts"
+    },
+    {
+     "name": "--target",
+     "description": "Build for this target triple",
+     "args": {
+      "name": "triple"
+     }
+    },
+    {
+     "name": [
+      "-j",
+      "--jobs"
+     ],
+     "description": "Parallel jobs",
+     "args": {
+      "name": "n"
+     }
+    },
+    {
+     "name": "--bin",
+     "description": "Only this binary",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": "--examples",
+     "description": "All examples"
+    },
+    {
+     "name": "--all-targets",
+     "description": "All targets"
+    }
+   ],
+   "priority": 80
+  },
+  {
+   "name": [
+    "check",
+    "c"
+   ],
+   "description": "Check for errors without building",
+   "options": [
+    {
+     "name": [
+      "-p",
+      "--package"
+     ],
+     "description": "Package to work on",
+     "args": {
+      "name": "spec"
+     }
+    },
+    {
+     "name": "--workspace",
+     "description": "Every package of the workspace"
+    },
+    {
+     "name": [
+      "-F",
+      "--features"
+     ],
+     "description": "Features to turn on",
+     "args": {
+      "name": "features"
+     }
+    },
+    {
+     "name": "--all-features",
+     "description": "Turn on all features"
+    },
+    {
+     "name": "--no-default-features",
+     "description": "Leave the default feature off"
+    },
+    {
+     "name": "--release",
+     "description": "Build optimized artifacts"
+    },
+    {
+     "name": "--target",
+     "description": "Build for this target triple",
+     "args": {
+      "name": "triple"
+     }
+    },
+    {
+     "name": [
+      "-j",
+      "--jobs"
+     ],
+     "description": "Parallel jobs",
+     "args": {
+      "name": "n"
+     }
+    },
+    {
+     "name": "--all-targets",
+     "description": "All targets"
+    }
+   ],
+   "priority": 75
+  },
+  {
+   "name": "clippy",
+   "description": "Lint the package",
+   "options": [
+    {
+     "name": [
+      "-p",
+      "--package"
+     ],
+     "description": "Package to work on",
+     "args": {
+      "name": "spec"
+     }
+    },
+    {
+     "name": "--workspace",
+     "description": "Every package of the workspace"
+    },
+    {
+     "name": [
+      "-F",
+      "--features"
+     ],
+     "description": "Features to turn on",
+     "args": {
+      "name": "features"
+     }
+    },
+    {
+     "name": "--all-features",
+     "description": "Turn on all features"
+    },
+    {
+     "name": "--no-default-features",
+     "description": "Leave the default feature off"
+    },
+    {
+     "name": "--release",
+     "description": "Build optimized artifacts"
+    },
+    {
+     "name": "--target",
+     "description": "Build for this target triple",
+     "args": {
+      "name": "triple"
+     }
+    },
+    {
+     "name": [
+      "-j",
+      "--jobs"
+     ],
+     "description": "Parallel jobs",
+     "args": {
+      "name": "n"
+     }
+    },
+    {
+     "name": "--all-targets",
+     "description": "All targets"
+    },
+    {
+     "name": "--fix",
+     "description": "Apply suggestions"
+    }
+   ],
+   "priority": 70
+  },
+  {
+   "name": [
+    "run",
+    "r"
+   ],
+   "description": "Run a binary or example",
+   "options": [
+    {
+     "name": [
+      "-p",
+      "--package"
+     ],
+     "description": "Package to work on",
+     "args": {
+      "name": "spec"
+     }
+    },
+    {
+     "name": "--workspace",
+     "description": "Every package of the workspace"
+    },
+    {
+     "name": [
+      "-F",
+      "--features"
+     ],
+     "description": "Features to turn on",
+     "args": {
+      "name": "features"
+     }
+    },
+    {
+     "name": "--all-features",
+     "description": "Turn on all features"
+    },
+    {
+     "name": "--no-default-features",
+     "description": "Leave the default feature off"
+    },
+    {
+     "name": "--release",
+     "description": "Build optimized artifacts"
+    },
+    {
+     "name": "--target",
+     "description": "Build for this target triple",
+     "args": {
+      "name": "triple"
+     }
+    },
+    {
+     "name": [
+      "-j",
+      "--jobs"
+     ],
+     "description": "Parallel jobs",
+     "args": {
+      "name": "n"
+     }
+    },
+    {
+     "name": "--bin",
+     "description": "Run this binary",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": "--example",
+     "description": "Run this example",
+     "args": {
+      "name": "name"
+     }
+    }
+   ],
+   "args": {
+    "name": "args",
+    "isVariadic": true,
+    "isOptional": true
+   },
+   "priority": 80
+  },
+  {
+   "name": [
+    "test",
+    "t"
+   ],
+   "description": "Run the tests",
+   "options": [
+    {
+     "name": [
+      "-p",
+      "--package"
+     ],
+     "description": "Package to work on",
+     "args": {
+      "name": "spec"
+     }
+    },
+    {
+     "name": "--workspace",
+     "description": "Every package of the workspace"
+    },
+    {
+     "name": [
+      "-F",
+      "--features"
+     ],
+     "description": "Features to turn on",
+     "args": {
+      "name": "features"
+     }
+    },
+    {
+     "name": "--all-features",
+     "description": "Turn on all features"
+    },
+    {
+     "name": "--no-default-features",
+     "description": "Leave the default feature off"
+    },
+    {
+     "name": "--release",
+     "description": "Build optimized artifacts"
+    },
+    {
+     "name": "--target",
+     "description": "Build for this target triple",
+     "args": {
+      "name": "triple"
+     }
+    },
+    {
+     "name": [
+      "-j",
+      "--jobs"
+     ],
+     "description": "Parallel jobs",
+     "args": {
+      "name": "n"
+     }
+    },
+    {
+     "name": "--lib",
+     "description": "Only the library tests"
+    },
+    {
+     "name": "--doc",
+     "description": "Only the doc tests"
+    },
+    {
+     "name": "--no-run",
+     "description": "Build but don't run"
+    },
+    {
+     "name": "--test",
+     "description": "Only this test target",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": "--no-fail-fast",
+     "description": "Run every test even after failures"
+    }
+   ],
+   "args": {
+    "name": "filter",
+    "isOptional": true
+   },
+   "priority": 75
+  },
+  {
+   "name": "bench",
+   "description": "Run the benchmarks",
+   "options": [
+    {
+     "name": [
+      "-p",
+      "--package"
+     ],
+     "description": "Package to work on",
+     "args": {
+      "name": "spec"
+     }
+    },
+    {
+     "name": "--workspace",
+     "description": "Every package of the workspace"
+    },
+    {
+     "name": [
+      "-F",
+      "--features"
+     ],
+     "description": "Features to turn on",
+     "args": {
+      "name": "features"
+     }
+    },
+    {
+     "name": "--all-features",
+     "description": "Turn on all features"
+    },
+    {
+     "name": "--no-default-features",
+     "description": "Leave the default feature off"
+    },
+    {
+     "name": "--release",
+     "description": "Build optimized artifacts"
+    },
+    {
+     "name": "--target",
+     "description": "Build for this target triple",
+     "args": {
+      "name": "triple"
+     }
+    },
+    {
+     "name": [
+      "-j",
+      "--jobs"
+     ],
+     "description": "Parallel jobs",
+     "args": {
+      "name": "n"
+     }
+    }
+   ],
+   "args": {
+    "name": "filter",
+    "isOptional": true
+   }
+  },
+  {
+   "name": [
+    "doc",
+    "d"
+   ],
+   "description": "Build the documentation",
+   "options": [
+    {
+     "name": [
+      "-p",
+      "--package"
+     ],
+     "description": "Package to work on",
+     "args": {
+      "name": "spec"
+     }
+    },
+    {
+     "name": "--workspace",
+     "description": "Every package of the workspace"
+    },
+    {
+     "name": [
+      "-F",
+      "--features"
+     ],
+     "description": "Features to turn on",
+     "args": {
+      "name": "features"
+     }
+    },
+    {
+     "name": "--all-features",
+     "description": "Turn on all features"
+    },
+    {
+     "name": "--no-default-features",
+     "description": "Leave the default feature off"
+    },
+    {
+     "name": "--release",
+     "description": "Build optimized artifacts"
+    },
+    {
+     "name": "--target",
+     "description": "Build for this target triple",
+     "args": {
+      "name": "triple"
+     }
+    },
+    {
+     "name": [
+      "-j",
+      "--jobs"
+     ],
+     "description": "Parallel jobs",
+     "args": {
+      "name": "n"
+     }
+    },
+    {
+     "name": "--open",
+     "description": "Open the docs in a browser"
+    },
+    {
+     "name": "--no-deps",
+     "description": "Skip dependencies"
+    }
+   ]
+  },
+  {
+   "name": "fmt",
+   "description": "Format the code",
+   "options": [
+    {
+     "name": "--check",
+     "description": "Only check, change nothing"
+    },
+    {
+     "name": "--all",
+     "description": "Every package"
+    }
+   ]
+  },
+  {
+   "name": "new",
+   "description": "Create a package in a new directory",
+   "options": [
+    {
+     "name": "--lib",
+     "description": "A library"
+    },
+    {
+     "name": "--bin",
+     "description": "A binary"
+    },
+    {
+     "name": "--name",
+     "description": "Package name",
+     "args": {
+      "name": "name"
+     }
+    },
+    {
+     "name": "--vcs",
+     "description": "Version control",
+     "args": {
+      "name": "vcs",
+      "suggestions": [
+       "git",
+       "hg",
+       "pijul",
+       "fossil",
+       "none"
+      ]
+     }
+    }
+   ],
+   "args": {
+    "name": "path",
+    "template": "folders"
+   }
+  },
+  {
+   "name": "init",
+   "description": "Create a package in an existing directory",
+   "options": [
+    {
+     "name": "--lib",
+     "description": "A library"
+    },
+    {
+     "name": "--bin",
+     "description": "A binary"
+    },
+    {
+     "name": "--name",
+     "description": "Package name",
+     "args": {
+      "name": "name"
+     }
+    }
+   ],
+   "args": {
+    "name": "path",
+    "template": "folders",
+    "isOptional": true
+   }
+  },
+  {
+   "name": "add",
+   "description": "Add dependencies to Cargo.toml",
+   "options": [
+    {
+     "name": "--dev",
+     "description": "As a development dependency"
+    },
+    {
+     "name": "--build",
+     "description": "As a build dependency"
+    },
+    {
+     "name": [
+      "-F",
+      "--features"
+     ],
+     "description": "Features to turn on",
+     "args": {
+      "name": "features"
+     }
+    },
+    {
+     "name": "--optional",
+     "description": "Mark it optional"
+    },
+    {
+     "name": "--path",
+     "description": "A local dependency",
+     "args": {
+      "name": "path",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--git",
+     "description": "A git dependency",
+     "args": {
+      "name": "url"
+     }
+    }
+   ],
+   "args": {
+    "name": "crate",
+    "isVariadic": true
+   },
+   "priority": 70
+  },
+  {
+   "name": [
+    "remove",
+    "rm"
+   ],
+   "description": "Remove dependencies from Cargo.toml",
+   "options": [
+    {
+     "name": "--dev",
+     "description": "From development dependencies"
+    },
+    {
+     "name": "--build",
+     "description": "From build dependencies"
+    }
+   ],
+   "args": {
+    "name": "crate",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "update",
+   "description": "Update dependencies in Cargo.lock",
+   "options": [
+    {
+     "name": [
+      "-p",
+      "--package"
+     ],
+     "description": "Only this package",
+     "args": {
+      "name": "spec"
+     }
+    },
+    {
+     "name": "--dry-run",
+     "description": "Don't write the lock file"
+    }
+   ]
+  },
+  {
+   "name": "install",
+   "description": "Install a binary",
+   "options": [
+    {
+     "name": "--path",
+     "description": "From a local package",
+     "args": {
+      "name": "path",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--git",
+     "description": "From a git repository",
+     "args": {
+      "name": "url"
+     }
+    },
+    {
+     "name": "--locked",
+     "description": "Use the package's Cargo.lock"
+    },
+    {
+     "name": [
+      "-f",
+      "--force"
+     ],
+     "description": "Overwrite existing binaries"
+    }
+   ],
+   "args": {
+    "name": "crate",
+    "isOptional": true,
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "uninstall",
+   "description": "Remove a binary",
+   "args": {
+    "name": "crate",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "clean",
+   "description": "Remove the target directory",
+   "options": [
+    {
+     "name": "--release",
+     "description": "Only release artifacts"
+    },
+    {
+     "name": [
+      "-p",
+      "--package"
+     ],
+     "description": "Only this package",
+     "args": {
+      "name": "spec"
+     }
+    }
+   ]
+  },
+  {
+   "name": "tree",
+   "description": "Show the dependency graph",
+   "options": [
+    {
+     "name": [
+      "-d",
+      "--duplicates"
+     ],
+     "description": "Only packages in more than one version"
+    },
+    {
+     "name": [
+      "-i",
+      "--invert"
+     ],
+     "description": "Who depends on this package",
+     "args": {
+      "name": "spec"
+     }
+    },
+    {
+     "name": [
+      "-e",
+      "--edges"
+     ],
+     "description": "Kinds of dependencies",
+     "args": {
+      "name": "kinds"
+     }
+    }
+   ]
+  },
+  {
+   "name": "publish",
+   "description": "Upload the package to the registry",
+   "options": [
+    {
+     "name": "--dry-run",
+     "description": "Do everything but upload"
+    },
+    {
+     "name": "--allow-dirty",
+     "description": "Allow uncommitted changes"
+    }
+   ]
+  },
+  {
+   "name": "search",
+   "description": "Search the registry for crates",
+   "options": [
+    {
+     "name": "--limit",
+     "description": "How many results",
+     "args": {
+      "name": "n"
+     }
+    }
+   ],
+   "args": {
+    "name": "query"
+   }
+  },
+  {
+   "name": "metadata",
+   "description": "Print the workspace as json",
+   "options": [
+    {
+     "name": "--format-version",
+     "description": "Output format",
+     "args": {
+      "name": "version",
+      "suggestions": [
+       "1"
+      ]
+     }
+    },
+    {
+     "name": "--no-deps",
+     "description": "Only the workspace members"
+    }
+   ]
+  }
+ ],
+ "options": [
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Print version info"
+  },
+  {
+   "name": [
+    "-v",
+    "--verbose"
+   ],
+   "description": "Use verbose output",
+   "isPersistent": true,
+   "isRepeatable": true
+  },
+  {
+   "name": [
+    "-q",
+    "--quiet"
+   ],
+   "description": "Print less",
+   "isPersistent": true
+  },
+  {
+   "name": "--locked",
+   "description": "Require Cargo.lock to be up to date",
+   "isPersistent": true
+  },
+  {
+   "name": "--offline",
+   "description": "Run without the network",
+   "isPersistent": true
+  },
+  {
+   "name": "--manifest-path",
+   "description": "Path to Cargo.toml",
+   "args": {
+    "name": "path",
+    "template": "filepaths"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--color",
+   "description": "Coloring",
+   "args": {
+    "name": "when",
+    "suggestions": [
+     "auto",
+     "always",
+     "never"
+    ]
+   },
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Print help"
+  }
+ ]
+}

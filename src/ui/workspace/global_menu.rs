@@ -472,4 +472,21 @@ mod tests {
         assert!(actions.describe("item9".into()).is_err());
         assert_eq!(actions.describe_all().len(), 2);
     }
+
+    #[test]
+    fn start_sends_every_menu_of_group_zero_only() {
+        let (model, _) = gtk_menus(|_| None);
+        let count = model.len();
+        let menus = Menus(model);
+        // the only group there is, its menus numbered in order
+        let sent = menus.start(vec![0]);
+        assert_eq!(sent.len(), count);
+        assert!(
+            sent.iter()
+                .enumerate()
+                .all(|(ix, menu)| menu.0 == 0 && menu.1 == ix as u32)
+        );
+        assert_eq!(sent[0].2.len(), menus.0[0].len());
+        assert!(menus.start(vec![1, 2]).is_empty());
+    }
 }

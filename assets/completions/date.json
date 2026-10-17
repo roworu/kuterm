@@ -1,0 +1,102 @@
+{
+ "name": "date",
+ "description": "Print or set the system date and time",
+ "options": [
+  {
+   "name": [
+    "-d",
+    "--date"
+   ],
+   "description": "Display time described by STRING, not 'now'",
+   "args": {
+    "name": "string"
+   }
+  },
+  {
+   "name": [
+    "-f",
+    "--file"
+   ],
+   "description": "Like --date",
+   "args": {
+    "name": "datefile",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": [
+    "-I",
+    "--iso-8601"
+   ],
+   "description": "Output date/time in ISO 8601 format"
+  },
+  {
+   "name": "--resolution",
+   "description": "Output the available resolution of timestamps"
+  },
+  {
+   "name": [
+    "-R",
+    "--rfc-email"
+   ],
+   "description": "Output date and time in RFC 5322 format"
+  },
+  {
+   "name": "--rfc-3339",
+   "description": "Output date/time in RFC 3339 format",
+   "args": {
+    "name": "fmt"
+   }
+  },
+  {
+   "name": "--debug",
+   "description": "Annotate the parsed date, and warn about questionable usage to stderr"
+  },
+  {
+   "name": [
+    "-r",
+    "--reference"
+   ],
+   "description": "Display the last modification time of FILE",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": [
+    "-s",
+    "--set"
+   ],
+   "description": "Set time described by STRING",
+   "args": {
+    "name": "string"
+   }
+  },
+  {
+   "name": [
+    "-u",
+    "--universal"
+   ],
+   "description": "Print or set Coordinated Universal Time (UTC) [aliases: --utc]"
+  },
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Print help"
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Print version"
+  }
+ ],
+ "args": {
+  "name": "+format",
+  "isOptional": true
+ }
+}

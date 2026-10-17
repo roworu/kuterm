@@ -1,0 +1,4308 @@
+{
+ "name": "pip",
+ "description": "Python package installer",
+ "subcommands": [
+  {
+   "name": "install",
+   "description": "Install packages",
+   "priority": 76,
+   "options": [
+    {
+     "name": [
+      "-r",
+      "--requirement"
+     ],
+     "description": "Install from the given requirements file",
+     "args": {
+      "name": "file",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": [
+      "-c",
+      "--constraint"
+     ],
+     "description": "Constrain versions using the given constraints file",
+     "args": {
+      "name": "file",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--no-deps",
+     "description": "Don't install package dependencies"
+    },
+    {
+     "name": "--pre",
+     "description": "Include pre-release and development versions"
+    },
+    {
+     "name": [
+      "-e",
+      "--editable"
+     ],
+     "description": "Install a project in editable mode (i.e",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--dry-run",
+     "description": "Don't actually install anything, just print what would be"
+    },
+    {
+     "name": [
+      "-t",
+      "--target"
+     ],
+     "description": "Install packages into <dir>",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--platform",
+     "description": "Only use wheels compatible with <platform>",
+     "args": {
+      "name": "platform"
+     }
+    },
+    {
+     "name": "--python-version",
+     "description": "The Python interpreter version to use for wheel and \"Requires-Python\" compatibi…",
+     "args": {
+      "name": "python_version"
+     }
+    },
+    {
+     "name": "--implementation",
+     "description": "Only use wheels compatible with Python implementation <implementation>, e.g",
+     "args": {
+      "name": "implementation"
+     }
+    },
+    {
+     "name": "--abi",
+     "description": "Only use wheels compatible with Python abi <abi>, e.g",
+     "args": {
+      "name": "abi"
+     }
+    },
+    {
+     "name": "--user",
+     "description": "Install to the Python user install directory for your platform"
+    },
+    {
+     "name": "--root",
+     "description": "Install everything relative to this alternate root directory",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--prefix",
+     "description": "Installation prefix where lib, bin and other top-level folders are placed",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--src",
+     "description": "Directory to check out editable projects into",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": [
+      "-U",
+      "--upgrade"
+     ],
+     "description": "Upgrade all specified packages to the newest available version"
+    },
+    {
+     "name": "--upgrade-strategy",
+     "description": "Determines how dependency upgrading should be handled [default: only-if-needed]",
+     "args": {
+      "name": "upgrade_strategy"
+     }
+    },
+    {
+     "name": "--force-reinstall",
+     "description": "Reinstall all packages even if they are already up-to-date"
+    },
+    {
+     "name": [
+      "-I",
+      "--ignore-installed"
+     ],
+     "description": "Ignore the installed packages, overwriting them"
+    },
+    {
+     "name": "--ignore-requires-python",
+     "description": "Ignore the Requires-Python information"
+    },
+    {
+     "name": "--no-build-isolation",
+     "description": "Disable isolation when building a modern source distribution"
+    },
+    {
+     "name": "--use-pep517",
+     "description": "Use PEP 517 for building source distributions (use --no-use-pep517 to force leg…"
+    },
+    {
+     "name": "--check-build-dependencies",
+     "description": "Check the build dependencies when PEP517 is used"
+    },
+    {
+     "name": "--break-system-packages",
+     "description": "Allow pip to modify an EXTERNALLY-MANAGED Python installation"
+    },
+    {
+     "name": [
+      "-C",
+      "--config-settings"
+     ],
+     "description": "Configuration settings to be passed to the PEP 517 build backend",
+     "args": {
+      "name": "settings"
+     }
+    },
+    {
+     "name": "--global-option",
+     "description": "Extra global options to be supplied to the setup.py call before the install or",
+     "args": {
+      "name": "options"
+     }
+    },
+    {
+     "name": "--compile",
+     "description": "Compile Python source files to bytecode"
+    },
+    {
+     "name": "--no-compile",
+     "description": "Do not compile Python source files to bytecode"
+    },
+    {
+     "name": "--no-warn-script-location",
+     "description": "Do not warn when installing scripts outside PATH"
+    },
+    {
+     "name": "--no-warn-conflicts",
+     "description": "Do not warn about broken dependencies"
+    },
+    {
+     "name": "--no-binary",
+     "description": "Do not use binary packages",
+     "args": {
+      "name": "format_control"
+     }
+    },
+    {
+     "name": "--only-binary",
+     "description": "Do not use source packages",
+     "args": {
+      "name": "format_control"
+     }
+    },
+    {
+     "name": "--prefer-binary",
+     "description": "Prefer binary packages over source packages, even if the source packages are ne…"
+    },
+    {
+     "name": "--require-hashes",
+     "description": "Require a hash to check each requirement against, for repeatable installs"
+    },
+    {
+     "name": "--progress-bar",
+     "description": "Specify whether the progress bar should be used [on, off, raw] (default: on)",
+     "args": {
+      "name": "progress_bar"
+     }
+    },
+    {
+     "name": "--root-user-action",
+     "description": "Action if pip is run as a root user [warn, ignore] (default: warn)",
+     "args": {
+      "name": "root_user_action"
+     }
+    },
+    {
+     "name": "--report",
+     "description": "Generate a JSON file describing what pip did to install the provided requiremen…",
+     "args": {
+      "name": "file",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--group",
+     "description": "Install a named dependency-group from a \"pyproject.toml\" file",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--no-clean",
+     "description": "Don't clean up build directories"
+    },
+    {
+     "name": [
+      "-i",
+      "--index-url"
+     ],
+     "description": "Base URL of the Python Package Index (default https://pypi.org/simple)",
+     "args": {
+      "name": "url"
+     }
+    },
+    {
+     "name": "--extra-index-url",
+     "description": "Extra URLs of package indexes to use in addition to --index-url",
+     "args": {
+      "name": "url"
+     }
+    },
+    {
+     "name": "--no-index",
+     "description": "Ignore package index (only looking at --find-links URLs instead)"
+    },
+    {
+     "name": [
+      "-f",
+      "--find-links"
+     ],
+     "description": "If a URL or path to an html file, then parse for links to archives such as sdist",
+     "args": {
+      "name": "url"
+     }
+    },
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help"
+    },
+    {
+     "name": "--debug",
+     "description": "Let unhandled exceptions propagate outside the main subroutine, instead of logg…"
+    },
+    {
+     "name": "--isolated",
+     "description": "Run pip in an isolated mode, ignoring environment variables and user configurat…"
+    },
+    {
+     "name": "--require-virtualenv",
+     "description": "Allow pip to only run in a virtual environment"
+    },
+    {
+     "name": "--python",
+     "description": "Run pip with the specified Python interpreter",
+     "args": {
+      "name": "python"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Give more output"
+    },
+    {
+     "name": [
+      "-V",
+      "--version"
+     ],
+     "description": "Show version and exit"
+    },
+    {
+     "name": [
+      "-q",
+      "--quiet"
+     ],
+     "description": "Give less output"
+    },
+    {
+     "name": "--log",
+     "description": "Path to a verbose appending log",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--no-input",
+     "description": "Disable prompting for input"
+    },
+    {
+     "name": "--keyring-provider",
+     "description": "Enable the credential lookup via the keyring library if user input is allowed",
+     "args": {
+      "name": "keyring_provider"
+     }
+    },
+    {
+     "name": "--proxy",
+     "description": "Specify a proxy in the form scheme://[user:passwd@]proxy.server:port",
+     "args": {
+      "name": "proxy"
+     }
+    },
+    {
+     "name": "--retries",
+     "description": "Maximum attempts to establish a new HTTP connection",
+     "args": {
+      "name": "retries"
+     }
+    },
+    {
+     "name": "--timeout",
+     "description": "Set the socket timeout (default 15 seconds)",
+     "args": {
+      "name": "sec"
+     }
+    },
+    {
+     "name": "--exists-action",
+     "description": "Default action when a path already exists: (s)witch, (i)gnore, (w)ipe, (b)ackup",
+     "args": {
+      "name": "action"
+     }
+    },
+    {
+     "name": "--trusted-host",
+     "description": "Mark this host or host:port pair as trusted, even though it does not have valid…",
+     "args": {
+      "name": "hostname"
+     }
+    },
+    {
+     "name": "--cert",
+     "description": "Path to PEM-encoded CA certificate bundle",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--client-cert",
+     "description": "Path to SSL client certificate, a single file containing the private key and the",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--cache-dir",
+     "description": "Store the cache data in <dir>",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--no-cache-dir",
+     "description": "Disable the cache"
+    },
+    {
+     "name": "--disable-pip-version-check",
+     "description": "Don't periodically check PyPI to determine whether a new version of pip is avai…"
+    },
+    {
+     "name": "--no-color",
+     "description": "Suppress colored output"
+    },
+    {
+     "name": "--use-feature",
+     "description": "Enable new functionality, that may be backward incompatible",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--use-deprecated",
+     "description": "Enable deprecated functionality, that will be removed in the future",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--resume-retries",
+     "description": "Maximum attempts to resume or restart an incomplete download",
+     "args": {
+      "name": "resume_retries"
+     }
+    }
+   ],
+   "args": {
+    "name": "package",
+    "isVariadic": true,
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "lock",
+   "description": "Generate a lock file",
+   "options": [
+    {
+     "name": [
+      "-o",
+      "--output"
+     ],
+     "description": "Lock file name (default=pylock.toml)",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": [
+      "-r",
+      "--requirement"
+     ],
+     "description": "Install from the given requirements file",
+     "args": {
+      "name": "file",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": [
+      "-c",
+      "--constraint"
+     ],
+     "description": "Constrain versions using the given constraints file",
+     "args": {
+      "name": "file",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--no-deps",
+     "description": "Don't install package dependencies"
+    },
+    {
+     "name": "--pre",
+     "description": "Include pre-release and development versions"
+    },
+    {
+     "name": [
+      "-e",
+      "--editable"
+     ],
+     "description": "Install a project in editable mode (i.e",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--src",
+     "description": "Directory to check out editable projects into",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--ignore-requires-python",
+     "description": "Ignore the Requires-Python information"
+    },
+    {
+     "name": "--no-build-isolation",
+     "description": "Disable isolation when building a modern source distribution"
+    },
+    {
+     "name": "--use-pep517",
+     "description": "Use PEP 517 for building source distributions (use --no-use-pep517 to force leg…"
+    },
+    {
+     "name": "--check-build-dependencies",
+     "description": "Check the build dependencies when PEP517 is used"
+    },
+    {
+     "name": [
+      "-C",
+      "--config-settings"
+     ],
+     "description": "Configuration settings to be passed to the PEP 517 build backend",
+     "args": {
+      "name": "settings"
+     }
+    },
+    {
+     "name": "--no-binary",
+     "description": "Do not use binary packages",
+     "args": {
+      "name": "format_control"
+     }
+    },
+    {
+     "name": "--only-binary",
+     "description": "Do not use source packages",
+     "args": {
+      "name": "format_control"
+     }
+    },
+    {
+     "name": "--prefer-binary",
+     "description": "Prefer binary packages over source packages, even if the source packages are ne…"
+    },
+    {
+     "name": "--require-hashes",
+     "description": "Require a hash to check each requirement against, for repeatable installs"
+    },
+    {
+     "name": "--progress-bar",
+     "description": "Specify whether the progress bar should be used [on, off, raw] (default: on)",
+     "args": {
+      "name": "progress_bar"
+     }
+    },
+    {
+     "name": "--group",
+     "description": "Install a named dependency-group from a \"pyproject.toml\" file",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--no-clean",
+     "description": "Don't clean up build directories"
+    },
+    {
+     "name": [
+      "-i",
+      "--index-url"
+     ],
+     "description": "Base URL of the Python Package Index (default https://pypi.org/simple)",
+     "args": {
+      "name": "url"
+     }
+    },
+    {
+     "name": "--extra-index-url",
+     "description": "Extra URLs of package indexes to use in addition to --index-url",
+     "args": {
+      "name": "url"
+     }
+    },
+    {
+     "name": "--no-index",
+     "description": "Ignore package index (only looking at --find-links URLs instead)"
+    },
+    {
+     "name": [
+      "-f",
+      "--find-links"
+     ],
+     "description": "If a URL or path to an html file, then parse for links to archives such as sdist",
+     "args": {
+      "name": "url"
+     }
+    },
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help"
+    },
+    {
+     "name": "--debug",
+     "description": "Let unhandled exceptions propagate outside the main subroutine, instead of logg…"
+    },
+    {
+     "name": "--isolated",
+     "description": "Run pip in an isolated mode, ignoring environment variables and user configurat…"
+    },
+    {
+     "name": "--require-virtualenv",
+     "description": "Allow pip to only run in a virtual environment"
+    },
+    {
+     "name": "--python",
+     "description": "Run pip with the specified Python interpreter",
+     "args": {
+      "name": "python"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Give more output"
+    },
+    {
+     "name": [
+      "-V",
+      "--version"
+     ],
+     "description": "Show version and exit"
+    },
+    {
+     "name": [
+      "-q",
+      "--quiet"
+     ],
+     "description": "Give less output"
+    },
+    {
+     "name": "--log",
+     "description": "Path to a verbose appending log",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--no-input",
+     "description": "Disable prompting for input"
+    },
+    {
+     "name": "--keyring-provider",
+     "description": "Enable the credential lookup via the keyring library if user input is allowed",
+     "args": {
+      "name": "keyring_provider"
+     }
+    },
+    {
+     "name": "--proxy",
+     "description": "Specify a proxy in the form scheme://[user:passwd@]proxy.server:port",
+     "args": {
+      "name": "proxy"
+     }
+    },
+    {
+     "name": "--retries",
+     "description": "Maximum attempts to establish a new HTTP connection",
+     "args": {
+      "name": "retries"
+     }
+    },
+    {
+     "name": "--timeout",
+     "description": "Set the socket timeout (default 15 seconds)",
+     "args": {
+      "name": "sec"
+     }
+    },
+    {
+     "name": "--exists-action",
+     "description": "Default action when a path already exists: (s)witch, (i)gnore, (w)ipe, (b)ackup",
+     "args": {
+      "name": "action"
+     }
+    },
+    {
+     "name": "--trusted-host",
+     "description": "Mark this host or host:port pair as trusted, even though it does not have valid…",
+     "args": {
+      "name": "hostname"
+     }
+    },
+    {
+     "name": "--cert",
+     "description": "Path to PEM-encoded CA certificate bundle",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--client-cert",
+     "description": "Path to SSL client certificate, a single file containing the private key and the",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--cache-dir",
+     "description": "Store the cache data in <dir>",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--no-cache-dir",
+     "description": "Disable the cache"
+    },
+    {
+     "name": "--disable-pip-version-check",
+     "description": "Don't periodically check PyPI to determine whether a new version of pip is avai…"
+    },
+    {
+     "name": "--no-color",
+     "description": "Suppress colored output"
+    },
+    {
+     "name": "--use-feature",
+     "description": "Enable new functionality, that may be backward incompatible",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--use-deprecated",
+     "description": "Enable deprecated functionality, that will be removed in the future",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--resume-retries",
+     "description": "Maximum attempts to resume or restart an incomplete download",
+     "args": {
+      "name": "resume_retries"
+     }
+    }
+   ]
+  },
+  {
+   "name": "download",
+   "description": "Download packages",
+   "options": [
+    {
+     "name": [
+      "-c",
+      "--constraint"
+     ],
+     "description": "Constrain versions using the given constraints file",
+     "args": {
+      "name": "file",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": [
+      "-r",
+      "--requirement"
+     ],
+     "description": "Install from the given requirements file",
+     "args": {
+      "name": "file",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--no-deps",
+     "description": "Don't install package dependencies"
+    },
+    {
+     "name": "--global-option",
+     "description": "Extra global options to be supplied to the setup.py call before the install or",
+     "args": {
+      "name": "options"
+     }
+    },
+    {
+     "name": "--no-binary",
+     "description": "Do not use binary packages",
+     "args": {
+      "name": "format_control"
+     }
+    },
+    {
+     "name": "--only-binary",
+     "description": "Do not use source packages",
+     "args": {
+      "name": "format_control"
+     }
+    },
+    {
+     "name": "--prefer-binary",
+     "description": "Prefer binary packages over source packages, even if the source packages are ne…"
+    },
+    {
+     "name": "--src",
+     "description": "Directory to check out editable projects into",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--pre",
+     "description": "Include pre-release and development versions"
+    },
+    {
+     "name": "--require-hashes",
+     "description": "Require a hash to check each requirement against, for repeatable installs"
+    },
+    {
+     "name": "--progress-bar",
+     "description": "Specify whether the progress bar should be used [on, off, raw] (default: on)",
+     "args": {
+      "name": "progress_bar"
+     }
+    },
+    {
+     "name": "--no-build-isolation",
+     "description": "Disable isolation when building a modern source distribution"
+    },
+    {
+     "name": "--use-pep517",
+     "description": "Use PEP 517 for building source distributions (use --no-use-pep517 to force leg…"
+    },
+    {
+     "name": "--check-build-dependencies",
+     "description": "Check the build dependencies when PEP517 is used"
+    },
+    {
+     "name": "--ignore-requires-python",
+     "description": "Ignore the Requires-Python information"
+    },
+    {
+     "name": [
+      "-d",
+      "--dest"
+     ],
+     "description": "Download packages into <dir>",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--platform",
+     "description": "Only use wheels compatible with <platform>",
+     "args": {
+      "name": "platform"
+     }
+    },
+    {
+     "name": "--python-version",
+     "description": "The Python interpreter version to use for wheel and \"Requires-Python\" compatibi…",
+     "args": {
+      "name": "python_version"
+     }
+    },
+    {
+     "name": "--implementation",
+     "description": "Only use wheels compatible with Python implementation <implementation>, e.g",
+     "args": {
+      "name": "implementation"
+     }
+    },
+    {
+     "name": "--abi",
+     "description": "Only use wheels compatible with Python abi <abi>, e.g",
+     "args": {
+      "name": "abi"
+     }
+    },
+    {
+     "name": "--group",
+     "description": "Install a named dependency-group from a \"pyproject.toml\" file",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--no-clean",
+     "description": "Don't clean up build directories"
+    },
+    {
+     "name": [
+      "-i",
+      "--index-url"
+     ],
+     "description": "Base URL of the Python Package Index (default https://pypi.org/simple)",
+     "args": {
+      "name": "url"
+     }
+    },
+    {
+     "name": "--extra-index-url",
+     "description": "Extra URLs of package indexes to use in addition to --index-url",
+     "args": {
+      "name": "url"
+     }
+    },
+    {
+     "name": "--no-index",
+     "description": "Ignore package index (only looking at --find-links URLs instead)"
+    },
+    {
+     "name": [
+      "-f",
+      "--find-links"
+     ],
+     "description": "If a URL or path to an html file, then parse for links to archives such as sdist",
+     "args": {
+      "name": "url"
+     }
+    },
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help"
+    },
+    {
+     "name": "--debug",
+     "description": "Let unhandled exceptions propagate outside the main subroutine, instead of logg…"
+    },
+    {
+     "name": "--isolated",
+     "description": "Run pip in an isolated mode, ignoring environment variables and user configurat…"
+    },
+    {
+     "name": "--require-virtualenv",
+     "description": "Allow pip to only run in a virtual environment"
+    },
+    {
+     "name": "--python",
+     "description": "Run pip with the specified Python interpreter",
+     "args": {
+      "name": "python"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Give more output"
+    },
+    {
+     "name": [
+      "-V",
+      "--version"
+     ],
+     "description": "Show version and exit"
+    },
+    {
+     "name": [
+      "-q",
+      "--quiet"
+     ],
+     "description": "Give less output"
+    },
+    {
+     "name": "--log",
+     "description": "Path to a verbose appending log",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--no-input",
+     "description": "Disable prompting for input"
+    },
+    {
+     "name": "--keyring-provider",
+     "description": "Enable the credential lookup via the keyring library if user input is allowed",
+     "args": {
+      "name": "keyring_provider"
+     }
+    },
+    {
+     "name": "--proxy",
+     "description": "Specify a proxy in the form scheme://[user:passwd@]proxy.server:port",
+     "args": {
+      "name": "proxy"
+     }
+    },
+    {
+     "name": "--retries",
+     "description": "Maximum attempts to establish a new HTTP connection",
+     "args": {
+      "name": "retries"
+     }
+    },
+    {
+     "name": "--timeout",
+     "description": "Set the socket timeout (default 15 seconds)",
+     "args": {
+      "name": "sec"
+     }
+    },
+    {
+     "name": "--exists-action",
+     "description": "Default action when a path already exists: (s)witch, (i)gnore, (w)ipe, (b)ackup",
+     "args": {
+      "name": "action"
+     }
+    },
+    {
+     "name": "--trusted-host",
+     "description": "Mark this host or host:port pair as trusted, even though it does not have valid…",
+     "args": {
+      "name": "hostname"
+     }
+    },
+    {
+     "name": "--cert",
+     "description": "Path to PEM-encoded CA certificate bundle",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--client-cert",
+     "description": "Path to SSL client certificate, a single file containing the private key and the",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--cache-dir",
+     "description": "Store the cache data in <dir>",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--no-cache-dir",
+     "description": "Disable the cache"
+    },
+    {
+     "name": "--disable-pip-version-check",
+     "description": "Don't periodically check PyPI to determine whether a new version of pip is avai…"
+    },
+    {
+     "name": "--no-color",
+     "description": "Suppress colored output"
+    },
+    {
+     "name": "--use-feature",
+     "description": "Enable new functionality, that may be backward incompatible",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--use-deprecated",
+     "description": "Enable deprecated functionality, that will be removed in the future",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--resume-retries",
+     "description": "Maximum attempts to resume or restart an incomplete download",
+     "args": {
+      "name": "resume_retries"
+     }
+    }
+   ],
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "uninstall",
+   "description": "Uninstall packages",
+   "priority": 76,
+   "options": [
+    {
+     "name": [
+      "-r",
+      "--requirement"
+     ],
+     "description": "Uninstall all the packages listed in the given requirements file",
+     "args": {
+      "name": "file",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": [
+      "-y",
+      "--yes"
+     ],
+     "description": "Don't ask for confirmation of uninstall deletions"
+    },
+    {
+     "name": "--root-user-action",
+     "description": "Action if pip is run as a root user [warn, ignore] (default: warn)",
+     "args": {
+      "name": "root_user_action"
+     }
+    },
+    {
+     "name": "--break-system-packages",
+     "description": "Allow pip to modify an EXTERNALLY-MANAGED Python installation"
+    },
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help"
+    },
+    {
+     "name": "--debug",
+     "description": "Let unhandled exceptions propagate outside the main subroutine, instead of logg…"
+    },
+    {
+     "name": "--isolated",
+     "description": "Run pip in an isolated mode, ignoring environment variables and user configurat…"
+    },
+    {
+     "name": "--require-virtualenv",
+     "description": "Allow pip to only run in a virtual environment"
+    },
+    {
+     "name": "--python",
+     "description": "Run pip with the specified Python interpreter",
+     "args": {
+      "name": "python"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Give more output"
+    },
+    {
+     "name": [
+      "-V",
+      "--version"
+     ],
+     "description": "Show version and exit"
+    },
+    {
+     "name": [
+      "-q",
+      "--quiet"
+     ],
+     "description": "Give less output"
+    },
+    {
+     "name": "--log",
+     "description": "Path to a verbose appending log",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--no-input",
+     "description": "Disable prompting for input"
+    },
+    {
+     "name": "--keyring-provider",
+     "description": "Enable the credential lookup via the keyring library if user input is allowed",
+     "args": {
+      "name": "keyring_provider"
+     }
+    },
+    {
+     "name": "--proxy",
+     "description": "Specify a proxy in the form scheme://[user:passwd@]proxy.server:port",
+     "args": {
+      "name": "proxy"
+     }
+    },
+    {
+     "name": "--retries",
+     "description": "Maximum attempts to establish a new HTTP connection",
+     "args": {
+      "name": "retries"
+     }
+    },
+    {
+     "name": "--timeout",
+     "description": "Set the socket timeout (default 15 seconds)",
+     "args": {
+      "name": "sec"
+     }
+    },
+    {
+     "name": "--exists-action",
+     "description": "Default action when a path already exists: (s)witch, (i)gnore, (w)ipe, (b)ackup",
+     "args": {
+      "name": "action"
+     }
+    },
+    {
+     "name": "--trusted-host",
+     "description": "Mark this host or host:port pair as trusted, even though it does not have valid…",
+     "args": {
+      "name": "hostname"
+     }
+    },
+    {
+     "name": "--cert",
+     "description": "Path to PEM-encoded CA certificate bundle",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--client-cert",
+     "description": "Path to SSL client certificate, a single file containing the private key and the",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--cache-dir",
+     "description": "Store the cache data in <dir>",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--no-cache-dir",
+     "description": "Disable the cache"
+    },
+    {
+     "name": "--disable-pip-version-check",
+     "description": "Don't periodically check PyPI to determine whether a new version of pip is avai…"
+    },
+    {
+     "name": "--no-color",
+     "description": "Suppress colored output"
+    },
+    {
+     "name": "--use-feature",
+     "description": "Enable new functionality, that may be backward incompatible",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--use-deprecated",
+     "description": "Enable deprecated functionality, that will be removed in the future",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--resume-retries",
+     "description": "Maximum attempts to resume or restart an incomplete download",
+     "args": {
+      "name": "resume_retries"
+     }
+    }
+   ],
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "freeze",
+   "description": "Output installed packages in requirements format",
+   "priority": 75,
+   "options": [
+    {
+     "name": [
+      "-r",
+      "--requirement"
+     ],
+     "description": "Use the order in the given requirements file and its comments when generating o…",
+     "args": {
+      "name": "file",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": [
+      "-l",
+      "--local"
+     ],
+     "description": "If in a virtualenv that has global access, do not output globally-installed pac…"
+    },
+    {
+     "name": "--user",
+     "description": "Only output packages installed in user-site"
+    },
+    {
+     "name": "--path",
+     "description": "Restrict to the specified installation path for listing packages (can be used m…",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--all",
+     "description": "Do not skip these packages in the output: pip"
+    },
+    {
+     "name": "--exclude-editable",
+     "description": "Exclude editable package from output"
+    },
+    {
+     "name": "--exclude",
+     "description": "Exclude specified package from the output",
+     "args": {
+      "name": "package"
+     }
+    },
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help"
+    },
+    {
+     "name": "--debug",
+     "description": "Let unhandled exceptions propagate outside the main subroutine, instead of logg…"
+    },
+    {
+     "name": "--isolated",
+     "description": "Run pip in an isolated mode, ignoring environment variables and user configurat…"
+    },
+    {
+     "name": "--require-virtualenv",
+     "description": "Allow pip to only run in a virtual environment"
+    },
+    {
+     "name": "--python",
+     "description": "Run pip with the specified Python interpreter",
+     "args": {
+      "name": "python"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Give more output"
+    },
+    {
+     "name": [
+      "-V",
+      "--version"
+     ],
+     "description": "Show version and exit"
+    },
+    {
+     "name": [
+      "-q",
+      "--quiet"
+     ],
+     "description": "Give less output"
+    },
+    {
+     "name": "--log",
+     "description": "Path to a verbose appending log",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--no-input",
+     "description": "Disable prompting for input"
+    },
+    {
+     "name": "--keyring-provider",
+     "description": "Enable the credential lookup via the keyring library if user input is allowed",
+     "args": {
+      "name": "keyring_provider"
+     }
+    },
+    {
+     "name": "--proxy",
+     "description": "Specify a proxy in the form scheme://[user:passwd@]proxy.server:port",
+     "args": {
+      "name": "proxy"
+     }
+    },
+    {
+     "name": "--retries",
+     "description": "Maximum attempts to establish a new HTTP connection",
+     "args": {
+      "name": "retries"
+     }
+    },
+    {
+     "name": "--timeout",
+     "description": "Set the socket timeout (default 15 seconds)",
+     "args": {
+      "name": "sec"
+     }
+    },
+    {
+     "name": "--exists-action",
+     "description": "Default action when a path already exists: (s)witch, (i)gnore, (w)ipe, (b)ackup",
+     "args": {
+      "name": "action"
+     }
+    },
+    {
+     "name": "--trusted-host",
+     "description": "Mark this host or host:port pair as trusted, even though it does not have valid…",
+     "args": {
+      "name": "hostname"
+     }
+    },
+    {
+     "name": "--cert",
+     "description": "Path to PEM-encoded CA certificate bundle",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--client-cert",
+     "description": "Path to SSL client certificate, a single file containing the private key and the",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--cache-dir",
+     "description": "Store the cache data in <dir>",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--no-cache-dir",
+     "description": "Disable the cache"
+    },
+    {
+     "name": "--disable-pip-version-check",
+     "description": "Don't periodically check PyPI to determine whether a new version of pip is avai…"
+    },
+    {
+     "name": "--no-color",
+     "description": "Suppress colored output"
+    },
+    {
+     "name": "--use-feature",
+     "description": "Enable new functionality, that may be backward incompatible",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--use-deprecated",
+     "description": "Enable deprecated functionality, that will be removed in the future",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--resume-retries",
+     "description": "Maximum attempts to resume or restart an incomplete download",
+     "args": {
+      "name": "resume_retries"
+     }
+    }
+   ]
+  },
+  {
+   "name": "inspect",
+   "description": "Inspect the python environment",
+   "options": [
+    {
+     "name": "--local",
+     "description": "If in a virtualenv that has global access, do not list globally-installed packa…"
+    },
+    {
+     "name": "--user",
+     "description": "Only output packages installed in user-site"
+    },
+    {
+     "name": "--path",
+     "description": "Restrict to the specified installation path for listing packages (can be used m…",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help"
+    },
+    {
+     "name": "--debug",
+     "description": "Let unhandled exceptions propagate outside the main subroutine, instead of logg…"
+    },
+    {
+     "name": "--isolated",
+     "description": "Run pip in an isolated mode, ignoring environment variables and user configurat…"
+    },
+    {
+     "name": "--require-virtualenv",
+     "description": "Allow pip to only run in a virtual environment"
+    },
+    {
+     "name": "--python",
+     "description": "Run pip with the specified Python interpreter",
+     "args": {
+      "name": "python"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Give more output"
+    },
+    {
+     "name": [
+      "-V",
+      "--version"
+     ],
+     "description": "Show version and exit"
+    },
+    {
+     "name": [
+      "-q",
+      "--quiet"
+     ],
+     "description": "Give less output"
+    },
+    {
+     "name": "--log",
+     "description": "Path to a verbose appending log",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--no-input",
+     "description": "Disable prompting for input"
+    },
+    {
+     "name": "--keyring-provider",
+     "description": "Enable the credential lookup via the keyring library if user input is allowed",
+     "args": {
+      "name": "keyring_provider"
+     }
+    },
+    {
+     "name": "--proxy",
+     "description": "Specify a proxy in the form scheme://[user:passwd@]proxy.server:port",
+     "args": {
+      "name": "proxy"
+     }
+    },
+    {
+     "name": "--retries",
+     "description": "Maximum attempts to establish a new HTTP connection",
+     "args": {
+      "name": "retries"
+     }
+    },
+    {
+     "name": "--timeout",
+     "description": "Set the socket timeout (default 15 seconds)",
+     "args": {
+      "name": "sec"
+     }
+    },
+    {
+     "name": "--exists-action",
+     "description": "Default action when a path already exists: (s)witch, (i)gnore, (w)ipe, (b)ackup",
+     "args": {
+      "name": "action"
+     }
+    },
+    {
+     "name": "--trusted-host",
+     "description": "Mark this host or host:port pair as trusted, even though it does not have valid…",
+     "args": {
+      "name": "hostname"
+     }
+    },
+    {
+     "name": "--cert",
+     "description": "Path to PEM-encoded CA certificate bundle",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--client-cert",
+     "description": "Path to SSL client certificate, a single file containing the private key and the",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--cache-dir",
+     "description": "Store the cache data in <dir>",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--no-cache-dir",
+     "description": "Disable the cache"
+    },
+    {
+     "name": "--disable-pip-version-check",
+     "description": "Don't periodically check PyPI to determine whether a new version of pip is avai…"
+    },
+    {
+     "name": "--no-color",
+     "description": "Suppress colored output"
+    },
+    {
+     "name": "--use-feature",
+     "description": "Enable new functionality, that may be backward incompatible",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--use-deprecated",
+     "description": "Enable deprecated functionality, that will be removed in the future",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--resume-retries",
+     "description": "Maximum attempts to resume or restart an incomplete download",
+     "args": {
+      "name": "resume_retries"
+     }
+    }
+   ]
+  },
+  {
+   "name": "list",
+   "description": "List installed packages",
+   "priority": 76,
+   "options": [
+    {
+     "name": [
+      "-o",
+      "--outdated"
+     ],
+     "description": "List outdated packages"
+    },
+    {
+     "name": [
+      "-u",
+      "--uptodate"
+     ],
+     "description": "List uptodate packages"
+    },
+    {
+     "name": [
+      "-e",
+      "--editable"
+     ],
+     "description": "List editable projects"
+    },
+    {
+     "name": [
+      "-l",
+      "--local"
+     ],
+     "description": "If in a virtualenv that has global access, do not list globally-installed packa…"
+    },
+    {
+     "name": "--user",
+     "description": "Only output packages installed in user-site"
+    },
+    {
+     "name": "--path",
+     "description": "Restrict to the specified installation path for listing packages (can be used m…",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--pre",
+     "description": "Include pre-release and development versions"
+    },
+    {
+     "name": "--format",
+     "description": "Select the output format among: columns (default), freeze, or json",
+     "args": {
+      "name": "list_format"
+     }
+    },
+    {
+     "name": "--not-required",
+     "description": "List packages that are not dependencies of installed packages"
+    },
+    {
+     "name": "--exclude-editable",
+     "description": "Exclude editable package from output"
+    },
+    {
+     "name": "--include-editable",
+     "description": "Include editable package in output"
+    },
+    {
+     "name": "--exclude",
+     "description": "Exclude specified package from the output",
+     "args": {
+      "name": "package"
+     }
+    },
+    {
+     "name": [
+      "-i",
+      "--index-url"
+     ],
+     "description": "Base URL of the Python Package Index (default https://pypi.org/simple)",
+     "args": {
+      "name": "url"
+     }
+    },
+    {
+     "name": "--extra-index-url",
+     "description": "Extra URLs of package indexes to use in addition to --index-url",
+     "args": {
+      "name": "url"
+     }
+    },
+    {
+     "name": "--no-index",
+     "description": "Ignore package index (only looking at --find-links URLs instead)"
+    },
+    {
+     "name": [
+      "-f",
+      "--find-links"
+     ],
+     "description": "If a URL or path to an html file, then parse for links to archives such as sdist",
+     "args": {
+      "name": "url"
+     }
+    },
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help"
+    },
+    {
+     "name": "--debug",
+     "description": "Let unhandled exceptions propagate outside the main subroutine, instead of logg…"
+    },
+    {
+     "name": "--isolated",
+     "description": "Run pip in an isolated mode, ignoring environment variables and user configurat…"
+    },
+    {
+     "name": "--require-virtualenv",
+     "description": "Allow pip to only run in a virtual environment"
+    },
+    {
+     "name": "--python",
+     "description": "Run pip with the specified Python interpreter",
+     "args": {
+      "name": "python"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Give more output"
+    },
+    {
+     "name": [
+      "-V",
+      "--version"
+     ],
+     "description": "Show version and exit"
+    },
+    {
+     "name": [
+      "-q",
+      "--quiet"
+     ],
+     "description": "Give less output"
+    },
+    {
+     "name": "--log",
+     "description": "Path to a verbose appending log",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--no-input",
+     "description": "Disable prompting for input"
+    },
+    {
+     "name": "--keyring-provider",
+     "description": "Enable the credential lookup via the keyring library if user input is allowed",
+     "args": {
+      "name": "keyring_provider"
+     }
+    },
+    {
+     "name": "--proxy",
+     "description": "Specify a proxy in the form scheme://[user:passwd@]proxy.server:port",
+     "args": {
+      "name": "proxy"
+     }
+    },
+    {
+     "name": "--retries",
+     "description": "Maximum attempts to establish a new HTTP connection",
+     "args": {
+      "name": "retries"
+     }
+    },
+    {
+     "name": "--timeout",
+     "description": "Set the socket timeout (default 15 seconds)",
+     "args": {
+      "name": "sec"
+     }
+    },
+    {
+     "name": "--exists-action",
+     "description": "Default action when a path already exists: (s)witch, (i)gnore, (w)ipe, (b)ackup",
+     "args": {
+      "name": "action"
+     }
+    },
+    {
+     "name": "--trusted-host",
+     "description": "Mark this host or host:port pair as trusted, even though it does not have valid…",
+     "args": {
+      "name": "hostname"
+     }
+    },
+    {
+     "name": "--cert",
+     "description": "Path to PEM-encoded CA certificate bundle",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--client-cert",
+     "description": "Path to SSL client certificate, a single file containing the private key and the",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--cache-dir",
+     "description": "Store the cache data in <dir>",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--no-cache-dir",
+     "description": "Disable the cache"
+    },
+    {
+     "name": "--disable-pip-version-check",
+     "description": "Don't periodically check PyPI to determine whether a new version of pip is avai…"
+    },
+    {
+     "name": "--no-color",
+     "description": "Suppress colored output"
+    },
+    {
+     "name": "--use-feature",
+     "description": "Enable new functionality, that may be backward incompatible",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--use-deprecated",
+     "description": "Enable deprecated functionality, that will be removed in the future",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--resume-retries",
+     "description": "Maximum attempts to resume or restart an incomplete download",
+     "args": {
+      "name": "resume_retries"
+     }
+    }
+   ]
+  },
+  {
+   "name": "show",
+   "description": "Show information about installed packages",
+   "priority": 76,
+   "options": [
+    {
+     "name": [
+      "-f",
+      "--files"
+     ],
+     "description": "Show the full list of installed files for each package"
+    },
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help"
+    },
+    {
+     "name": "--debug",
+     "description": "Let unhandled exceptions propagate outside the main subroutine, instead of logg…"
+    },
+    {
+     "name": "--isolated",
+     "description": "Run pip in an isolated mode, ignoring environment variables and user configurat…"
+    },
+    {
+     "name": "--require-virtualenv",
+     "description": "Allow pip to only run in a virtual environment"
+    },
+    {
+     "name": "--python",
+     "description": "Run pip with the specified Python interpreter",
+     "args": {
+      "name": "python"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Give more output"
+    },
+    {
+     "name": [
+      "-V",
+      "--version"
+     ],
+     "description": "Show version and exit"
+    },
+    {
+     "name": [
+      "-q",
+      "--quiet"
+     ],
+     "description": "Give less output"
+    },
+    {
+     "name": "--log",
+     "description": "Path to a verbose appending log",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--no-input",
+     "description": "Disable prompting for input"
+    },
+    {
+     "name": "--keyring-provider",
+     "description": "Enable the credential lookup via the keyring library if user input is allowed",
+     "args": {
+      "name": "keyring_provider"
+     }
+    },
+    {
+     "name": "--proxy",
+     "description": "Specify a proxy in the form scheme://[user:passwd@]proxy.server:port",
+     "args": {
+      "name": "proxy"
+     }
+    },
+    {
+     "name": "--retries",
+     "description": "Maximum attempts to establish a new HTTP connection",
+     "args": {
+      "name": "retries"
+     }
+    },
+    {
+     "name": "--timeout",
+     "description": "Set the socket timeout (default 15 seconds)",
+     "args": {
+      "name": "sec"
+     }
+    },
+    {
+     "name": "--exists-action",
+     "description": "Default action when a path already exists: (s)witch, (i)gnore, (w)ipe, (b)ackup",
+     "args": {
+      "name": "action"
+     }
+    },
+    {
+     "name": "--trusted-host",
+     "description": "Mark this host or host:port pair as trusted, even though it does not have valid…",
+     "args": {
+      "name": "hostname"
+     }
+    },
+    {
+     "name": "--cert",
+     "description": "Path to PEM-encoded CA certificate bundle",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--client-cert",
+     "description": "Path to SSL client certificate, a single file containing the private key and the",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--cache-dir",
+     "description": "Store the cache data in <dir>",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--no-cache-dir",
+     "description": "Disable the cache"
+    },
+    {
+     "name": "--disable-pip-version-check",
+     "description": "Don't periodically check PyPI to determine whether a new version of pip is avai…"
+    },
+    {
+     "name": "--no-color",
+     "description": "Suppress colored output"
+    },
+    {
+     "name": "--use-feature",
+     "description": "Enable new functionality, that may be backward incompatible",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--use-deprecated",
+     "description": "Enable deprecated functionality, that will be removed in the future",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--resume-retries",
+     "description": "Maximum attempts to resume or restart an incomplete download",
+     "args": {
+      "name": "resume_retries"
+     }
+    }
+   ],
+   "args": {
+    "name": "package",
+    "isVariadic": true
+   }
+  },
+  {
+   "name": "check",
+   "description": "Verify installed packages have compatible dependencies",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help"
+    },
+    {
+     "name": "--debug",
+     "description": "Let unhandled exceptions propagate outside the main subroutine, instead of logg…"
+    },
+    {
+     "name": "--isolated",
+     "description": "Run pip in an isolated mode, ignoring environment variables and user configurat…"
+    },
+    {
+     "name": "--require-virtualenv",
+     "description": "Allow pip to only run in a virtual environment"
+    },
+    {
+     "name": "--python",
+     "description": "Run pip with the specified Python interpreter",
+     "args": {
+      "name": "python"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Give more output"
+    },
+    {
+     "name": [
+      "-V",
+      "--version"
+     ],
+     "description": "Show version and exit"
+    },
+    {
+     "name": [
+      "-q",
+      "--quiet"
+     ],
+     "description": "Give less output"
+    },
+    {
+     "name": "--log",
+     "description": "Path to a verbose appending log",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--no-input",
+     "description": "Disable prompting for input"
+    },
+    {
+     "name": "--keyring-provider",
+     "description": "Enable the credential lookup via the keyring library if user input is allowed",
+     "args": {
+      "name": "keyring_provider"
+     }
+    },
+    {
+     "name": "--proxy",
+     "description": "Specify a proxy in the form scheme://[user:passwd@]proxy.server:port",
+     "args": {
+      "name": "proxy"
+     }
+    },
+    {
+     "name": "--retries",
+     "description": "Maximum attempts to establish a new HTTP connection",
+     "args": {
+      "name": "retries"
+     }
+    },
+    {
+     "name": "--timeout",
+     "description": "Set the socket timeout (default 15 seconds)",
+     "args": {
+      "name": "sec"
+     }
+    },
+    {
+     "name": "--exists-action",
+     "description": "Default action when a path already exists: (s)witch, (i)gnore, (w)ipe, (b)ackup",
+     "args": {
+      "name": "action"
+     }
+    },
+    {
+     "name": "--trusted-host",
+     "description": "Mark this host or host:port pair as trusted, even though it does not have valid…",
+     "args": {
+      "name": "hostname"
+     }
+    },
+    {
+     "name": "--cert",
+     "description": "Path to PEM-encoded CA certificate bundle",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--client-cert",
+     "description": "Path to SSL client certificate, a single file containing the private key and the",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--cache-dir",
+     "description": "Store the cache data in <dir>",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--no-cache-dir",
+     "description": "Disable the cache"
+    },
+    {
+     "name": "--disable-pip-version-check",
+     "description": "Don't periodically check PyPI to determine whether a new version of pip is avai…"
+    },
+    {
+     "name": "--no-color",
+     "description": "Suppress colored output"
+    },
+    {
+     "name": "--use-feature",
+     "description": "Enable new functionality, that may be backward incompatible",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--use-deprecated",
+     "description": "Enable deprecated functionality, that will be removed in the future",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--resume-retries",
+     "description": "Maximum attempts to resume or restart an incomplete download",
+     "args": {
+      "name": "resume_retries"
+     }
+    }
+   ]
+  },
+  {
+   "name": "config",
+   "description": "Manage local and global configuration",
+   "options": [
+    {
+     "name": "--editor",
+     "description": "Editor to use to edit the file",
+     "args": {
+      "name": "editor"
+     }
+    },
+    {
+     "name": "--global",
+     "description": "Use the system-wide configuration file only"
+    },
+    {
+     "name": "--user",
+     "description": "Use the user configuration file only"
+    },
+    {
+     "name": "--site",
+     "description": "Use the current environment configuration file only"
+    },
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help"
+    },
+    {
+     "name": "--debug",
+     "description": "Let unhandled exceptions propagate outside the main subroutine, instead of logg…"
+    },
+    {
+     "name": "--isolated",
+     "description": "Run pip in an isolated mode, ignoring environment variables and user configurat…"
+    },
+    {
+     "name": "--require-virtualenv",
+     "description": "Allow pip to only run in a virtual environment"
+    },
+    {
+     "name": "--python",
+     "description": "Run pip with the specified Python interpreter",
+     "args": {
+      "name": "python"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Give more output"
+    },
+    {
+     "name": [
+      "-V",
+      "--version"
+     ],
+     "description": "Show version and exit"
+    },
+    {
+     "name": [
+      "-q",
+      "--quiet"
+     ],
+     "description": "Give less output"
+    },
+    {
+     "name": "--log",
+     "description": "Path to a verbose appending log",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--no-input",
+     "description": "Disable prompting for input"
+    },
+    {
+     "name": "--keyring-provider",
+     "description": "Enable the credential lookup via the keyring library if user input is allowed",
+     "args": {
+      "name": "keyring_provider"
+     }
+    },
+    {
+     "name": "--proxy",
+     "description": "Specify a proxy in the form scheme://[user:passwd@]proxy.server:port",
+     "args": {
+      "name": "proxy"
+     }
+    },
+    {
+     "name": "--retries",
+     "description": "Maximum attempts to establish a new HTTP connection",
+     "args": {
+      "name": "retries"
+     }
+    },
+    {
+     "name": "--timeout",
+     "description": "Set the socket timeout (default 15 seconds)",
+     "args": {
+      "name": "sec"
+     }
+    },
+    {
+     "name": "--exists-action",
+     "description": "Default action when a path already exists: (s)witch, (i)gnore, (w)ipe, (b)ackup",
+     "args": {
+      "name": "action"
+     }
+    },
+    {
+     "name": "--trusted-host",
+     "description": "Mark this host or host:port pair as trusted, even though it does not have valid…",
+     "args": {
+      "name": "hostname"
+     }
+    },
+    {
+     "name": "--cert",
+     "description": "Path to PEM-encoded CA certificate bundle",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--client-cert",
+     "description": "Path to SSL client certificate, a single file containing the private key and the",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--cache-dir",
+     "description": "Store the cache data in <dir>",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--no-cache-dir",
+     "description": "Disable the cache"
+    },
+    {
+     "name": "--disable-pip-version-check",
+     "description": "Don't periodically check PyPI to determine whether a new version of pip is avai…"
+    },
+    {
+     "name": "--no-color",
+     "description": "Suppress colored output"
+    },
+    {
+     "name": "--use-feature",
+     "description": "Enable new functionality, that may be backward incompatible",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--use-deprecated",
+     "description": "Enable deprecated functionality, that will be removed in the future",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--resume-retries",
+     "description": "Maximum attempts to resume or restart an incomplete download",
+     "args": {
+      "name": "resume_retries"
+     }
+    }
+   ]
+  },
+  {
+   "name": "search",
+   "description": "Search PyPI for packages",
+   "options": [
+    {
+     "name": [
+      "-i",
+      "--index"
+     ],
+     "description": "Base URL of Python Package Index (default https://pypi.org/pypi)",
+     "args": {
+      "name": "url"
+     }
+    },
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help"
+    },
+    {
+     "name": "--debug",
+     "description": "Let unhandled exceptions propagate outside the main subroutine, instead of logg…"
+    },
+    {
+     "name": "--isolated",
+     "description": "Run pip in an isolated mode, ignoring environment variables and user configurat…"
+    },
+    {
+     "name": "--require-virtualenv",
+     "description": "Allow pip to only run in a virtual environment"
+    },
+    {
+     "name": "--python",
+     "description": "Run pip with the specified Python interpreter",
+     "args": {
+      "name": "python"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Give more output"
+    },
+    {
+     "name": [
+      "-V",
+      "--version"
+     ],
+     "description": "Show version and exit"
+    },
+    {
+     "name": [
+      "-q",
+      "--quiet"
+     ],
+     "description": "Give less output"
+    },
+    {
+     "name": "--log",
+     "description": "Path to a verbose appending log",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--no-input",
+     "description": "Disable prompting for input"
+    },
+    {
+     "name": "--keyring-provider",
+     "description": "Enable the credential lookup via the keyring library if user input is allowed",
+     "args": {
+      "name": "keyring_provider"
+     }
+    },
+    {
+     "name": "--proxy",
+     "description": "Specify a proxy in the form scheme://[user:passwd@]proxy.server:port",
+     "args": {
+      "name": "proxy"
+     }
+    },
+    {
+     "name": "--retries",
+     "description": "Maximum attempts to establish a new HTTP connection",
+     "args": {
+      "name": "retries"
+     }
+    },
+    {
+     "name": "--timeout",
+     "description": "Set the socket timeout (default 15 seconds)",
+     "args": {
+      "name": "sec"
+     }
+    },
+    {
+     "name": "--exists-action",
+     "description": "Default action when a path already exists: (s)witch, (i)gnore, (w)ipe, (b)ackup",
+     "args": {
+      "name": "action"
+     }
+    },
+    {
+     "name": "--trusted-host",
+     "description": "Mark this host or host:port pair as trusted, even though it does not have valid…",
+     "args": {
+      "name": "hostname"
+     }
+    },
+    {
+     "name": "--cert",
+     "description": "Path to PEM-encoded CA certificate bundle",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--client-cert",
+     "description": "Path to SSL client certificate, a single file containing the private key and the",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--cache-dir",
+     "description": "Store the cache data in <dir>",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--no-cache-dir",
+     "description": "Disable the cache"
+    },
+    {
+     "name": "--disable-pip-version-check",
+     "description": "Don't periodically check PyPI to determine whether a new version of pip is avai…"
+    },
+    {
+     "name": "--no-color",
+     "description": "Suppress colored output"
+    },
+    {
+     "name": "--use-feature",
+     "description": "Enable new functionality, that may be backward incompatible",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--use-deprecated",
+     "description": "Enable deprecated functionality, that will be removed in the future",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--resume-retries",
+     "description": "Maximum attempts to resume or restart an incomplete download",
+     "args": {
+      "name": "resume_retries"
+     }
+    }
+   ]
+  },
+  {
+   "name": "cache",
+   "description": "Inspect and manage pip's wheel cache",
+   "options": [
+    {
+     "name": "--format",
+     "description": "Select the output format among: human (default) or abspath",
+     "args": {
+      "name": "list_format"
+     }
+    },
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help"
+    },
+    {
+     "name": "--debug",
+     "description": "Let unhandled exceptions propagate outside the main subroutine, instead of logg…"
+    },
+    {
+     "name": "--isolated",
+     "description": "Run pip in an isolated mode, ignoring environment variables and user configurat…"
+    },
+    {
+     "name": "--require-virtualenv",
+     "description": "Allow pip to only run in a virtual environment"
+    },
+    {
+     "name": "--python",
+     "description": "Run pip with the specified Python interpreter",
+     "args": {
+      "name": "python"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Give more output"
+    },
+    {
+     "name": [
+      "-V",
+      "--version"
+     ],
+     "description": "Show version and exit"
+    },
+    {
+     "name": [
+      "-q",
+      "--quiet"
+     ],
+     "description": "Give less output"
+    },
+    {
+     "name": "--log",
+     "description": "Path to a verbose appending log",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--no-input",
+     "description": "Disable prompting for input"
+    },
+    {
+     "name": "--keyring-provider",
+     "description": "Enable the credential lookup via the keyring library if user input is allowed",
+     "args": {
+      "name": "keyring_provider"
+     }
+    },
+    {
+     "name": "--proxy",
+     "description": "Specify a proxy in the form scheme://[user:passwd@]proxy.server:port",
+     "args": {
+      "name": "proxy"
+     }
+    },
+    {
+     "name": "--retries",
+     "description": "Maximum attempts to establish a new HTTP connection",
+     "args": {
+      "name": "retries"
+     }
+    },
+    {
+     "name": "--timeout",
+     "description": "Set the socket timeout (default 15 seconds)",
+     "args": {
+      "name": "sec"
+     }
+    },
+    {
+     "name": "--exists-action",
+     "description": "Default action when a path already exists: (s)witch, (i)gnore, (w)ipe, (b)ackup",
+     "args": {
+      "name": "action"
+     }
+    },
+    {
+     "name": "--trusted-host",
+     "description": "Mark this host or host:port pair as trusted, even though it does not have valid…",
+     "args": {
+      "name": "hostname"
+     }
+    },
+    {
+     "name": "--cert",
+     "description": "Path to PEM-encoded CA certificate bundle",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--client-cert",
+     "description": "Path to SSL client certificate, a single file containing the private key and the",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--cache-dir",
+     "description": "Store the cache data in <dir>",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--no-cache-dir",
+     "description": "Disable the cache"
+    },
+    {
+     "name": "--disable-pip-version-check",
+     "description": "Don't periodically check PyPI to determine whether a new version of pip is avai…"
+    },
+    {
+     "name": "--no-color",
+     "description": "Suppress colored output"
+    },
+    {
+     "name": "--use-feature",
+     "description": "Enable new functionality, that may be backward incompatible",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--use-deprecated",
+     "description": "Enable deprecated functionality, that will be removed in the future",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--resume-retries",
+     "description": "Maximum attempts to resume or restart an incomplete download",
+     "args": {
+      "name": "resume_retries"
+     }
+    }
+   ]
+  },
+  {
+   "name": "index",
+   "description": "Inspect information available from package indexes",
+   "options": [
+    {
+     "name": "--platform",
+     "description": "Only use wheels compatible with <platform>",
+     "args": {
+      "name": "platform"
+     }
+    },
+    {
+     "name": "--python-version",
+     "description": "The Python interpreter version to use for wheel and \"Requires-Python\" compatibi…",
+     "args": {
+      "name": "python_version"
+     }
+    },
+    {
+     "name": "--implementation",
+     "description": "Only use wheels compatible with Python implementation <implementation>, e.g",
+     "args": {
+      "name": "implementation"
+     }
+    },
+    {
+     "name": "--abi",
+     "description": "Only use wheels compatible with Python abi <abi>, e.g",
+     "args": {
+      "name": "abi"
+     }
+    },
+    {
+     "name": "--ignore-requires-python",
+     "description": "Ignore the Requires-Python information"
+    },
+    {
+     "name": "--pre",
+     "description": "Include pre-release and development versions"
+    },
+    {
+     "name": "--json",
+     "description": "Output data in a machine-readable JSON format"
+    },
+    {
+     "name": "--no-binary",
+     "description": "Do not use binary packages",
+     "args": {
+      "name": "format_control"
+     }
+    },
+    {
+     "name": "--only-binary",
+     "description": "Do not use source packages",
+     "args": {
+      "name": "format_control"
+     }
+    },
+    {
+     "name": [
+      "-i",
+      "--index-url"
+     ],
+     "description": "Base URL of the Python Package Index (default https://pypi.org/simple)",
+     "args": {
+      "name": "url"
+     }
+    },
+    {
+     "name": "--extra-index-url",
+     "description": "Extra URLs of package indexes to use in addition to --index-url",
+     "args": {
+      "name": "url"
+     }
+    },
+    {
+     "name": "--no-index",
+     "description": "Ignore package index (only looking at --find-links URLs instead)"
+    },
+    {
+     "name": [
+      "-f",
+      "--find-links"
+     ],
+     "description": "If a URL or path to an html file, then parse for links to archives such as sdist",
+     "args": {
+      "name": "url"
+     }
+    },
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help"
+    },
+    {
+     "name": "--debug",
+     "description": "Let unhandled exceptions propagate outside the main subroutine, instead of logg…"
+    },
+    {
+     "name": "--isolated",
+     "description": "Run pip in an isolated mode, ignoring environment variables and user configurat…"
+    },
+    {
+     "name": "--require-virtualenv",
+     "description": "Allow pip to only run in a virtual environment"
+    },
+    {
+     "name": "--python",
+     "description": "Run pip with the specified Python interpreter",
+     "args": {
+      "name": "python"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Give more output"
+    },
+    {
+     "name": [
+      "-V",
+      "--version"
+     ],
+     "description": "Show version and exit"
+    },
+    {
+     "name": [
+      "-q",
+      "--quiet"
+     ],
+     "description": "Give less output"
+    },
+    {
+     "name": "--log",
+     "description": "Path to a verbose appending log",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--no-input",
+     "description": "Disable prompting for input"
+    },
+    {
+     "name": "--keyring-provider",
+     "description": "Enable the credential lookup via the keyring library if user input is allowed",
+     "args": {
+      "name": "keyring_provider"
+     }
+    },
+    {
+     "name": "--proxy",
+     "description": "Specify a proxy in the form scheme://[user:passwd@]proxy.server:port",
+     "args": {
+      "name": "proxy"
+     }
+    },
+    {
+     "name": "--retries",
+     "description": "Maximum attempts to establish a new HTTP connection",
+     "args": {
+      "name": "retries"
+     }
+    },
+    {
+     "name": "--timeout",
+     "description": "Set the socket timeout (default 15 seconds)",
+     "args": {
+      "name": "sec"
+     }
+    },
+    {
+     "name": "--exists-action",
+     "description": "Default action when a path already exists: (s)witch, (i)gnore, (w)ipe, (b)ackup",
+     "args": {
+      "name": "action"
+     }
+    },
+    {
+     "name": "--trusted-host",
+     "description": "Mark this host or host:port pair as trusted, even though it does not have valid…",
+     "args": {
+      "name": "hostname"
+     }
+    },
+    {
+     "name": "--cert",
+     "description": "Path to PEM-encoded CA certificate bundle",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--client-cert",
+     "description": "Path to SSL client certificate, a single file containing the private key and the",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--cache-dir",
+     "description": "Store the cache data in <dir>",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--no-cache-dir",
+     "description": "Disable the cache"
+    },
+    {
+     "name": "--disable-pip-version-check",
+     "description": "Don't periodically check PyPI to determine whether a new version of pip is avai…"
+    },
+    {
+     "name": "--no-color",
+     "description": "Suppress colored output"
+    },
+    {
+     "name": "--use-feature",
+     "description": "Enable new functionality, that may be backward incompatible",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--use-deprecated",
+     "description": "Enable deprecated functionality, that will be removed in the future",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--resume-retries",
+     "description": "Maximum attempts to resume or restart an incomplete download",
+     "args": {
+      "name": "resume_retries"
+     }
+    }
+   ]
+  },
+  {
+   "name": "wheel",
+   "description": "Build wheels from your requirements",
+   "options": [
+    {
+     "name": [
+      "-w",
+      "--wheel-dir"
+     ],
+     "description": "Build wheels into <dir>, where the default is the current working directory",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--no-binary",
+     "description": "Do not use binary packages",
+     "args": {
+      "name": "format_control"
+     }
+    },
+    {
+     "name": "--only-binary",
+     "description": "Do not use source packages",
+     "args": {
+      "name": "format_control"
+     }
+    },
+    {
+     "name": "--prefer-binary",
+     "description": "Prefer binary packages over source packages, even if the source packages are ne…"
+    },
+    {
+     "name": "--no-build-isolation",
+     "description": "Disable isolation when building a modern source distribution"
+    },
+    {
+     "name": "--use-pep517",
+     "description": "Use PEP 517 for building source distributions (use --no-use-pep517 to force leg…"
+    },
+    {
+     "name": "--check-build-dependencies",
+     "description": "Check the build dependencies when PEP517 is used"
+    },
+    {
+     "name": [
+      "-c",
+      "--constraint"
+     ],
+     "description": "Constrain versions using the given constraints file",
+     "args": {
+      "name": "file",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": [
+      "-e",
+      "--editable"
+     ],
+     "description": "Install a project in editable mode (i.e",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": [
+      "-r",
+      "--requirement"
+     ],
+     "description": "Install from the given requirements file",
+     "args": {
+      "name": "file",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--src",
+     "description": "Directory to check out editable projects into",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--ignore-requires-python",
+     "description": "Ignore the Requires-Python information"
+    },
+    {
+     "name": "--no-deps",
+     "description": "Don't install package dependencies"
+    },
+    {
+     "name": "--progress-bar",
+     "description": "Specify whether the progress bar should be used [on, off, raw] (default: on)",
+     "args": {
+      "name": "progress_bar"
+     }
+    },
+    {
+     "name": "--no-verify",
+     "description": "Don't verify if built wheel is valid"
+    },
+    {
+     "name": [
+      "-C",
+      "--config-settings"
+     ],
+     "description": "Configuration settings to be passed to the PEP 517 build backend",
+     "args": {
+      "name": "settings"
+     }
+    },
+    {
+     "name": "--build-option",
+     "description": "Extra arguments to be supplied to 'setup.py bdist_wheel'",
+     "args": {
+      "name": "options"
+     }
+    },
+    {
+     "name": "--global-option",
+     "description": "Extra global options to be supplied to the setup.py call before the install or",
+     "args": {
+      "name": "options"
+     }
+    },
+    {
+     "name": "--pre",
+     "description": "Include pre-release and development versions"
+    },
+    {
+     "name": "--require-hashes",
+     "description": "Require a hash to check each requirement against, for repeatable installs"
+    },
+    {
+     "name": "--group",
+     "description": "Install a named dependency-group from a \"pyproject.toml\" file",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--no-clean",
+     "description": "Don't clean up build directories"
+    },
+    {
+     "name": [
+      "-i",
+      "--index-url"
+     ],
+     "description": "Base URL of the Python Package Index (default https://pypi.org/simple)",
+     "args": {
+      "name": "url"
+     }
+    },
+    {
+     "name": "--extra-index-url",
+     "description": "Extra URLs of package indexes to use in addition to --index-url",
+     "args": {
+      "name": "url"
+     }
+    },
+    {
+     "name": "--no-index",
+     "description": "Ignore package index (only looking at --find-links URLs instead)"
+    },
+    {
+     "name": [
+      "-f",
+      "--find-links"
+     ],
+     "description": "If a URL or path to an html file, then parse for links to archives such as sdist",
+     "args": {
+      "name": "url"
+     }
+    },
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help"
+    },
+    {
+     "name": "--debug",
+     "description": "Let unhandled exceptions propagate outside the main subroutine, instead of logg…"
+    },
+    {
+     "name": "--isolated",
+     "description": "Run pip in an isolated mode, ignoring environment variables and user configurat…"
+    },
+    {
+     "name": "--require-virtualenv",
+     "description": "Allow pip to only run in a virtual environment"
+    },
+    {
+     "name": "--python",
+     "description": "Run pip with the specified Python interpreter",
+     "args": {
+      "name": "python"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Give more output"
+    },
+    {
+     "name": [
+      "-V",
+      "--version"
+     ],
+     "description": "Show version and exit"
+    },
+    {
+     "name": [
+      "-q",
+      "--quiet"
+     ],
+     "description": "Give less output"
+    },
+    {
+     "name": "--log",
+     "description": "Path to a verbose appending log",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--no-input",
+     "description": "Disable prompting for input"
+    },
+    {
+     "name": "--keyring-provider",
+     "description": "Enable the credential lookup via the keyring library if user input is allowed",
+     "args": {
+      "name": "keyring_provider"
+     }
+    },
+    {
+     "name": "--proxy",
+     "description": "Specify a proxy in the form scheme://[user:passwd@]proxy.server:port",
+     "args": {
+      "name": "proxy"
+     }
+    },
+    {
+     "name": "--retries",
+     "description": "Maximum attempts to establish a new HTTP connection",
+     "args": {
+      "name": "retries"
+     }
+    },
+    {
+     "name": "--timeout",
+     "description": "Set the socket timeout (default 15 seconds)",
+     "args": {
+      "name": "sec"
+     }
+    },
+    {
+     "name": "--exists-action",
+     "description": "Default action when a path already exists: (s)witch, (i)gnore, (w)ipe, (b)ackup",
+     "args": {
+      "name": "action"
+     }
+    },
+    {
+     "name": "--trusted-host",
+     "description": "Mark this host or host:port pair as trusted, even though it does not have valid…",
+     "args": {
+      "name": "hostname"
+     }
+    },
+    {
+     "name": "--cert",
+     "description": "Path to PEM-encoded CA certificate bundle",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--client-cert",
+     "description": "Path to SSL client certificate, a single file containing the private key and the",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--cache-dir",
+     "description": "Store the cache data in <dir>",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--no-cache-dir",
+     "description": "Disable the cache"
+    },
+    {
+     "name": "--disable-pip-version-check",
+     "description": "Don't periodically check PyPI to determine whether a new version of pip is avai…"
+    },
+    {
+     "name": "--no-color",
+     "description": "Suppress colored output"
+    },
+    {
+     "name": "--use-feature",
+     "description": "Enable new functionality, that may be backward incompatible",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--use-deprecated",
+     "description": "Enable deprecated functionality, that will be removed in the future",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--resume-retries",
+     "description": "Maximum attempts to resume or restart an incomplete download",
+     "args": {
+      "name": "resume_retries"
+     }
+    }
+   ]
+  },
+  {
+   "name": "hash",
+   "description": "Compute hashes of package archives",
+   "options": [
+    {
+     "name": [
+      "-a",
+      "--algorithm"
+     ],
+     "description": "The hash algorithm to use: one of sha256, sha384, sha512",
+     "args": {
+      "name": "algorithm"
+     }
+    },
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help"
+    },
+    {
+     "name": "--debug",
+     "description": "Let unhandled exceptions propagate outside the main subroutine, instead of logg…"
+    },
+    {
+     "name": "--isolated",
+     "description": "Run pip in an isolated mode, ignoring environment variables and user configurat…"
+    },
+    {
+     "name": "--require-virtualenv",
+     "description": "Allow pip to only run in a virtual environment"
+    },
+    {
+     "name": "--python",
+     "description": "Run pip with the specified Python interpreter",
+     "args": {
+      "name": "python"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Give more output"
+    },
+    {
+     "name": [
+      "-V",
+      "--version"
+     ],
+     "description": "Show version and exit"
+    },
+    {
+     "name": [
+      "-q",
+      "--quiet"
+     ],
+     "description": "Give less output"
+    },
+    {
+     "name": "--log",
+     "description": "Path to a verbose appending log",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--no-input",
+     "description": "Disable prompting for input"
+    },
+    {
+     "name": "--keyring-provider",
+     "description": "Enable the credential lookup via the keyring library if user input is allowed",
+     "args": {
+      "name": "keyring_provider"
+     }
+    },
+    {
+     "name": "--proxy",
+     "description": "Specify a proxy in the form scheme://[user:passwd@]proxy.server:port",
+     "args": {
+      "name": "proxy"
+     }
+    },
+    {
+     "name": "--retries",
+     "description": "Maximum attempts to establish a new HTTP connection",
+     "args": {
+      "name": "retries"
+     }
+    },
+    {
+     "name": "--timeout",
+     "description": "Set the socket timeout (default 15 seconds)",
+     "args": {
+      "name": "sec"
+     }
+    },
+    {
+     "name": "--exists-action",
+     "description": "Default action when a path already exists: (s)witch, (i)gnore, (w)ipe, (b)ackup",
+     "args": {
+      "name": "action"
+     }
+    },
+    {
+     "name": "--trusted-host",
+     "description": "Mark this host or host:port pair as trusted, even though it does not have valid…",
+     "args": {
+      "name": "hostname"
+     }
+    },
+    {
+     "name": "--cert",
+     "description": "Path to PEM-encoded CA certificate bundle",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--client-cert",
+     "description": "Path to SSL client certificate, a single file containing the private key and the",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--cache-dir",
+     "description": "Store the cache data in <dir>",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--no-cache-dir",
+     "description": "Disable the cache"
+    },
+    {
+     "name": "--disable-pip-version-check",
+     "description": "Don't periodically check PyPI to determine whether a new version of pip is avai…"
+    },
+    {
+     "name": "--no-color",
+     "description": "Suppress colored output"
+    },
+    {
+     "name": "--use-feature",
+     "description": "Enable new functionality, that may be backward incompatible",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--use-deprecated",
+     "description": "Enable deprecated functionality, that will be removed in the future",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--resume-retries",
+     "description": "Maximum attempts to resume or restart an incomplete download",
+     "args": {
+      "name": "resume_retries"
+     }
+    }
+   ]
+  },
+  {
+   "name": "completion",
+   "description": "A helper command used for command completion",
+   "options": [
+    {
+     "name": [
+      "-b",
+      "--bash"
+     ],
+     "description": "Emit completion code for bash"
+    },
+    {
+     "name": [
+      "-z",
+      "--zsh"
+     ],
+     "description": "Emit completion code for zsh"
+    },
+    {
+     "name": [
+      "-f",
+      "--fish"
+     ],
+     "description": "Emit completion code for fish"
+    },
+    {
+     "name": [
+      "-p",
+      "--powershell"
+     ],
+     "description": "Emit completion code for powershell"
+    },
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help"
+    },
+    {
+     "name": "--debug",
+     "description": "Let unhandled exceptions propagate outside the main subroutine, instead of logg…"
+    },
+    {
+     "name": "--isolated",
+     "description": "Run pip in an isolated mode, ignoring environment variables and user configurat…"
+    },
+    {
+     "name": "--require-virtualenv",
+     "description": "Allow pip to only run in a virtual environment"
+    },
+    {
+     "name": "--python",
+     "description": "Run pip with the specified Python interpreter",
+     "args": {
+      "name": "python"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Give more output"
+    },
+    {
+     "name": [
+      "-V",
+      "--version"
+     ],
+     "description": "Show version and exit"
+    },
+    {
+     "name": [
+      "-q",
+      "--quiet"
+     ],
+     "description": "Give less output"
+    },
+    {
+     "name": "--log",
+     "description": "Path to a verbose appending log",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--no-input",
+     "description": "Disable prompting for input"
+    },
+    {
+     "name": "--keyring-provider",
+     "description": "Enable the credential lookup via the keyring library if user input is allowed",
+     "args": {
+      "name": "keyring_provider"
+     }
+    },
+    {
+     "name": "--proxy",
+     "description": "Specify a proxy in the form scheme://[user:passwd@]proxy.server:port",
+     "args": {
+      "name": "proxy"
+     }
+    },
+    {
+     "name": "--retries",
+     "description": "Maximum attempts to establish a new HTTP connection",
+     "args": {
+      "name": "retries"
+     }
+    },
+    {
+     "name": "--timeout",
+     "description": "Set the socket timeout (default 15 seconds)",
+     "args": {
+      "name": "sec"
+     }
+    },
+    {
+     "name": "--exists-action",
+     "description": "Default action when a path already exists: (s)witch, (i)gnore, (w)ipe, (b)ackup",
+     "args": {
+      "name": "action"
+     }
+    },
+    {
+     "name": "--trusted-host",
+     "description": "Mark this host or host:port pair as trusted, even though it does not have valid…",
+     "args": {
+      "name": "hostname"
+     }
+    },
+    {
+     "name": "--cert",
+     "description": "Path to PEM-encoded CA certificate bundle",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--client-cert",
+     "description": "Path to SSL client certificate, a single file containing the private key and the",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--cache-dir",
+     "description": "Store the cache data in <dir>",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--no-cache-dir",
+     "description": "Disable the cache"
+    },
+    {
+     "name": "--disable-pip-version-check",
+     "description": "Don't periodically check PyPI to determine whether a new version of pip is avai…"
+    },
+    {
+     "name": "--no-color",
+     "description": "Suppress colored output"
+    },
+    {
+     "name": "--use-feature",
+     "description": "Enable new functionality, that may be backward incompatible",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--use-deprecated",
+     "description": "Enable deprecated functionality, that will be removed in the future",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--resume-retries",
+     "description": "Maximum attempts to resume or restart an incomplete download",
+     "args": {
+      "name": "resume_retries"
+     }
+    }
+   ]
+  },
+  {
+   "name": "debug",
+   "description": "Show information useful for debugging",
+   "options": [
+    {
+     "name": "--platform",
+     "description": "Only use wheels compatible with <platform>",
+     "args": {
+      "name": "platform"
+     }
+    },
+    {
+     "name": "--python-version",
+     "description": "The Python interpreter version to use for wheel and \"Requires-Python\" compatibi…",
+     "args": {
+      "name": "python_version"
+     }
+    },
+    {
+     "name": "--implementation",
+     "description": "Only use wheels compatible with Python implementation <implementation>, e.g",
+     "args": {
+      "name": "implementation"
+     }
+    },
+    {
+     "name": "--abi",
+     "description": "Only use wheels compatible with Python abi <abi>, e.g",
+     "args": {
+      "name": "abi"
+     }
+    },
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help"
+    },
+    {
+     "name": "--debug",
+     "description": "Let unhandled exceptions propagate outside the main subroutine, instead of logg…"
+    },
+    {
+     "name": "--isolated",
+     "description": "Run pip in an isolated mode, ignoring environment variables and user configurat…"
+    },
+    {
+     "name": "--require-virtualenv",
+     "description": "Allow pip to only run in a virtual environment"
+    },
+    {
+     "name": "--python",
+     "description": "Run pip with the specified Python interpreter",
+     "args": {
+      "name": "python"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Give more output"
+    },
+    {
+     "name": [
+      "-V",
+      "--version"
+     ],
+     "description": "Show version and exit"
+    },
+    {
+     "name": [
+      "-q",
+      "--quiet"
+     ],
+     "description": "Give less output"
+    },
+    {
+     "name": "--log",
+     "description": "Path to a verbose appending log",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--no-input",
+     "description": "Disable prompting for input"
+    },
+    {
+     "name": "--keyring-provider",
+     "description": "Enable the credential lookup via the keyring library if user input is allowed",
+     "args": {
+      "name": "keyring_provider"
+     }
+    },
+    {
+     "name": "--proxy",
+     "description": "Specify a proxy in the form scheme://[user:passwd@]proxy.server:port",
+     "args": {
+      "name": "proxy"
+     }
+    },
+    {
+     "name": "--retries",
+     "description": "Maximum attempts to establish a new HTTP connection",
+     "args": {
+      "name": "retries"
+     }
+    },
+    {
+     "name": "--timeout",
+     "description": "Set the socket timeout (default 15 seconds)",
+     "args": {
+      "name": "sec"
+     }
+    },
+    {
+     "name": "--exists-action",
+     "description": "Default action when a path already exists: (s)witch, (i)gnore, (w)ipe, (b)ackup",
+     "args": {
+      "name": "action"
+     }
+    },
+    {
+     "name": "--trusted-host",
+     "description": "Mark this host or host:port pair as trusted, even though it does not have valid…",
+     "args": {
+      "name": "hostname"
+     }
+    },
+    {
+     "name": "--cert",
+     "description": "Path to PEM-encoded CA certificate bundle",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--client-cert",
+     "description": "Path to SSL client certificate, a single file containing the private key and the",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--cache-dir",
+     "description": "Store the cache data in <dir>",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--no-cache-dir",
+     "description": "Disable the cache"
+    },
+    {
+     "name": "--disable-pip-version-check",
+     "description": "Don't periodically check PyPI to determine whether a new version of pip is avai…"
+    },
+    {
+     "name": "--no-color",
+     "description": "Suppress colored output"
+    },
+    {
+     "name": "--use-feature",
+     "description": "Enable new functionality, that may be backward incompatible",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--use-deprecated",
+     "description": "Enable deprecated functionality, that will be removed in the future",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--resume-retries",
+     "description": "Maximum attempts to resume or restart an incomplete download",
+     "args": {
+      "name": "resume_retries"
+     }
+    }
+   ]
+  },
+  {
+   "name": "help",
+   "description": "Show help for commands",
+   "options": [
+    {
+     "name": [
+      "-h",
+      "--help"
+     ],
+     "description": "Show help"
+    },
+    {
+     "name": "--debug",
+     "description": "Let unhandled exceptions propagate outside the main subroutine, instead of logg…"
+    },
+    {
+     "name": "--isolated",
+     "description": "Run pip in an isolated mode, ignoring environment variables and user configurat…"
+    },
+    {
+     "name": "--require-virtualenv",
+     "description": "Allow pip to only run in a virtual environment"
+    },
+    {
+     "name": "--python",
+     "description": "Run pip with the specified Python interpreter",
+     "args": {
+      "name": "python"
+     }
+    },
+    {
+     "name": [
+      "-v",
+      "--verbose"
+     ],
+     "description": "Give more output"
+    },
+    {
+     "name": [
+      "-V",
+      "--version"
+     ],
+     "description": "Show version and exit"
+    },
+    {
+     "name": [
+      "-q",
+      "--quiet"
+     ],
+     "description": "Give less output"
+    },
+    {
+     "name": "--log",
+     "description": "Path to a verbose appending log",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--no-input",
+     "description": "Disable prompting for input"
+    },
+    {
+     "name": "--keyring-provider",
+     "description": "Enable the credential lookup via the keyring library if user input is allowed",
+     "args": {
+      "name": "keyring_provider"
+     }
+    },
+    {
+     "name": "--proxy",
+     "description": "Specify a proxy in the form scheme://[user:passwd@]proxy.server:port",
+     "args": {
+      "name": "proxy"
+     }
+    },
+    {
+     "name": "--retries",
+     "description": "Maximum attempts to establish a new HTTP connection",
+     "args": {
+      "name": "retries"
+     }
+    },
+    {
+     "name": "--timeout",
+     "description": "Set the socket timeout (default 15 seconds)",
+     "args": {
+      "name": "sec"
+     }
+    },
+    {
+     "name": "--exists-action",
+     "description": "Default action when a path already exists: (s)witch, (i)gnore, (w)ipe, (b)ackup",
+     "args": {
+      "name": "action"
+     }
+    },
+    {
+     "name": "--trusted-host",
+     "description": "Mark this host or host:port pair as trusted, even though it does not have valid…",
+     "args": {
+      "name": "hostname"
+     }
+    },
+    {
+     "name": "--cert",
+     "description": "Path to PEM-encoded CA certificate bundle",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--client-cert",
+     "description": "Path to SSL client certificate, a single file containing the private key and the",
+     "args": {
+      "name": "path",
+      "template": "filepaths"
+     }
+    },
+    {
+     "name": "--cache-dir",
+     "description": "Store the cache data in <dir>",
+     "args": {
+      "name": "dir",
+      "template": "folders"
+     }
+    },
+    {
+     "name": "--no-cache-dir",
+     "description": "Disable the cache"
+    },
+    {
+     "name": "--disable-pip-version-check",
+     "description": "Don't periodically check PyPI to determine whether a new version of pip is avai…"
+    },
+    {
+     "name": "--no-color",
+     "description": "Suppress colored output"
+    },
+    {
+     "name": "--use-feature",
+     "description": "Enable new functionality, that may be backward incompatible",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--use-deprecated",
+     "description": "Enable deprecated functionality, that will be removed in the future",
+     "args": {
+      "name": "feature"
+     }
+    },
+    {
+     "name": "--resume-retries",
+     "description": "Maximum attempts to resume or restart an incomplete download",
+     "args": {
+      "name": "resume_retries"
+     }
+    }
+   ]
+  }
+ ],
+ "options": [
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Show help"
+  },
+  {
+   "name": "--debug",
+   "description": "Let unhandled exceptions propagate outside the main subroutine, instead of logg…"
+  },
+  {
+   "name": "--isolated",
+   "description": "Run pip in an isolated mode, ignoring environment variables and user configurat…"
+  },
+  {
+   "name": "--require-virtualenv",
+   "description": "Allow pip to only run in a virtual environment"
+  },
+  {
+   "name": "--python",
+   "description": "Run pip with the specified Python interpreter",
+   "args": {
+    "name": "python"
+   }
+  },
+  {
+   "name": [
+    "-v",
+    "--verbose"
+   ],
+   "description": "Give more output"
+  },
+  {
+   "name": [
+    "-V",
+    "--version"
+   ],
+   "description": "Show version and exit"
+  },
+  {
+   "name": [
+    "-q",
+    "--quiet"
+   ],
+   "description": "Give less output"
+  },
+  {
+   "name": "--log",
+   "description": "Path to a verbose appending log",
+   "args": {
+    "name": "path",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "--no-input",
+   "description": "Disable prompting for input"
+  },
+  {
+   "name": "--keyring-provider",
+   "description": "Enable the credential lookup via the keyring library if user input is allowed",
+   "args": {
+    "name": "keyring_provider"
+   }
+  },
+  {
+   "name": "--proxy",
+   "description": "Specify a proxy in the form scheme://[user:passwd@]proxy.server:port",
+   "args": {
+    "name": "proxy"
+   }
+  },
+  {
+   "name": "--retries",
+   "description": "Maximum attempts to establish a new HTTP connection",
+   "args": {
+    "name": "retries"
+   }
+  },
+  {
+   "name": "--timeout",
+   "description": "Set the socket timeout (default 15 seconds)",
+   "args": {
+    "name": "sec"
+   }
+  },
+  {
+   "name": "--exists-action",
+   "description": "Default action when a path already exists: (s)witch, (i)gnore, (w)ipe, (b)ackup",
+   "args": {
+    "name": "action"
+   }
+  },
+  {
+   "name": "--trusted-host",
+   "description": "Mark this host or host:port pair as trusted, even though it does not have valid…",
+   "args": {
+    "name": "hostname"
+   }
+  },
+  {
+   "name": "--cert",
+   "description": "Path to PEM-encoded CA certificate bundle",
+   "args": {
+    "name": "path",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "--client-cert",
+   "description": "Path to SSL client certificate, a single file containing the private key and the",
+   "args": {
+    "name": "path",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "--cache-dir",
+   "description": "Store the cache data in <dir>",
+   "args": {
+    "name": "dir",
+    "template": "folders"
+   }
+  },
+  {
+   "name": "--no-cache-dir",
+   "description": "Disable the cache"
+  },
+  {
+   "name": "--disable-pip-version-check",
+   "description": "Don't periodically check PyPI to determine whether a new version of pip is avai…"
+  },
+  {
+   "name": "--no-color",
+   "description": "Suppress colored output"
+  },
+  {
+   "name": "--use-feature",
+   "description": "Enable new functionality, that may be backward incompatible",
+   "args": {
+    "name": "feature"
+   }
+  },
+  {
+   "name": "--use-deprecated",
+   "description": "Enable deprecated functionality, that will be removed in the future",
+   "args": {
+    "name": "feature"
+   }
+  },
+  {
+   "name": "--resume-retries",
+   "description": "Maximum attempts to resume or restart an incomplete download",
+   "args": {
+    "name": "resume_retries"
+   }
+  }
+ ]
+}

@@ -1,0 +1,152 @@
+{
+ "name": "passwd",
+ "description": "Change a user password",
+ "options": [
+  {
+   "name": [
+    "-a",
+    "--all"
+   ],
+   "description": "Report password status on all accounts"
+  },
+  {
+   "name": [
+    "-d",
+    "--delete"
+   ],
+   "description": "Delete the password for the named account"
+  },
+  {
+   "name": [
+    "-e",
+    "--expire"
+   ],
+   "description": "Force expire the password for the named account"
+  },
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Display this help message and exit"
+  },
+  {
+   "name": [
+    "-k",
+    "--keep-tokens"
+   ],
+   "description": "Change password only if expired"
+  },
+  {
+   "name": [
+    "-i",
+    "--inactive"
+   ],
+   "description": "Set password inactive after expiration",
+   "args": {
+    "name": "inactive"
+   }
+  },
+  {
+   "name": [
+    "-l",
+    "--lock"
+   ],
+   "description": "Lock the password of the named account"
+  },
+  {
+   "name": [
+    "-n",
+    "--mindays"
+   ],
+   "description": "Set minimum number of days before password",
+   "args": {
+    "name": "min_days"
+   }
+  },
+  {
+   "name": [
+    "-q",
+    "--quiet"
+   ],
+   "description": "Quiet mode"
+  },
+  {
+   "name": [
+    "-r",
+    "--repository"
+   ],
+   "description": "Change password in REPOSITORY repository",
+   "args": {
+    "name": "repository"
+   }
+  },
+  {
+   "name": [
+    "-R",
+    "--root"
+   ],
+   "description": "Directory to chroot into",
+   "args": {
+    "name": "chroot_dir",
+    "template": "folders"
+   }
+  },
+  {
+   "name": [
+    "-P",
+    "--prefix"
+   ],
+   "description": "Directory prefix",
+   "args": {
+    "name": "prefix_dir",
+    "template": "folders"
+   }
+  },
+  {
+   "name": [
+    "-S",
+    "--status"
+   ],
+   "description": "Report password status on the named account"
+  },
+  {
+   "name": [
+    "-u",
+    "--unlock"
+   ],
+   "description": "Unlock the password of the named account"
+  },
+  {
+   "name": [
+    "-w",
+    "--warndays"
+   ],
+   "description": "Set expiration warning days to WARN_DAYS",
+   "args": {
+    "name": "warn_days"
+   }
+  },
+  {
+   "name": [
+    "-x",
+    "--maxdays"
+   ],
+   "description": "Set maximum number of days before password",
+   "args": {
+    "name": "max_days"
+   }
+  },
+  {
+   "name": [
+    "-s",
+    "--stdin"
+   ],
+   "description": "Read new token from stdin"
+  }
+ ],
+ "args": {
+  "name": "login",
+  "isOptional": true
+ }
+}

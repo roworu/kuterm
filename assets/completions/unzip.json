@@ -1,0 +1,120 @@
+{
+ "name": "unzip",
+ "description": "List, test and extract zip archives",
+ "options": [
+  {
+   "name": "-p",
+   "description": "Extract files to pipe, no messages"
+  },
+  {
+   "name": "-l",
+   "description": "List files (short format)"
+  },
+  {
+   "name": "-f",
+   "description": "Freshen existing files, create none"
+  },
+  {
+   "name": "-t",
+   "description": "Test compressed archive data"
+  },
+  {
+   "name": "-u",
+   "description": "Update files, create if necessary"
+  },
+  {
+   "name": "-z",
+   "description": "Display archive comment only"
+  },
+  {
+   "name": "-v",
+   "description": "List verbosely/show version info"
+  },
+  {
+   "name": "-T",
+   "description": "Timestamp archive to latest"
+  },
+  {
+   "name": "-x",
+   "description": "Exclude files that follow (in xlist)"
+  },
+  {
+   "name": "-d",
+   "description": "Extract files into exdir"
+  },
+  {
+   "name": "-n",
+   "description": "Never overwrite existing files"
+  },
+  {
+   "name": "-q",
+   "description": "Quiet mode (-qq => quieter)"
+  },
+  {
+   "name": "-o",
+   "description": "Overwrite files WITHOUT prompting"
+  },
+  {
+   "name": "-a",
+   "description": "Auto-convert any text files"
+  },
+  {
+   "name": "-j",
+   "description": "Junk paths (do not make directories)"
+  },
+  {
+   "name": "-aa"
+  },
+  {
+   "name": "-U",
+   "description": "Use escapes for all non-ASCII Unicode"
+  },
+  {
+   "name": "-UU"
+  },
+  {
+   "name": "-C",
+   "description": "Match filenames case-insensitively"
+  },
+  {
+   "name": "-L",
+   "description": "Make (some) names lowercase"
+  },
+  {
+   "name": "-X",
+   "description": "Restore UID/GID info"
+  },
+  {
+   "name": "-V",
+   "description": "Retain VMS version numbers"
+  },
+  {
+   "name": "-K",
+   "description": "Keep setuid/setgid/tacky permissions"
+  },
+  {
+   "name": "-M",
+   "description": "Pipe through \"more\" pager"
+  },
+  {
+   "name": "-O",
+   "description": "Specify a character encoding for DOS, Windows and OS/2 archives",
+   "args": {
+    "name": "charset"
+   }
+  },
+  {
+   "name": "-I",
+   "description": "Specify a character encoding for UNIX and other archives",
+   "args": {
+    "name": "charset"
+   }
+  }
+ ],
+ "args": {
+  "name": "file",
+  "template": "filepaths",
+  "isVariadic": true,
+  "isOptional": true
+ }
+}

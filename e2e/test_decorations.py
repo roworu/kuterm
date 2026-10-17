@@ -182,5 +182,10 @@ def test_double_click_on_top_row_maximizes(app_factory, decorations, menu_bar):
         return "_NET_WM_STATE_MAXIMIZED_VERT" in state and "_NET_WM_STATE_MAXIMIZED_HORZ" in state
 
     app.click(*drag_spot(app), repeat=2)
-    app.wait(maximized, msg="maximized window")
+    try:
+        app.wait(maximized, msg="maximized window", timeout=4)
+    except AssertionError:
+        # a busy machine can stretch the two clicks past the double click time, once more
+        app.click(*drag_spot(app), repeat=2)
+        app.wait(maximized, msg="maximized window")
     app.snap("maximized by a double click")

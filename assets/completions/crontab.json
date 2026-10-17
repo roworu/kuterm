@@ -1,0 +1,39 @@
+{
+ "name": "crontab",
+ "description": "Maintain crontab files",
+ "options": [
+  {
+   "name": "-h",
+   "description": "Displays this help message"
+  },
+  {
+   "name": "-n",
+   "description": "Dry run: checks the syntax, then bails out"
+  },
+  {
+   "name": "-u",
+   "description": "Choose the user whose crontab is touched"
+  },
+  {
+   "name": "-e",
+   "description": "Edit user's crontab"
+  },
+  {
+   "name": "-l",
+   "description": "List user's crontab"
+  },
+  {
+   "name": "-r",
+   "description": "Delete user's crontab"
+  },
+  {
+   "name": "-i",
+   "description": "Prompt before deleting user's crontab"
+  }
+ ],
+ "args": {
+  "name": "file",
+  "template": "filepaths",
+  "isOptional": true
+ }
+}

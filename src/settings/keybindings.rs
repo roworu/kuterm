@@ -7,12 +7,15 @@ use serde::Deserialize;
 use serde::de::Error;
 use serde_json_lenient::Value;
 
-use super::{CommandAction, config};
+use super::{CommandAction, Commands, config};
 use crate::ui::{
-    terminal_view::{Copy, Paste, Search, ShowHints, ToggleViMode},
+    terminal_view::{
+        Complete, CompletionAccept, CompletionDismiss, CompletionNext, CompletionPrev, Copy, Paste,
+        Search, ShowHints, ToggleViMode,
+    },
     workspace::{
         ActivateTab, CloseTab, Hide, HideOthers, Minimize, NewTab, NextTab, Quit, RunAction,
-        ToggleCommandPalette, ToggleFullscreen,
+        RunNamedCommand, ToggleCommandPalette, ToggleFullscreen,
     },
 };
 
@@ -37,6 +40,8 @@ pub struct KeymapEntry {
 pub enum KeymapAction {
     /// an action of the "keybindings" section, or "unbind"
     Named(String),
+    /// the palette command of this name, like { "run": "checkout branch" }
+    Run { run: String },
     /// a command palette action like { "send_text": "..." }
     Command(CommandAction),
 }
@@ -50,6 +55,8 @@ pub enum When {
     Palette,
     ViMode,
     AltScreen,
+    /// while the completion popup shows
+    Completion,
 }
 
 impl When {
@@ -61,6 +68,7 @@ impl When {
             When::Palette => "CommandPalette",
             When::ViMode => "Terminal && vi_mode",
             When::AltScreen => "Terminal && alt_screen",
+            When::Completion => COMPLETION_CONTEXT,
         }
     }
 }
@@ -70,6 +78,9 @@ impl Default for Keybindings {
         Self::parse("{}").expect("bundled default keybindings are invalid")
     }
 }
+
+// the popup keys are plain keys the shell needs, so they only work while it shows
+const COMPLETION_CONTEXT: &str = "Terminal && completion";
 
 // keys are checked before this runs, so `KeyBinding::new` won't panic
 fn binding(action: &str, keys: &str, when: Option<&str>) -> Option<KeyBinding> {
@@ -82,6 +93,19 @@ fn binding(action: &str, keys: &str, when: Option<&str>) -> Option<KeyBinding> {
         "search" => KeyBinding::new(keys, Search, when.or(Some("Terminal"))),
         "hints" => KeyBinding::new(keys, ShowHints, when.or(Some("Terminal"))),
         "vi_mode" => KeyBinding::new(keys, ToggleViMode, when.or(Some("Terminal"))),
+        "complete" => KeyBinding::new(keys, Complete, when.or(Some("Terminal"))),
+        "completion_next" => {
+            KeyBinding::new(keys, CompletionNext, when.or(Some(COMPLETION_CONTEXT)))
+        }
+        "completion_prev" => {
+            KeyBinding::new(keys, CompletionPrev, when.or(Some(COMPLETION_CONTEXT)))
+        }
+        "completion_accept" => {
+            KeyBinding::new(keys, CompletionAccept, when.or(Some(COMPLETION_CONTEXT)))
+        }
+        "completion_dismiss" => {
+            KeyBinding::new(keys, CompletionDismiss, when.or(Some(COMPLETION_CONTEXT)))
+        }
         "command_palette" => KeyBinding::new(keys, ToggleCommandPalette, when),
         "toggle_fullscreen" => KeyBinding::new(keys, ToggleFullscreen, when),
         "quit" => KeyBinding::new(keys, Quit, when),
@@ -128,6 +152,42 @@ fn binding(action: &str, keys: &str, when: Option<&str>) -> Option<KeyBinding> {
         "open_scrollback" => KeyBinding::new(keys, RunAction(CommandAction::OpenScrollback), when),
         "zoom_pane" => KeyBinding::new(keys, RunAction(CommandAction::ZoomPane), when),
         "equalize_panes" => KeyBinding::new(keys, RunAction(CommandAction::EqualizePanes), when),
+        "close_other_tabs" => KeyBinding::new(keys, RunAction(CommandAction::CloseOtherTabs), when),
+        "rename_tab" => KeyBinding::new(keys, RunAction(CommandAction::RenameTab), when),
+        "pin_tab" => KeyBinding::new(keys, RunAction(CommandAction::PinTab), when),
+        "duplicate_tab" => KeyBinding::new(keys, RunAction(CommandAction::DuplicateTab), when),
+        "new_incognito_tab" => {
+            KeyBinding::new(keys, RunAction(CommandAction::NewIncognitoTab), when)
+        }
+        "next_attention_tab" => {
+            KeyBinding::new(keys, RunAction(CommandAction::NextAttentionTab), when)
+        }
+        "pick_agent_tab" => KeyBinding::new(keys, RunAction(CommandAction::PickAgentTab), when),
+        "new_group" => KeyBinding::new(keys, RunAction(CommandAction::NewGroup), when),
+        "add_tab_to_group" => KeyBinding::new(keys, RunAction(CommandAction::AddTabToGroup), when),
+        "remove_tab_from_group" => {
+            KeyBinding::new(keys, RunAction(CommandAction::RemoveTabFromGroup), when)
+        }
+        "rename_pane" => KeyBinding::new(keys, RunAction(CommandAction::RenamePane), when),
+        "show_hidden_text" => KeyBinding::new(keys, RunAction(CommandAction::ShowHiddenText), when),
+        "close_group" => KeyBinding::new(keys, RunAction(CommandAction::CloseGroup), when),
+        "pick_theme" => KeyBinding::new(keys, RunAction(CommandAction::PickTheme), when),
+        "find_in_all_tabs" => KeyBinding::new(keys, RunAction(CommandAction::FindInAllTabs), when),
+        "toggle_broadcast_all" => {
+            KeyBinding::new(keys, RunAction(CommandAction::ToggleBroadcastAll), when)
+        }
+        "toggle_broadcast_pane" => {
+            KeyBinding::new(keys, RunAction(CommandAction::ToggleBroadcastPane), when)
+        }
+        "queue_command" => KeyBinding::new(keys, RunAction(CommandAction::QueueCommand), when),
+        "edit_queue" => KeyBinding::new(keys, RunAction(CommandAction::EditQueue), when),
+        "resume_queue" => KeyBinding::new(keys, RunAction(CommandAction::ResumeQueue), when),
+        "toggle_scroll_sync" => {
+            KeyBinding::new(keys, RunAction(CommandAction::ToggleScrollSync), when)
+        }
+        "move_tab_to_new_window" => {
+            KeyBinding::new(keys, RunAction(CommandAction::MoveTabToNewWindow), when)
+        }
         _ => {
             let number: usize = action.strip_prefix("activate_tab_")?.parse().ok()?;
             KeyBinding::new(keys, ActivateTab(number.checked_sub(1)?), when)
@@ -167,6 +227,9 @@ impl Keybindings {
             Some(list) => Vec::<KeymapEntry>::deserialize(list)
                 .map_err(|error| Error::custom(format!("keymap: {error}")))?,
         };
+        // "run" names a command of the settings being parsed, checked here so a typo shows up
+        // like any other broken binding
+        let commands = Commands::from_full(full).ok();
         for entry in &keymap {
             if entry.keys.trim().is_empty() {
                 return Err(Error::custom("keymap: empty keys"));
@@ -175,11 +238,20 @@ impl Keybindings {
                 Keystroke::parse(key)
                     .map_err(|error| Error::custom(format!("keymap {:?}: {error}", entry.keys)))?;
             }
-            if let KeymapAction::Named(name) = &entry.action
-                && name != "unbind"
-                && binding(name, &entry.keys, None).is_none()
-            {
-                return Err(Error::custom(format!("keymap: unknown action {name:?}")));
+            match &entry.action {
+                KeymapAction::Named(name)
+                    if name != "unbind" && binding(name, &entry.keys, None).is_none() =>
+                {
+                    return Err(Error::custom(format!("keymap: unknown action {name:?}")));
+                }
+                KeymapAction::Run { run }
+                    if !commands
+                        .as_ref()
+                        .is_some_and(|commands| commands.find(run).is_some()) =>
+                {
+                    return Err(Error::custom(format!("keymap: no command named {run:?}")));
+                }
+                _ => {}
             }
         }
         Ok(Self(bindings, keymap))
@@ -199,6 +271,11 @@ impl Keybindings {
                     Some(KeyBinding::new(&entry.keys, NoAction, when))
                 }
                 KeymapAction::Named(name) => binding(name, &entry.keys, when),
+                KeymapAction::Run { run } => Some(KeyBinding::new(
+                    &entry.keys,
+                    RunNamedCommand(run.clone()),
+                    when,
+                )),
                 KeymapAction::Command(action) => Some(KeyBinding::new(
                     &entry.keys,
                     RunAction(action.clone()),
@@ -224,7 +301,7 @@ mod tests {
         assert_eq!(keys.0["copy"].as_deref(), Some("ctrl-shift-c"));
         assert_eq!(keys.0["activate_tab_9"].as_deref(), Some("alt-9"));
         assert_eq!(keys.0["toggle_fullscreen"].as_deref(), Some("f11"));
-        assert_eq!(keys.bindings().len(), 25);
+        assert_eq!(keys.bindings().len(), 30);
     }
 
     #[test]
@@ -255,7 +332,7 @@ mod tests {
         assert_eq!(keys.0["new_tab"].as_deref(), Some("ctrl-shift-n"));
         assert_eq!(keys.0["close_tab"], None);
         assert_eq!(keys.0["paste"].as_deref(), Some("ctrl-shift-v"));
-        assert_eq!(keys.bindings().len(), 25);
+        assert_eq!(keys.bindings().len(), 30);
     }
 
     #[test]
@@ -284,7 +361,7 @@ mod tests {
     fn activate_tab_10_adds_a_binding_for_index_9() {
         let keys = Keybindings::parse(r#"{"activate_tab_10": "alt-0"}"#).unwrap();
         let bindings = keys.bindings();
-        assert_eq!(bindings.len(), 26);
+        assert_eq!(bindings.len(), 31);
         let strokes = |ix: usize| -> Vec<Keystroke> {
             let found: Vec<_> = bindings
                 .iter()
@@ -332,6 +409,8 @@ mod tests {
             "reset_font_size",
             "open_settings",
             "reload_config",
+            "complete",
+            "completion_next",
             "activate_tab_1",
         ] {
             // other sections have keys like "copy" too
@@ -374,6 +453,56 @@ mod tests {
     }
 
     #[test]
+    fn keymap_run_binds_a_named_command() {
+        let full = config::combine(
+            serde_json_lenient::from_str(
+                r#"{
+                "commands": [{"name": "checkout branch", "actions": ["about"]}],
+                "keymap": [{"keys": "ctrl-alt-b", "action": {"run": "checkout branch"}}],
+            }"#,
+            )
+            .unwrap(),
+        );
+        let keys = Keybindings::from_full(&full).unwrap();
+        assert_eq!(
+            keys.1[0].action,
+            KeymapAction::Run {
+                run: "checkout branch".into()
+            }
+        );
+        // the binding goes last, so it wins over the named ones
+        let last = keys.bindings().pop().unwrap();
+        let action = last
+            .action()
+            .as_any()
+            .downcast_ref::<RunNamedCommand>()
+            .unwrap();
+        assert_eq!(action.0, "checkout branch");
+        let strokes: Vec<Keystroke> = last
+            .keystrokes()
+            .iter()
+            .map(|k| k.inner().clone())
+            .collect();
+        assert_eq!(strokes, vec![Keystroke::parse("ctrl-alt-b").unwrap()]);
+
+        // bundled commands can be run by their label too
+        let full = config::combine(serde_json_lenient::from_str(r#"{"keymap": []}"#).unwrap());
+        Keybindings::from_full(&full).unwrap();
+    }
+
+    #[test]
+    fn keymap_run_rejects_an_unknown_command() {
+        let full = config::combine(
+            serde_json_lenient::from_str(
+                r#"{"keymap": [{"keys": "ctrl-alt-b", "action": {"run": "checkout brunch"}}]}"#,
+            )
+            .unwrap(),
+        );
+        let error = Keybindings::from_full(&full).unwrap_err();
+        assert!(error.to_string().contains("no command named"), "{error}");
+    }
+
+    #[test]
     fn bad_keymap_entries_are_errors() {
         for json in [
             r#"{"keymap": [{"keys": "ctrl-x", "action": "launch_rockets"}]}"#,
@@ -385,5 +514,64 @@ mod tests {
             let full = config::combine(serde_json_lenient::from_str(json).unwrap());
             assert!(Keybindings::from_full(&full).is_err(), "{json}");
         }
+    }
+
+    #[test]
+    fn keymap_when_names_the_gpui_context() {
+        let full = config::combine(
+            serde_json_lenient::from_str(
+                r#"{"keymap": [
+                {"keys": "ctrl-alt-1", "action": "new_tab", "when": "search"},
+                {"keys": "ctrl-alt-2", "action": "new_tab", "when": "palette"},
+                {"keys": "ctrl-alt-3", "action": "new_tab", "when": "vi_mode"},
+            ]}"#,
+            )
+            .unwrap(),
+        );
+        let bindings = Keybindings::from_full(&full).unwrap().bindings();
+        let contexts: Vec<String> = bindings[bindings.len() - 3..]
+            .iter()
+            .map(|binding| binding.predicate().unwrap().to_string())
+            .collect();
+        let want: Vec<String> = ["Search", "CommandPalette", "Terminal && vi_mode"]
+            .iter()
+            .map(|source| {
+                gpui::KeyBindingContextPredicate::parse(source)
+                    .unwrap()
+                    .to_string()
+            })
+            .collect();
+        assert_eq!(contexts, want);
+    }
+
+    #[test]
+    fn actions_unbound_by_default_bind_when_given_keys() {
+        // these have no default keys, so only a user's binding reaches them
+        let keys = Keybindings::parse(
+            r#"{"select_last_output": "ctrl-alt-o", "new_incognito_tab": "ctrl-alt-i"}"#,
+        )
+        .unwrap();
+        let actions: Vec<CommandAction> = keys
+            .bindings()
+            .iter()
+            .filter_map(|binding| binding.action().as_any().downcast_ref::<RunAction>())
+            .map(|action| action.0.clone())
+            .collect();
+        assert!(
+            actions.contains(&CommandAction::SelectLastOutput),
+            "{actions:?}"
+        );
+        assert!(
+            actions.contains(&CommandAction::NewIncognitoTab),
+            "{actions:?}"
+        );
+    }
+
+    #[test]
+    fn settings_without_keymap_have_no_entries() {
+        let full = serde_json_lenient::json!({"keybindings": {"new_tab": "ctrl-shift-t"}});
+        let keys = Keybindings::from_full(&full).unwrap();
+        assert!(keys.1.is_empty());
+        assert_eq!(keys.bindings().len(), 1);
     }
 }

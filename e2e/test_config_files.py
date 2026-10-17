@@ -41,8 +41,8 @@ def test_missing_config_home_uses_home_dot_config(app_factory):
     assert not (app.config / "settings.jsonc").exists()
 
 
-@pytest.mark.parametrize("content", ["{", "not json", "[]", '{"terminal": {"cursor_shape": "triangle"}}',
-                                     '{"theme": {"mode": "auto"}}'])
+# broken syntax and a bad value, rejection itself is unit tested
+@pytest.mark.parametrize("content", ["{", '{"terminal": {"cursor_shape": "triangle"}}'])
 def test_broken_settings_file_starts_with_defaults(app_factory, content):
     """an invalid settings file prints an error, keeps the file and runs with defaults"""
     app = app_factory(content)

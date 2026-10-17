@@ -7,12 +7,15 @@ RUN apt-get update \
         xvfb xauth x11-utils x11-xserver-utils x11-xkb-utils xkb-data xdotool xclip openbox wmctrl \
         libxkbcommon-x11-0 libx11-xcb1 libxcb1 libwayland-client0 libfontconfig1 libfreetype6 \
         mesa-vulkan-drivers libvulkan1 libgl1-mesa-dri \
-        fonts-dejavu-core fonts-wqy-microhei fonts-noto-color-emoji fontconfig \
+        fonts-dejavu-core fonts-wqy-microhei fonts-noto-color-emoji fonts-firacode fontconfig \
         sway grim wl-clipboard \
-        dbus dbus-daemon python3 python3-pytest python3-pil python3-numpy python3-dbus python3-gi \
-        bash procps psmisc less \
+        dbus dbus-daemon python3 python3-pytest python3-pytest-xdist python3-pil python3-numpy python3-dbus python3-gi \
+        bash zsh procps psmisc less \
+        git vim-tiny neovim bubblewrap \
     && rm -rf /var/lib/apt/lists/*
 
 # lavapipe is the only vulkan device, pin it so wgpu never waits for others
 ENV VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
+# run.sh copies the tests, assets and binary in here
+RUN mkdir /src
 WORKDIR /src

@@ -32,6 +32,18 @@
   <false/>
   <key>NSSupportsAutomaticGraphicsSwitching</key>
   <true/>
+  <!-- kuterm://run links open a tab with their command typed, see app_menu.rs -->
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>kuterm run link</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>kuterm</string>
+      </array>
+    </dict>
+  </array>
   <!-- lets folders be dropped on the dock icon and opened with "open -a kuterm" -->
   <key>CFBundleDocumentTypes</key>
   <array>
