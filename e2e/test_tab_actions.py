@@ -312,6 +312,8 @@ def test_escape_cancels_a_rename(app_factory):
     app.wait_title("1")
     app.wait_still()
     before = bar_region(app, 0, WIDTH)
+    # past gpui's 400ms double click window, or the first click counts toward this double click
+    time.sleep(0.5)
     app.click(tab_center(app, 0), app.bar_height() // 2, repeat=2)
     app.wait(lambda: renaming(app), msg="the rename field")
     app.type("discarded")
