@@ -6,12 +6,6 @@ use gpui::{Context, Entity};
 use super::Workspace;
 use crate::ui::terminal_view::TerminalView;
 
-/// offset from the bottom a pane at `offset` with `history` lines moves to when another pane
-/// scrolled `delta` lines, positive up
-pub(super) fn follow(offset: usize, history: usize, delta: i32) -> usize {
-    (offset as i64 + delta as i64).clamp(0, history as i64) as usize
-}
-
 impl Workspace {
     /// join the focused pane to the panes scrolled together, or take it out
     pub(super) fn toggle_scroll_sync(&mut self, cx: &mut Context<Self>) {
@@ -54,27 +48,12 @@ impl Workspace {
             })
             .collect();
         for terminal in targets {
+            // relative, so wheel events coming faster than frames add up, and each pane stops
+            // at the ends of its own history
             terminal.update(cx, |terminal, cx| {
-                let offset = terminal.last_content.display_offset;
-                terminal.scroll_to(follow(offset, terminal.history_size(), delta));
+                terminal.scroll(delta);
                 cx.notify();
             });
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::follow;
-
-    #[test]
-    fn delta_moves_each_pane_clamped_to_its_history() {
-        // a pane with a long history follows the whole way
-        assert_eq!(follow(0, 500, 50), 50);
-        assert_eq!(follow(80, 500, -30), 50);
-        // a short one stops at its top and its bottom
-        assert_eq!(follow(10, 20, 50), 20);
-        assert_eq!(follow(5, 20, -50), 0);
-        assert_eq!(follow(0, 0, 50), 0);
     }
 }

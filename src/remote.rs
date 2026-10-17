@@ -171,6 +171,9 @@ pub struct TabInfo {
     /// the tab in front of the focused pane of its window
     pub active: bool,
     pub cwd: Option<PathBuf>,
+    /// its history is packed away until it is shown or read, see "sleep_tabs_after_minutes"
+    #[serde(default)]
+    pub asleep: bool,
 }
 
 /// answer to a request

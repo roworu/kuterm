@@ -196,18 +196,34 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let ids: Vec<EntityId> = self
-            .layout
-            .panes()
-            .iter()
-            .flat_map(|pane| pane.tabs.iter())
-            .filter(|tab| tab.group == Some(group))
-            .map(|tab| tab.view.entity_id())
-            .collect();
-        for id in ids {
-            if let Some((pane, ix)) = self.find_id(id) {
-                self.request_close_tab(pane, ix, window, cx);
+        if self.confirm_close.is_some() {
+            return;
+        }
+        let warn = Settings::get(cx).close_running_tab_warn;
+        let mut ids: Vec<EntityId> = Vec::new();
+        let mut names: Vec<String> = Vec::new();
+        for pane in self.layout.panes() {
+            for (ix, tab) in pane.tabs.iter().enumerate() {
+                if tab.group != Some(group) {
+                    continue;
+                }
+                ids.push(tab.view.entity_id());
+                names.extend(
+                    warn.then(|| self.running_program(pane.id, ix, cx))
+                        .flatten(),
+                );
             }
+        }
+        // one question for the whole group, a dialog per tab would drop the rest
+        if names.is_empty() {
+            self.close_tabs(&ids, window, cx);
+        } else {
+            self.open_confirm(
+                super::side_close_message(&names),
+                crate::ui::command_palette::CloseTarget::Tabs(ids),
+                window,
+                cx,
+            );
         }
     }
 

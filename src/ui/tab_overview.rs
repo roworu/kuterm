@@ -10,7 +10,7 @@ use crate::{
     settings::Settings,
     terminal::{Event, Terminal},
     theme::Theme,
-    ui::text_input::{Changed, TextInput},
+    ui::text_input::{Changed, Left, Right, TextInput},
 };
 
 // font size of the preview text, small enough for a whole screen to fit a cell
@@ -101,8 +101,6 @@ impl TabOverview {
                 self.pick(selected, cx);
                 return;
             }
-            "left" => selected.saturating_sub(1),
-            "right" => (selected + 1).min(count.saturating_sub(1)),
             "up" => selected.checked_sub(columns).unwrap_or(selected),
             "down" => match selected + columns {
                 below if below < count => below,
@@ -146,6 +144,14 @@ impl Focusable for TabOverview {
 
 impl Render for TabOverview {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // a hidden tab has no view syncing it, a sleeping one stays asleep
+        for &tab_ix in &self.shown {
+            self.tabs[tab_ix].terminal.update(cx, |terminal, _| {
+                if !terminal.asleep() {
+                    terminal.sync();
+                }
+            });
+        }
         let theme = Theme::get(cx);
         let font = Settings::get(cx).terminal.font.family.clone();
         let (columns, _) = grid(self.shown.len());
@@ -200,6 +206,17 @@ impl Render for TabOverview {
             .debug_selector(|| "tab-overview".into())
             .key_context("TabOverview")
             .on_key_down(cx.listener(Self::key_down))
+            // the filter field binds left and right to its caret, the pick takes them first
+            .capture_action(cx.listener(|this, _: &Left, _, cx| {
+                this.selected = this.selected.saturating_sub(1);
+                cx.stop_propagation();
+                cx.notify();
+            }))
+            .capture_action(cx.listener(|this, _: &Right, _, cx| {
+                this.selected = (this.selected + 1).min(this.shown.len().saturating_sub(1));
+                cx.stop_propagation();
+                cx.notify();
+            }))
             .occlude()
             .absolute()
             .inset_0()

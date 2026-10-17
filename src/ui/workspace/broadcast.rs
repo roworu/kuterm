@@ -50,7 +50,11 @@ impl Workspace {
     pub(super) fn broadcasts(&self, pane: usize) -> bool {
         self.broadcast
             .as_ref()
-            .is_some_and(|panes| panes.contains(&pane) && panes.len() > 1)
+            // closed panes stay in the set, only the live ones count
+            .is_some_and(|panes| {
+                panes.contains(&pane)
+                    && panes.iter().filter(|&&id| self.pane(id).is_some()).count() > 1
+            })
     }
 
     /// input typed into `view` goes to the active tab of every other joined pane, when the

@@ -1,7 +1,10 @@
 //! things done to one tab: renaming it in place, pinning, duplicating, and the right click
 //! menu listing them
 
-use gpui::{AnyElement, App, Context, Focusable, Window, anchored, deferred, div, prelude::*, px};
+use gpui::{
+    AnyElement, App, Context, Focusable, KeyDownEvent, Window, anchored, deferred, div, prelude::*,
+    px,
+};
 
 use super::{
     Workspace,
@@ -147,6 +150,13 @@ impl Workspace {
         }
     }
 
+    /// close the tab menu, typing goes back to the terminal
+    fn close_tab_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.tab_menu = None;
+        self.focus_pane(self.focused, window, cx);
+        cx.notify();
+    }
+
     /// menu of a right clicked tab, its rows act on that tab
     pub(super) fn render_tab_menu(&self, cx: &Context<Self>) -> Option<AnyElement> {
         let (id, position) = self.tab_menu?;
@@ -196,9 +206,16 @@ impl Workspace {
         });
         let menu = popup_menu("tab-menu", theme)
             .children(rows)
-            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
-                this.tab_menu = None;
-                cx.notify();
+            .track_focus(&self.tab_menu_focus)
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                // every key stays with the menu, escape closes it
+                cx.stop_propagation();
+                if event.keystroke.key == "escape" {
+                    this.close_tab_menu(window, cx);
+                }
+            }))
+            .on_mouse_down_out(cx.listener(|this, _, window, cx| {
+                this.close_tab_menu(window, cx);
             }));
         Some(
             deferred(anchored().position(position).snap_to_window().child(menu)).into_any_element(),

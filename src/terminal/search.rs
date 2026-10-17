@@ -202,8 +202,22 @@ pub(super) fn visible_matches(term: &Term<ZedListener>, search: &mut SearchState
         term.last_column(),
     );
     let direction = alacritty_terminal::index::Direction::Right;
-    RegexIter::new(start, end, direction, term, &mut search.regex)
-        .take(MAX_MATCHES)
+    let found = RegexIter::new(start, end, direction, term, &mut search.regex).take(MAX_MATCHES);
+    if search.scope == SearchScope::All {
+        return found.collect();
+    }
+    // a narrower scope lights only what its scan kept, not every match on screen
+    let history = term.grid().history_size();
+    let kept: std::collections::HashSet<(usize, usize)> = search
+        .matches
+        .iter()
+        .map(|m| (m.start().0, m.start().1.0))
+        .collect();
+    found
+        .filter(|m| {
+            let (line, column) = to_abs(*m.start(), history);
+            kept.contains(&(line, column.0))
+        })
         .collect()
 }
 
@@ -531,10 +545,19 @@ mod tests {
         };
         assert_eq!(search(super::SearchScope::All), 3);
         assert_eq!(search(super::SearchScope::Failed), 2);
+
         assert_eq!(search(super::SearchScope::Block(ids[0])), 1);
         assert_eq!(search(super::SearchScope::Block(u64::MAX)), 0);
         // the scope holds while walking matches
         assert_eq!(terminal.search_next(true).count, 0);
+        // only the scope's matches light up on screen
+        let failed = SearchQuery {
+            scope: super::SearchScope::Failed,
+            ..query("foo", false, false, SearchCase::Smart)
+        };
+        terminal.search(&failed).unwrap();
+        terminal.sync();
+        assert_eq!(terminal.last_content.search_matches.len(), 2);
         let pattern = search_pattern(&query("foo", false, false, SearchCase::Smart)).unwrap();
         let task = terminal
             .find_task(&pattern, 10, super::SearchScope::Failed)

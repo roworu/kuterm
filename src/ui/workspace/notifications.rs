@@ -571,6 +571,18 @@ fn copied_preview(text: &str) -> String {
 
 /// a notification of the desktop, for when the window is not looked at
 pub(super) fn system_notification(title: &str, body: &str) {
+    // over dbus like the ones with buttons, notify-send may not be installed
+    #[cfg(target_os = "linux")]
+    {
+        // nothing comes back without buttons
+        drop(desktop_notification(
+            title.to_string(),
+            body.to_string(),
+            Vec::new(),
+        ));
+        return;
+    }
+    #[allow(unreachable_code)]
     let mut command = if cfg!(target_os = "macos") {
         // quoted as applescript strings
         let quote = |text: &str| format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""));
@@ -633,6 +645,10 @@ fn desktop_notification(
                 ),
             )?;
             let id: u32 = reply.body().deserialize()?;
+            // nothing to click, nothing to wait for
+            if buttons.is_empty() {
+                return Ok(None);
+            }
             for message in signals {
                 let message = message?;
                 let header = message.header();

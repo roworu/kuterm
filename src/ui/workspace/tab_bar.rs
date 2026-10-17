@@ -475,8 +475,9 @@ impl Workspace {
             }))
             .on_mouse_down(
                 MouseButton::Right,
-                cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                cx.listener(move |this, event: &MouseDownEvent, window, cx| {
                     this.tab_menu = Some((id, event.position));
+                    this.tab_menu_focus.focus(window, cx);
                     cx.notify();
                 }),
             )

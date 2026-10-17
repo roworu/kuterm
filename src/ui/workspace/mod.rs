@@ -42,9 +42,9 @@ use futures::{
     channel::mpsc::{UnboundedSender, unbounded},
 };
 use gpui::{
-    Action, App, Bounds, ClipboardItem, Context, DismissEvent, Entity, EntityId, Focusable,
-    ManagedView, Pixels, Point, ScrollHandle, Size, Subscription, Task, Window, WindowAppearance,
-    actions, prelude::*,
+    Action, App, Bounds, ClipboardItem, Context, DismissEvent, Entity, EntityId, FocusHandle,
+    Focusable, ManagedView, Pixels, Point, ScrollHandle, Size, Subscription, Task, Window,
+    WindowAppearance, actions, prelude::*,
 };
 
 pub use app_menu::{RunLink, app_menus, dock_menu, open_urls, parse_run_link};
@@ -627,6 +627,8 @@ pub struct Workspace {
     profile_menu: Option<(usize, Point<Pixels>)>,
     /// tab and place its right click menu was opened at, none while it is closed
     tab_menu: Option<(EntityId, Point<Pixels>)>,
+    /// held by the open tab menu, so keys go to it and not to the shell under it
+    tab_menu_focus: FocusHandle,
     /// tab being renamed and the field its title is typed into
     renaming: Option<(EntityId, Entity<TextInput>)>,
     /// columns and rows of the active tab the titles were last built with
@@ -1001,6 +1003,7 @@ impl Workspace {
             spinning: false,
             profile_menu: None,
             tab_menu: None,
+            tab_menu_focus: cx.focus_handle(),
             renaming: None,
             titled_size: (0, 0),
             tab_drag: None,
@@ -1753,6 +1756,7 @@ impl Workspace {
                     title: self.tab_title(pane.id, ix, cx),
                     active: pane.id == self.focused && ix == pane.active,
                     cwd: tab_cwd(&pane.tabs[ix], cx),
+                    asleep: pane.tabs[ix].view.read(cx).terminal().read(cx).asleep(),
                 })
             })
             .collect()
@@ -1777,7 +1781,10 @@ impl Workspace {
         if cwd.is_some() {
             profile.working_directory = cwd;
         }
-        self.add_profile_tab(self.focused, &profile, true, window, cx);
+        let window_id = window.window_handle().window_id().as_u64();
+        let builder = spawn_profile(&profile, TerminalBounds::default(), window_id, cx)
+            .map_err(|error| format!("failed to spawn terminal: {error:#}"))?;
+        self.add_builder_tab(self.focused, builder, &profile, true, window, cx);
         Ok(())
     }
 
@@ -2115,6 +2122,7 @@ impl Workspace {
                 // focus the pane that takes the removed one's place, not the first pane
                 let after = self.layout.pane_ids();
                 self.focus_pane(after[at.unwrap_or(0).min(after.len() - 1)], window, cx);
+                self.focus_overlay(window, cx);
             } else {
                 self.refresh_titles();
                 cx.notify();
@@ -2128,9 +2136,35 @@ impl Workspace {
             cx.notify();
         } else if self.focused == pane_id {
             self.activate_tab(pane_id, active, window, cx);
+            self.focus_overlay(window, cx);
         } else {
             self.refresh_titles();
             cx.notify();
+        }
+    }
+
+    /// give the keyboard back to the overlay still drawn over the tabs, if one is
+    fn focus_overlay(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let handle = [
+            self.palette.as_ref().map(|view| view.focus_handle(cx)),
+            self.overview.as_ref().map(|view| view.focus_handle(cx)),
+            self.topology.as_ref().map(|view| view.focus_handle(cx)),
+            self.about.as_ref().map(|view| view.focus_handle(cx)),
+            self.confirm_close
+                .as_ref()
+                .map(|view| view.focus_handle(cx)),
+            self.confirm_paste
+                .as_ref()
+                .map(|view| view.focus_handle(cx)),
+            self.command_input
+                .as_ref()
+                .map(|view| view.focus_handle(cx)),
+        ]
+        .into_iter()
+        .flatten()
+        .next();
+        if let Some(handle) = handle {
+            handle.focus(window, cx);
         }
     }
 
@@ -2517,7 +2551,9 @@ impl Workspace {
                 CommandAction::Notify(text) => self.show_notification(text.clone(), None, cx),
                 CommandAction::Plugin { plugin, command } => {
                     let pane_id = self.pane(pane).map(|p| p.tabs[ix].pane_id);
-                    crate::plugins::run_command(plugin, command, pane_id, cx);
+                    let (plugin, command) = (plugin.clone(), command.clone());
+                    // a panel opens through the workspace, which can't be updated from in here
+                    cx.defer(move |cx| crate::plugins::run_command(&plugin, &command, pane_id, cx));
                 }
                 CommandAction::NotifyWhenDone(text) => {
                     self.notify_when_done(self.view_at(pane, ix), text.clone(), cx);
@@ -2560,8 +2596,7 @@ impl Workspace {
                 let found = [PaneMatch::Name, PaneMatch::Title, PaneMatch::Id]
                     .into_iter()
                     .find_map(|by| self.find_pane(spec, by, cx))
-                    .and_then(|id| self.find_id(id))
-                    .map(|(pane, _)| (pane, self.pane(pane).expect("pane found").active));
+                    .and_then(|id| self.find_id(id));
                 match found {
                     Some(at) => Some(StepTarget::Tab(at.0, at.1)),
                     None => {
@@ -2587,6 +2622,15 @@ impl Workspace {
             Side::Up => DropSide::Top,
             Side::Down => DropSide::Bottom,
         };
+        let mut profile = Settings::get(cx).default_profile().clone();
+        if Settings::get(cx).panes.split_inherits_cwd
+            && let Some(cwd) = self
+                .pane(pane_id)
+                .and_then(|pane| pane.tabs.get(pane.active))
+                .and_then(|tab| tab_cwd(tab, cx))
+        {
+            profile.working_directory = Some(cwd);
+        }
         let new_pane = Pane {
             id: self.next_pane_id,
             tabs: Vec::new(),
@@ -2597,7 +2641,6 @@ impl Workspace {
         self.next_pane_id += 1;
         self.zoomed = None;
         self.layout.split_leaf(pane_id, side, new_pane);
-        let profile = Settings::get(cx).default_profile().clone();
         self.add_profile_tab(id, &profile, true, window, cx);
         self.focus_pane(id, window, cx);
         (id, 0)
@@ -7369,6 +7412,55 @@ mod tests {
         let text = std::fs::read_to_string(&copy).unwrap();
         assert!(text.contains("remember this line"), "{text:?}");
         std::fs::remove_file(&copy).ok();
+    }
+
+    #[gpui::test]
+    fn synced_panes_follow_each_delta_clamped_to_their_history(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 2);
+        // a second pane with the second tab, both joined
+        run_actions(&ws, cx, r#""split_right""#);
+        let panes = ws.read_with(cx, |ws, _| ws.layout.pane_ids());
+        ws.update(cx, |ws, _| ws.scroll_sync = panes.iter().copied().collect());
+        let views: Vec<_> = ws.read_with(cx, |ws, _| {
+            ws.layout
+                .panes()
+                .iter()
+                .map(|pane| pane.tabs[pane.active].view.clone())
+                .collect()
+        });
+        let terminals: Vec<_> = views
+            .iter()
+            .map(|view| view.read_with(cx, |view, _| view.terminal().clone()))
+            .collect();
+        // the first pane has a long history, the second a short one
+        let (first, second) = (terminals[0].clone(), terminals[1].clone());
+        first.update(cx, |t, _| {
+            t.input(InputSource::Keyboard, b"seq 1 300\r".to_vec())
+        });
+        wait_until(cx, "history of the first pane", |cx| {
+            first.read_with(cx, |t, _| t.history_size() > 200)
+        });
+        let short = second.read_with(cx, |t, _| t.history_size());
+        // wheel events faster than frames: three deltas before anything is drawn
+        ws.update(cx, |ws, cx| {
+            for _ in 0..3 {
+                ws.sync_scroll(&views[1], 10, cx);
+            }
+        });
+        for terminal in &terminals {
+            terminal.update(cx, |t, _| t.sync());
+        }
+        assert_eq!(
+            first.read_with(cx, |t, _| t.last_content.display_offset),
+            30
+        );
+        assert_eq!(
+            second.read_with(cx, |t, _| t.last_content.display_offset),
+            30.min(short)
+        );
+        ws.update(cx, |ws, cx| ws.sync_scroll(&views[1], -100, cx));
+        first.update(cx, |t, _| t.sync());
+        assert_eq!(first.read_with(cx, |t, _| t.last_content.display_offset), 0);
     }
 
     #[gpui::test]

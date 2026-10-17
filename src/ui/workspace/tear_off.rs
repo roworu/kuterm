@@ -20,6 +20,9 @@ pub struct MovedTab {
     pub(super) terminal: Entity<Terminal>,
     pub(super) profile: Profile,
     pub(super) custom_title: Option<String>,
+    pub(super) name: Option<String>,
+    /// name and color of the hand made group it was in
+    pub(super) group: Option<(String, usize)>,
     pub(super) pinned: bool,
 }
 
@@ -36,6 +39,8 @@ impl Workspace {
                 .unwrap_or_else(|| settings.default_profile())
                 .clone(),
             custom_title: tab.custom_title.clone(),
+            name: tab.name.clone(),
+            group: self.saved_group(tab),
             pinned: tab.pinned,
         })
     }
@@ -57,7 +62,9 @@ impl Workspace {
         // its shell started long ago, input needs no waiting
         tab.ready = true;
         tab.custom_title = moved.custom_title;
+        tab.name = moved.name;
         tab.pinned = moved.pinned;
+        let id = tab.view.entity_id();
         // a pinned tab goes after the pinned ones already there
         let to = if moved.pinned {
             pane.tabs.iter().filter(|tab| tab.pinned).count() - 1
@@ -65,7 +72,13 @@ impl Workspace {
             ix
         };
         self.move_tab(pane_id, ix, to, cx);
-        self.activate_tab(pane_id, to, window, cx);
+        if let Some((name, color)) = moved.group {
+            self.restore_group(pane_id, to, &name, color);
+            self.regroup(pane_id);
+        }
+        if let Some((pane_id, ix)) = self.find_id(id) {
+            self.activate_tab(pane_id, ix, window, cx);
+        }
     }
 
     /// drop tab `ix` of `pane_id` after it moved away, closing the window when it was the last

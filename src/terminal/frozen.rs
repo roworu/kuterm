@@ -10,7 +10,7 @@ use alacritty_terminal::{
     Term,
     event::VoidListener,
     grid::Dimensions,
-    index::{Line, Point as AlacPoint, Side},
+    index::{Column, Line, Point as AlacPoint, Side},
     selection::{Selection, SelectionRange},
     term::Config,
 };
@@ -94,6 +94,29 @@ impl Terminal {
                 term.grid_mut()[Line(row)][indexed.point.column] = indexed.cell.clone();
             }
         }
+        // kept blocks are drawn cut at the edge, the frame takes their wrapped grid rows
+        // instead, so a selection there has the text the live grid has on release
+        let live = self.term.lock_unfair();
+        let moved = live.grid().history_size() as i32 - content.history_size as i32;
+        let columns = term.columns().min(live.columns());
+        for block in self.wide_blocks.values() {
+            let start = block.abs_start as i32 - content.history_size as i32;
+            for line in start..start + block.grid_rows(columns) as i32 {
+                let row = line + content.display_offset as i32;
+                let from = Line(line - moved);
+                if !(0..term.screen_lines() as i32).contains(&row)
+                    || from < live.topmost_line()
+                    || from > live.bottommost_line()
+                {
+                    continue;
+                }
+                for column in 0..columns {
+                    term.grid_mut()[Line(row)][Column(column)] =
+                        live.grid()[from][Column(column)].clone();
+                }
+            }
+        }
+        drop(live);
         self.frozen = Some(Frozen {
             term,
             since: Instant::now(),

@@ -145,10 +145,6 @@ impl Workspace {
             return;
         };
         let terminal = self.terminal_at(pane, ix, cx);
-        // a sleeping tab's history is read too
-        if matches!(request, Request::GetText { .. } | Request::Query { .. }) {
-            terminal.update(cx, |terminal, _| terminal.wake());
-        }
         // nothing outside may read what an incognito tab shows
         if terminal.read(cx).incognito
             && matches!(request, Request::GetText { .. } | Request::Query { .. })
@@ -157,6 +153,10 @@ impl Workspace {
                 .send(Reply::failed("the pane is incognito, it can't be read"))
                 .ok();
             return;
+        }
+        // a sleeping tab's history is read too
+        if matches!(request, Request::GetText { .. } | Request::Query { .. }) {
+            terminal.update(cx, |terminal, _| terminal.wake());
         }
         let answer = match request {
             Request::SendText { text, .. } => {

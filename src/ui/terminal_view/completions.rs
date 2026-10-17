@@ -320,6 +320,10 @@ impl TerminalView {
         let width = (cell * (label_cells + description_cells) as f32 + pad * 2.)
             .min(bounds.bounds.size.width);
         let height = line_height * shown.len().max(1) as f32 + px(6.);
+        // shifted left to stay inside its own pane, the window clamp lets it cross a divider
+        let x = x
+            .min(bounds.bounds.origin.x + bounds.bounds.size.width - width)
+            .max(bounds.bounds.origin.x);
         // below unless it doesn't fit there and fits better above
         let above = bottom + height > window_height && top > window_height - bottom;
         let (anchor, position): (Anchor, Point<Pixels>) = if above {

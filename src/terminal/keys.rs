@@ -113,10 +113,14 @@ pub(crate) fn to_esc_str(
         return Some(Cow::Borrowed(esc_str));
     }
 
-    // caret notation: ctrl-a..z and ctrl-shift-A..Z send 0x01..0x1a
+    // caret notation: ctrl-a..z and ctrl-shift-a..z send 0x01..0x1a, either case of the key
+    // since gpui gives a shifted letter as the lowercase key with shift held
     if let [key] = keystroke.key.as_bytes()
-        && ((modifiers == TerminalModifiers::Ctrl && key.is_ascii_lowercase())
-            || (modifiers == TerminalModifiers::CtrlShift && key.is_ascii_uppercase()))
+        && matches!(
+            modifiers,
+            TerminalModifiers::Ctrl | TerminalModifiers::CtrlShift
+        )
+        && key.is_ascii_alphabetic()
     {
         return Some(Cow::Owned(char::from(key & 0x1f).to_string()));
     }
