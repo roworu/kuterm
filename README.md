@@ -8,6 +8,12 @@ highly configurable, gpu accelerated terminal
 
 <br clear="right">
 
+## tour
+
+showcase of going from none enabled features, to all at once:
+
+[![kuterm tour](assets/tour/tour.png)](assets/tour/tour.mp4)
+
 ## installation
 
 download binaries for linux, macos or windows from [releases](https://github.com/roworu/kuterm/releases).

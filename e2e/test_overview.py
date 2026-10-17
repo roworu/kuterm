@@ -18,8 +18,8 @@ THEME = unique_theme(0xd1)
 C = as_rgb(THEME)
 # a full line printed into a tab, wide enough to reach across a preview box
 FULL = "M" * 60
-# ink columns of a printed line of `FULL` in a preview, against ~60 for the prompt line
-LINE_COLUMNS = 120
+# share of a preview's width a printed line of `FULL` covers at least, the prompt line far less
+LINE_SHARE = 0.3
 
 
 def overview_app(app_factory, **settings) -> App:
@@ -79,16 +79,20 @@ def spans(mask: np.ndarray) -> list:
 def previews(app: App, img=None) -> list:
     """(x0, y0, x1, y1) of every preview box on screen, in reading order.
 
-    the boxes are the only thing painted in the terminal background while the overview is up"""
+    the boxes are the only thing painted in the terminal background while the overview is up.
+    boxes of a row start at the same top but can differ in height, each keeps its terminal's
+    shape"""
     img = app.shot() if img is None else img
+    mask = near(img, C["terminal_background"], 2)
     boxes = []
-    for y0, y1 in spans(near(img, C["terminal_background"], 2).any(axis=1)):
-        # a box is 9 rems tall, the band of the terminal behind the overlay is much taller
-        if not 40 < y1 - y0 < 320:
+    for y0, y1 in spans(mask.any(axis=1)):
+        # the band of the terminal behind the overlay is about as tall as the window
+        if not 40 < y1 - y0 < img.shape[0] * 0.85:
             continue
-        for x0, x1 in spans(near(img[y0:y1], C["terminal_background"], 2).any(axis=0)):
+        for x0, x1 in spans(mask[y0:y1].any(axis=0)):
             if x1 - x0 > 60:
-                boxes.append((x0, y0, x1, y1))
+                ys = np.flatnonzero(mask[y0:y1, x0:x1].any(axis=1))
+                boxes.append((x0, y0 + int(ys[0]), x1, y0 + int(ys[-1]) + 1))
     return boxes
 
 
@@ -99,9 +103,10 @@ def box_ink(app: App, box, img=None) -> np.ndarray:
     return ink(img[y0 + 3 : y1 - 3, x0 + 3 : x1 - 3], C["terminal_background"], 40)
 
 
-def text_rows(app: App, box, img=None, columns: int = LINE_COLUMNS) -> int:
+def text_rows(app: App, box, img=None, share: float = LINE_SHARE) -> int:
     """printed lines in a preview box: the shell's prompt line is far too narrow to count"""
     mask = box_ink(app, box, img)
+    columns = (box[2] - box[0]) * share
     return sum(1 for start, end in spans(mask.any(axis=1)) if mask[start:end].any(axis=0).sum() > columns)
 
 
@@ -404,7 +409,7 @@ def test_a_sleeping_tab_is_previewed_without_waking_it(app_factory):
     app.wait(lambda: len(previews(app)) == 2, msg="two previews")
     app.snap("a sleeping tab previewed with the screen it had")
     # its screen is the numbers `seq` printed, one per row, short lines
-    assert text_rows(app, previews(app)[0], columns=1) > 20, "the sleeping tab's screen is in its preview"
+    assert text_rows(app, previews(app)[0], share=0) > 20, "the sleeping tab's screen is in its preview"
     # looking at a preview is not showing, searching or reading that tab, so it stays asleep
     nothing_for(2, lambda: not asleep(app, pane))
 
@@ -445,8 +450,9 @@ def test_a_sandboxed_tab_is_previewed(app_factory):
     app.snap("an ordinary tab and a sandboxed one, each previewed")
 
 
-def test_more_tabs_than_fit_scroll(app_factory):
-    """a grid taller than the window scrolls with the wheel, the last row comes into view whole"""
+def test_more_tabs_shrink_to_fit(app_factory):
+    """nine tabs make a grid of three by three whose previews shrink until all of them are on
+    screen whole, each the same shape as its terminal"""
     app = overview_app(app_factory)
     new_tabs(app, 9)
     for lines in range(1, 10):
@@ -455,33 +461,24 @@ def test_more_tabs_than_fit_scroll(app_factory):
     open_overview(app)
     app.wait(lambda: len(previews(app)) == 9 and rows(app) == list(range(1, 10)),
              msg=f"a preview per tab, got {rows(app)}")
-
-    def heights() -> list:
-        return [y1 - y0 for _, y0, _, y1 in previews(app)]
-
-    def bottom() -> tuple:
-        return max(previews(app), key=lambda box: box[1])
-
-    # three columns by three rows: the last row of boxes is cut off by the bottom of the window
-    app.wait(lambda: heights()[8] < heights()[0] - 40,
-             msg=f"the last row is cut short, {heights()}")
-    app.snap("nine tabs: two rows of previews and a third one cut off")
-    assert max(heights()[:6]) - min(heights()[:6]) < 4, f"the first two rows are whole, {heights()}"
-    x0, y0, x1, y1 = previews(app)[4]
-    app.wheel((x0 + x1) // 2, (y0 + y1) // 2, up=False, clicks=10)
-    app.wait(lambda: bottom()[3] - bottom()[1] > 150,
-             msg=f"the last row scrolled whole, {heights()}")
-    app.snap("scrolled to the last row of previews")
+    app.snap("nine tabs: three rows of smaller previews")
+    boxes = previews(app)
+    heights = [y1 - y0 for _, y0, _, y1 in boxes]
+    assert max(heights) - min(heights) < 4, f"every preview whole and alike, {heights}"
+    assert max(y1 for *_, y1 in boxes) < app.size()[1], boxes
 
 
 def test_a_single_tab_fills_the_grid(app_factory):
-    """one tab makes a single wide preview of its whole screen"""
+    """one tab makes a single preview of its whole screen, scaled down keeping its shape"""
     app = overview_app(app_factory)
     fill(app, 4, active(app))
     open_overview(app)
     app.wait(lambda: len(previews(app)) == 1, msg="one preview")
     x0, y0, x1, y1 = previews(app)[0]
-    assert x1 - x0 > 700, f"the only preview is wide, {x1 - x0}px"
+    w, h = app.size()
+    assert x1 - x0 > w // 3, f"the only preview is big, {x1 - x0}px"
+    # the terminal fills the window below the bars
+    assert abs((x1 - x0) / (y1 - y0) - w / (h - app.top())) < 0.1, (previews(app), w, h)
     assert rows(app) == [4], rows(app)
     app.snap("one tab: a single preview across the window")
 

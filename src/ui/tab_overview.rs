@@ -1,9 +1,9 @@
 //! grid of live previews of every tab, typing filters them by title, arrows or a click pick
-//! one. previews are the text of each terminal's screen in a tiny font
+//! one. previews are the text of each terminal's screen, scaled down to fit a cell of the grid
 
 use gpui::{
     App, Context, DismissEvent, Entity, EntityId, EventEmitter, FocusHandle, Focusable,
-    KeyDownEvent, Subscription, Window, div, prelude::*, px, rems,
+    KeyDownEvent, Pixels, Size, Subscription, Window, div, prelude::*, px,
 };
 
 use crate::{
@@ -13,8 +13,10 @@ use crate::{
     ui::text_input::{Changed, Left, Right, TextInput},
 };
 
-// font size of the preview text, small enough for a whole screen to fit a cell
-const PREVIEW_FONT_SIZE: f32 = 5.;
+// smallest a preview is scaled to, below it the text is only texture
+const MIN_SCALE: f32 = 0.15;
+// largest, so a few tabs still look like an overview and not like the tabs themselves
+const MAX_SCALE: f32 = 0.6;
 
 /// columns and rows of a grid holding `count` cells, as square as it gets with more columns
 /// than rows on a wide window
@@ -136,6 +138,16 @@ impl TabOverview {
     }
 }
 
+/// how much a terminal of `size` is scaled down to fit `room`, the space a grid cell leaves
+/// for its preview, keeping its shape
+pub fn preview_scale(size: Size<Pixels>, room: Size<Pixels>) -> f32 {
+    if size.width <= px(0.) || size.height <= px(0.) {
+        return MIN_SCALE;
+    }
+    let scale = (room.width / size.width).min(room.height / size.height);
+    scale.clamp(MIN_SCALE, MAX_SCALE)
+}
+
 impl Focusable for TabOverview {
     fn focus_handle(&self, cx: &App) -> FocusHandle {
         self.input.focus_handle(cx)
@@ -143,7 +155,7 @@ impl Focusable for TabOverview {
 }
 
 impl Render for TabOverview {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // a hidden tab has no view syncing it, a sleeping one stays asleep
         for &tab_ix in &self.shown {
             self.tabs[tab_ix].terminal.update(cx, |terminal, _| {
@@ -153,13 +165,30 @@ impl Render for TabOverview {
             });
         }
         let theme = Theme::get(cx);
-        let font = Settings::get(cx).terminal.font.family.clone();
-        let (columns, _) = grid(self.shown.len());
+        let settings = Settings::get(cx);
+        let font = settings.terminal.font.family.clone();
+        let font_size = settings.terminal.font.size;
+        let (columns, rows) = grid(self.shown.len());
+        // the room a preview gets: the window less the padding, the filter field, the gaps and
+        // per cell its border, padding and title, as laid out below
+        let rem = window.rem_size();
+        let viewport = window.viewport_size();
+        let (columns_f, rows_f) = (columns.max(1) as f32, rows.max(1) as f32);
+        let room = Size {
+            width: (viewport.width - rem * (2. + 0.75 * (columns_f - 1.))) / columns_f
+                - rem * 0.5
+                - px(4.),
+            height: (viewport.height - rem * (2. + 3. + 0.75 * rows_f)) / rows_f
+                - rem * (0.75 + 1.5)
+                - px(4.),
+        };
         let cells = self.shown.iter().enumerate().map(|(ix, &tab_ix)| {
             let tab = &self.tabs[tab_ix];
             let terminal = tab.terminal.read(cx);
             let colors = terminal.theme(cx);
             let lines = Self::screen_lines(terminal);
+            let bounds = terminal.last_content.terminal_bounds;
+            let scale = preview_scale(bounds.bounds.size, room);
             let selected = ix == self.selected;
             div()
                 .id(("overview-tab", ix))
@@ -174,16 +203,18 @@ impl Render for TabOverview {
                 .bg(theme.tab_bar_background)
                 .cursor_pointer()
                 .child(
+                    // the terminal's screen shrunk as a whole, so it keeps its shape
                     div()
-                        .h(rems(9.))
+                        .flex_none()
+                        .w(bounds.bounds.size.width * scale)
+                        .h(bounds.bounds.size.height * scale)
                         .overflow_hidden()
                         .rounded_sm()
-                        .p_1()
                         .bg(colors.terminal_background)
                         .text_color(colors.terminal_foreground)
                         .font_family(font.clone())
-                        .text_size(px(PREVIEW_FONT_SIZE))
-                        .line_height(px(PREVIEW_FONT_SIZE * 1.2))
+                        .text_size(px(font_size * scale))
+                        .line_height(bounds.line_height * scale)
                         .whitespace_nowrap()
                         .children(lines.into_iter().map(|line| div().child(line))),
                 )
@@ -244,6 +275,9 @@ impl Render for TabOverview {
                     .overflow_y_scroll()
                     .grid()
                     .grid_cols(columns.max(1) as u16)
+                    // rows as tall as their cells, not stretched over the free room
+                    .content_start()
+                    .items_start()
                     .gap_3()
                     .children(cells),
             )
@@ -252,7 +286,50 @@ impl Render for TabOverview {
 
 #[cfg(test)]
 mod tests {
-    use super::grid;
+    use gpui::{Size, px};
+
+    use super::{grid, preview_scale};
+
+    #[test]
+    fn previews_shrink_to_the_room_keeping_their_shape() {
+        let terminal = Size {
+            width: px(1000.),
+            height: px(500.),
+        };
+        // the narrow side of the room decides
+        let wide = Size {
+            width: px(400.),
+            height: px(400.),
+        };
+        assert_eq!(preview_scale(terminal, wide), 0.4);
+        let low = Size {
+            width: px(1000.),
+            height: px(100.),
+        };
+        assert_eq!(preview_scale(terminal, low), 0.2);
+        // never bigger than the cap, never smaller than the floor
+        assert_eq!(
+            preview_scale(
+                terminal,
+                Size {
+                    width: px(5000.),
+                    height: px(5000.)
+                }
+            ),
+            0.6
+        );
+        assert_eq!(
+            preview_scale(
+                terminal,
+                Size {
+                    width: px(10.),
+                    height: px(10.)
+                }
+            ),
+            0.15
+        );
+        assert_eq!(preview_scale(Size::default(), wide), 0.15);
+    }
 
     #[test]
     fn grids_are_about_square() {
