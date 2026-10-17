@@ -286,6 +286,12 @@ mod tests {
                 .spawn()
                 .unwrap(),
         );
+        // before exec the forked child still shows the test's own command line
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while process_info(sleep.0.id()).is_none_or(|info| info.name != "sleep") {
+            assert!(std::time::Instant::now() < deadline, "sleep never exec'd");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
         let icons = icons_with_wrappers(r#"["sleep"]"#);
         assert_eq!(unwrapped_icon(&icons, sleep.0.id()), "S");
     }
