@@ -239,6 +239,7 @@ jobs:
 
   codeql:
 
+    if: github.event_name == 'push'
     runs-on: ubuntu-26.04
 
     permissions:
