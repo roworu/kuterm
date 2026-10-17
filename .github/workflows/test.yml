@@ -125,6 +125,8 @@ jobs:
       fail-fast: false
       matrix:
         backend: [x11, wayland]
+        # each backend split over three runners, one alone takes over ten minutes
+        shard: [1, 2, 3]
 
     steps:
 
@@ -144,6 +146,7 @@ jobs:
     - name: Run e2e tests
       env:
         E2E_WORKERS: 3
+        E2E_SHARD: ${{ matrix.shard }}/3
       run: |
         chmod +x dist/kuterm
         KUTERM_BIN=dist/kuterm sh e2e/run.sh --backend ${{ matrix.backend }}
@@ -152,7 +155,7 @@ jobs:
     - uses: actions/upload-artifact@v7
       if: always()
       with:
-        name: e2e-report-${{ matrix.backend }}
+        name: e2e-report-${{ matrix.backend }}-${{ matrix.shard }}
         path: e2e/artifacts/report-${{ matrix.backend }}.html
 
   # release builds for these too, so platform specific code must compile on pull requests.
