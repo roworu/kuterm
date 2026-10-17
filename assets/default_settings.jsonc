@@ -386,9 +386,12 @@
     "whole_word": false,
   },
 
-  // groups of tabs: a colored chip in the tab bar before the tabs of a group, a click on it
-  // hides or shows them, a right click renames, recolors, ungroups or closes the group, a tab
-  // dropped on it joins. groups are made with the "new_group" action or the tab menu
+  // groups of tabs, like chrome's: a colored chip in the tab bar before the tabs of a group,
+  // with a line in its color under them. a click on the chip hides or shows them, a right click
+  // renames, recolors, ungroups or closes the group. dragging a tab onto the middle of another
+  // groups the two (an unnamed group is a dot until renamed), onto the chip or between tabs of
+  // a group joins it, and past the group's last tab leaves it. groups are also made with the
+  // "new_group" action or the tab menu
   "tab_groups": {
     // put each tab into a group of the git project its folder is in, named after the project,
     // made and changed as the shell moves around. groups made by hand stay as they are

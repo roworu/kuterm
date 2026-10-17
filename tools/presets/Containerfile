@@ -1,0 +1,9 @@
+# records examples/presets/*/demo.mp4: the e2e image (xvfb, xdotool, fonts, zsh, git, nvim) with
+# a window manager that draws real frames, a wallpaper tool and ffmpeg
+FROM localhost/kuterm-e2e
+
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        xfwm4 hsetroot ffmpeg \
+    && rm -rf /var/lib/apt/lists/* \
+    && chsh -s /usr/bin/zsh root

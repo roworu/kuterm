@@ -205,8 +205,8 @@ def ink_width(app: App, x0: int, x1: int) -> int:
 def test_chip_shows_group_colour_name_and_underline(app_factory):
     """new group from the palette puts a chip left of its tab: the fill is the first group color,
     the name is written inside it in the terminal background color, a line of the same color runs
-    under the tab which is moved right by the chip and its margins, and a second group on the
-    same tab takes the next color"""
+    on from under the chip below the tab, which is moved right by the chip and its margins, and
+    a second group on the same tab takes the next color"""
     app = group_app(app_factory)
     title_tab(app, "one")
     app.wait_still("the bar settled")
@@ -218,12 +218,13 @@ def test_chip_shows_group_colour_name_and_underline(app_factory):
     assert chip_colour(app, box) == 1, "the first group made by hand takes the first group color"
     # 0.25rem of margin around the chip, the bar is 2rem tall
     assert abs(box[0] - 4) <= 2 and abs(box[1] - 4) <= 3, box
-    # the chip is inset by the same margin at the bottom of the bar as at the top
-    assert abs((h - 1 - box[3]) - box[1]) <= 2, (box, h)
+    # like chrome, the group's line starts under the chip, so the chip reaches the bar bottom
+    assert h - 1 - box[3] <= 2, (box, h)
     assert chip_label(app, box) > 20, f"the name of the group is drawn in the chip, {box}"
     line = app.wait(lambda: underlines(app) or None, msg="the line under the tab")
-    assert line[0][2] == 1 and abs(span(line[0]) - 200) <= 3, line
-    assert abs(line[0][0] - (box[2] + 4)) <= 2, (line, box)
+    # it runs on from the chip over its margin and the tab
+    assert line[0][2] == 1 and abs(span(line[0]) - 204) <= 3, line
+    assert abs(line[0][0] - box[2]) <= 2, (line, box)
     assert abs(edges(app)[0] - (box[2] + 4 + 199)) <= 2, (edges(app), box)
     app.palette("new group")
     app.wait(lambda: len(chips(app)) == 1 and chip_colour(app, chips(app)[0]) == 2,
@@ -551,25 +552,60 @@ def test_renaming_a_tab_inside_a_group_keeps_the_group(app_factory):
     app.snap("the renamed tab of the group")
 
 
-def test_tabs_of_a_group_stay_together_when_dragged(app_factory):
-    """dragging a tab of a group out of its run puts the group back together where its first tab
-    was, so the group never splits in the tab bar"""
+def test_dragging_a_tab_out_of_its_group_leaves_it(app_factory):
+    """like chrome, a tab of a group dropped on the edge of a tab outside the group moves there
+    and leaves the group, which keeps its other tab"""
     app = group_app(app_factory)
     name_tabs(app, ["one", "two", "three"])
     group_of(app, 2, [3])
     app.wait(lambda: underlines(app) and span(underlines(app)[0]) > 350, msg="two grouped")
     app.snap("before the drag: the second and third tab in one group")
     h = app.bar_height()
-    # drag the third tab, in the group, onto the first, ungrouped one
-    app.drag((550, h // 2), (100, h // 2))
+    third = edges(app)[-1] - 100
+    # onto the left edge of the first, ungrouped tab
+    app.drag((third, h // 2), (15, h // 2))
+    app.wait(lambda: len(edges(app)) == 3 and underlines(app) and span(underlines(app)[0]) < 300,
+             msg="one tab left in the group")
+    app.snap("the dragged tab moved to the front, out of the group")
+    # the dragged tab is first now, ungrouped, before the first tab
+    assert chips(app) and chips(app)[0][0] > 350, chips(app)
+    app.key("alt+1")
     app.wait_title(lambda title: title.endswith(" three"))
-    app.snap("the dragged tab went back into its group at the front")
-    assert chips(app) and chips(app)[0][0] <= 6
-    app.wait(lambda: underlines(app) and span(underlines(app)[0]) > 350, msg="the group stayed together")
+
+
+def test_a_tab_dropped_onto_another_groups_the_two(app_factory):
+    """like chrome, a tab dropped onto the middle of an ungrouped tab makes a new group of both,
+    with a dot for a chip until it is named and one line under the chip and both tabs"""
+    app = group_app(app_factory)
+    name_tabs(app, ["one", "two", "three"])
     app.wait(lambda: len(edges(app)) == 3, msg="three tabs")
-    # the group's tabs are the first two now, the ungrouped tab is last
-    app.key("alt+3")
-    app.wait_title(lambda title: title.endswith(" one"))
+    assert not chips(app)
+    h = app.bar_height()
+    app.drag((edges(app)[2] - 100, h // 2), (100, h // 2))
+    box = app.wait(lambda: chips(app) and chips(app)[0], msg="a new group")
+    assert chip_width(box) < 20, f"an unnamed group shows a dot, {box}"
+    line = app.wait(lambda: underlines(app) and underlines(app)[0], msg="the line of the group")
+    # from the dot over both tabs
+    assert line[0] <= box[2] + 2 and span(line) > 380, (line, box)
+    app.snap("the third tab dropped onto the first: a new group of the two")
+    app.key("alt+2")
+    app.wait_title(lambda title: title.endswith(" three"))
+
+
+def test_a_tab_dropped_into_a_group_joins_it(app_factory):
+    """a tab dropped on the left edge of a grouped tab, between it and the tab before it in the
+    group, joins the group there"""
+    app = group_app(app_factory)
+    name_tabs(app, ["one", "two", "three"])
+    group_of(app, 1, [2])
+    app.wait(lambda: underlines(app) and span(underlines(app)[0]) > 350, msg="two grouped")
+    h = app.bar_height()
+    tabs = edges(app)
+    app.drag((tabs[2] - 100, h // 2), (tabs[0] + 15, h // 2))
+    app.wait(lambda: underlines(app) and span(underlines(app)[0]) > 550, msg="three in the group")
+    app.snap("the third tab dropped between the group's tabs joined it")
+    app.key("alt+2")
+    app.wait_title(lambda title: title.endswith(" three"))
 
 
 def test_group_tabs_move_between_panes_together(app_factory):
@@ -591,13 +627,15 @@ def test_group_tabs_move_between_panes_together(app_factory):
     app.snap("the group's tab split into a right pane, both panes chipped")
     # drag the remaining tab of the group over into the right pane
     h = app.bar_height()
-    app.drag((both[0][2] + 4 + 100, h // 2), (w * 3 // 4, h // 2))
+    # onto the middle of the group's tab there, which joins it
+    app.drag((both[0][2] + 4 + 100, h // 2), (both[1][2] + 4 + 100, h // 2))
     app.wait(lambda: len(chips(app)) == 1 and chips(app)[0][0] > w // 2,
              msg="only the right pane keeps the chip")
     # both tabs of the group are drawn narrow next to the chip, one line under both
     app.wait(lambda: underlines(app) and span(underlines(app)[0]) > 250,
              msg="both tabs of the group in the right pane")
-    assert abs(underlines(app)[0][0] - (chips(app)[0][2] + 4)) <= 2, (underlines(app), chips(app))
+    # the line runs on from the chip, like chrome's
+    assert abs(underlines(app)[0][0] - chips(app)[0][2]) <= 2, (underlines(app), chips(app))
     app.snap("the group moved over into the right pane")
 
 
@@ -616,7 +654,7 @@ def test_a_group_tab_moved_out_of_the_window_leaves_the_group_whole(app_factory)
     w, _ = app.size()
     both = app.wait(lambda: len(chips(app)) == 2 and chips(app), msg="a chip per pane")
     h = app.bar_height()
-    app.drag((both[0][2] + 4 + 100, h // 2), (w * 3 // 4, h // 2))
+    app.drag((both[0][2] + 4 + 100, h // 2), (both[1][2] + 4 + 100, h // 2))
     app.wait(lambda: len(chips(app)) == 1 and chips(app)[0][0] > w // 2,
              msg="the group in the right pane")
     # the ungrouped tab, alone in the left pane, moves into a window of its own

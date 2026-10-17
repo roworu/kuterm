@@ -615,6 +615,8 @@ pub struct Workspace {
     next_pane_id: usize,
     /// pane edge a dragged tab would split at, none while no tab drags over a pane
     drop_zone: Option<(usize, DropSide)>,
+    /// pane, tab and part of the tab a dragged tab is over, none while no tab drags over a tab
+    tab_drop: Option<(usize, usize, groups::TabDrop)>,
     /// built from `window_title` blocks for the active tab
     window_title: String,
     /// left and right side of the status bar for the active tab, empty while it is off
@@ -997,6 +999,7 @@ impl Workspace {
             zoomed: None,
             next_pane_id: 1,
             drop_zone: None,
+            tab_drop: None,
             window_title: String::new(),
             status: Default::default(),
             spinner_frame: 0,
@@ -3833,6 +3836,45 @@ mod tests {
             ws.update_drop_zone(0, point(gpui::px(300.), gpui::px(50.)), bounds, cx)
         });
         assert_eq!(ws.update(cx, |ws, _| ws.drop_zone), None);
+    }
+
+    #[gpui::test]
+    fn dragging_tabs_onto_each_other_groups_them_like_chrome(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 4);
+        let old = views(&ws, cx);
+        let groups = |ws: &Entity<Workspace>, cx: &mut VisualTestContext| {
+            ws.update(cx, |ws, _| {
+                ws.pane(0)
+                    .unwrap()
+                    .tabs
+                    .iter()
+                    .map(|tab| tab.group)
+                    .collect::<Vec<_>>()
+            })
+        };
+        // the fourth tab dropped onto the first: a new unnamed group of the two, at the front
+        ws.update_in(cx, |ws, window, cx| {
+            ws.drop_tab_on_tab((0, 3), (0, 0), groups::TabDrop::Onto, window, cx)
+        });
+        let group = groups(&ws, cx)[0].expect("a group");
+        assert_eq!(groups(&ws, cx), [Some(group), Some(group), None, None]);
+        assert_eq!(views(&ws, cx), [old[0], old[3], old[1], old[2]]);
+        assert_eq!(ws.update(cx, |ws, _| ws.groups[0].name.clone()), "");
+        // the third tab dropped on the left edge of the group's second tab joins the group there
+        ws.update_in(cx, |ws, window, cx| {
+            ws.drop_tab_on_tab((0, 3), (0, 1), groups::TabDrop::Before, window, cx)
+        });
+        assert_eq!(
+            groups(&ws, cx),
+            [Some(group), Some(group), Some(group), None]
+        );
+        assert_eq!(views(&ws, cx), [old[0], old[2], old[3], old[1]]);
+        // dropped past the group's last tab it leaves the group
+        ws.update_in(cx, |ws, window, cx| {
+            ws.drop_tab_on_tab((0, 0), (0, 2), groups::TabDrop::After, window, cx)
+        });
+        assert_eq!(groups(&ws, cx), [Some(group), Some(group), None, None]);
+        assert_eq!(views(&ws, cx), [old[2], old[3], old[0], old[1]]);
     }
 
     #[gpui::test]

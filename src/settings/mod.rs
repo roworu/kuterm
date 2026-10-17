@@ -1070,6 +1070,25 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn example_presets_parse() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/presets");
+        let mut presets = 0;
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path().join("settings.jsonc");
+            if !path.exists() {
+                continue;
+            }
+            let json = std::fs::read_to_string(&path).unwrap();
+            let full = config::combine(serde_json_lenient::from_str(&json).unwrap());
+            Settings::from_full(full.clone()).unwrap_or_else(|e| panic!("{path:?}: {e}"));
+            Keybindings::from_full(&full).unwrap_or_else(|e| panic!("{path:?}: {e}"));
+            Commands::from_full(&full).unwrap_or_else(|e| panic!("{path:?}: {e}"));
+            presets += 1;
+        }
+        assert!(presets > 0, "no presets in {dir:?}");
+    }
+
+    #[test]
     fn parse_settings() {
         let settings = Settings::parse(
             r#"{

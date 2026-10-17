@@ -8,8 +8,8 @@ use std::{
 };
 
 use gpui::{
-    AnyElement, Context, EntityId, Focusable, KeyDownEvent, MouseButton, MouseDownEvent, Pixels,
-    Point, Window, anchored, deferred, div, prelude::*, rems,
+    AnyElement, Context, EntityId, Focusable, FontWeight, KeyDownEvent, MouseButton,
+    MouseDownEvent, Pixels, Point, Window, anchored, deferred, div, prelude::*, px, rems,
 };
 
 use super::{
@@ -28,6 +28,9 @@ type GroupAction = fn(&mut Workspace, usize, &mut Window, &mut Context<Workspace
 // group colors are these ansi colors of the theme: red, green, yellow, blue, magenta, cyan
 const GROUP_COLORS: [usize; 6] = [1, 2, 3, 4, 5, 6];
 
+// pixels the line under a group's chip and tabs is thick
+const GROUP_LINE: f32 = 2.;
+
 /// named, colored run of tabs in a pane
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct Group {
@@ -38,6 +41,73 @@ pub(super) struct Group {
     pub(super) collapsed: bool,
     /// git root the group stands for when it was made by `tab_groups.by_project`
     pub(super) auto_root: Option<PathBuf>,
+}
+
+/// part of a tab another tab is dragged over, like in chrome: its edges put the dragged tab
+/// next to it, its middle groups the two
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum TabDrop {
+    Before,
+    Onto,
+    After,
+}
+
+impl TabDrop {
+    /// the part of a tab `width` wide that `x`, measured from its left edge, is over
+    pub(super) fn at(x: f32, width: f32) -> Self {
+        if x < width / 4. {
+            Self::Before
+        } else if x > width * 3. / 4. {
+            Self::After
+        } else {
+            Self::Onto
+        }
+    }
+}
+
+/// group a dropped tab ends up in
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum Join {
+    Group(usize),
+    /// a new group with the tab it was dropped onto
+    New,
+    Ungrouped,
+}
+
+/// where a tab dropped on tab `target` of a row with `groups` lands, as the index `move_tab`
+/// takes (`from` is its index when it comes from the same row), and the group it joins.
+/// the left edge of a grouped tab is inside its group, even the first one's, which sits right
+/// after the chip; the right edge is only inside when the next tab is in the group too, so
+/// dropping past the last tab of a group leaves it. none when nothing changes
+pub(super) fn plan_drop(
+    groups: &[Option<usize>],
+    from: Option<usize>,
+    target: usize,
+    zone: TabDrop,
+) -> Option<(usize, Join)> {
+    let join = match zone {
+        TabDrop::Onto if from == Some(target) => return None,
+        TabDrop::Onto => groups[target].map_or(Join::New, Join::Group),
+        TabDrop::Before => groups[target].map_or(Join::Ungrouped, Join::Group),
+        TabDrop::After => {
+            let next = (target + 1..groups.len()).find(|&ix| Some(ix) != from);
+            match (groups[target], next.and_then(|ix| groups[ix])) {
+                (Some(group), Some(next)) if group == next => Join::Group(group),
+                _ => Join::Ungrouped,
+            }
+        }
+    };
+    let gap = if zone == TabDrop::Before {
+        target
+    } else {
+        target + 1
+    };
+    // the tab leaves its place first, so a gap after it is one to the left
+    let to = match from {
+        Some(from) if gap > from => gap - 1,
+        _ => gap,
+    };
+    Some((to, join))
 }
 
 /// order of tabs, given as their groups, that keeps each group's tabs together where its
@@ -70,6 +140,17 @@ pub(super) fn color_for(name: &str) -> usize {
     let mut hasher = DefaultHasher::new();
     name.hash(&mut hasher);
     hasher.finish() as usize % GROUP_COLORS.len()
+}
+
+/// the group colored line along the bottom of the tab bar, from its left to its right edge
+pub(super) fn group_line(color: gpui::Hsla) -> gpui::Div {
+    div()
+        .absolute()
+        .bottom_0()
+        .left_0()
+        .right_0()
+        .h(px(GROUP_LINE))
+        .bg(color)
 }
 
 impl Group {
@@ -169,6 +250,55 @@ impl Workspace {
         };
         tab.group = Some(group);
         self.regroup(pane_id);
+        cx.notify();
+    }
+
+    /// drop the tab `src_ix` of `src_pane` on tab `target` of `dst_pane`, like chrome: onto a
+    /// tab groups them, between tabs it joins the group around the gap or leaves its own
+    pub(super) fn drop_tab_on_tab(
+        &mut self,
+        (src_pane, src_ix): (usize, usize),
+        (dst_pane, target): (usize, usize),
+        zone: TabDrop,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(dst) = self.pane(dst_pane) else {
+            return;
+        };
+        let groups: Vec<Option<usize>> = dst.tabs.iter().map(|tab| tab.group).collect();
+        let from = (src_pane == dst_pane).then_some(src_ix);
+        let Some((to, join)) = plan_drop(&groups, from, target, zone) else {
+            return;
+        };
+        let group = match join {
+            Join::Group(group) => Some(group),
+            Join::Ungrouped => None,
+            Join::New => {
+                // unnamed like chrome's, its chip is a dot until it is renamed
+                let color = self.groups.len() % GROUP_COLORS.len();
+                let id = self.add_group(String::new(), color, None);
+                if let Some(tab) = self
+                    .pane_mut(dst_pane)
+                    .and_then(|pane| pane.tabs.get_mut(target))
+                {
+                    tab.group = Some(id);
+                }
+                Some(id)
+            }
+        };
+        // the group is set before the move, so regrouping keeps the tab where it lands
+        let Some(tab) = self
+            .pane_mut(src_pane)
+            .and_then(|pane| pane.tabs.get_mut(src_ix))
+        else {
+            return;
+        };
+        tab.group = group;
+        self.move_tab_to_pane(src_pane, src_ix, dst_pane, to, window, cx);
+        for pane in [src_pane, dst_pane] {
+            self.regroup(pane);
+        }
         cx.notify();
     }
 
@@ -382,11 +512,12 @@ impl Workspace {
             .filter(|(renamed, _)| *renamed == id)
             .map(|(_, input)| input.clone());
         let count = pane.tabs.iter().filter(|tab| tab.group == Some(id)).count();
-        let label = if group.collapsed {
-            format!("{} ({count})", group.name)
-        } else {
-            group.name.clone()
+        let label = match (group.collapsed, group.name.is_empty()) {
+            (true, true) => format!("({count})"),
+            (true, false) => format!("{} ({count})", group.name),
+            (false, _) => group.name.clone(),
         };
+        let named = renaming.is_some() || !label.is_empty();
         let content = match renaming {
             Some(input) => div()
                 .min_w(rems(6.))
@@ -404,36 +535,57 @@ impl Workspace {
                 )
                 .child(input)
                 .into_any_element(),
+            // an unnamed group shows a dot in its color, like chrome
+            None if label.is_empty() => div()
+                .size(rems(0.625))
+                .rounded_full()
+                .bg(color)
+                .into_any_element(),
             None => div().child(label).into_any_element(),
         };
+        let chip = div()
+            .id(("group-chip", id))
+            .debug_selector(move || format!("group-chip-{id}"))
+            .flex()
+            .flex_none()
+            .items_center()
+            .my_1()
+            .when(named, |chip| {
+                chip.px_2()
+                    .rounded_md()
+                    .bg(color)
+                    .text_color(theme.terminal_background)
+                    .font_weight(FontWeight::SEMIBOLD)
+            })
+            .when(!named, |chip| chip.px_1())
+            .whitespace_nowrap()
+            .child(content)
+            .on_click(cx.listener(move |this, _, _, cx| this.toggle_collapsed(id, cx)))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                    this.group_menu = Some((id, event.position));
+                    cx.notify();
+                }),
+            )
+            // a tab dropped on the chip joins the group
+            .drag_over::<DraggedTab>(move |style, _, _, _| style.border_2().border_color(color))
+            .on_drop(cx.listener(move |this, dragged: &DraggedTab, _, cx| {
+                this.join_group(dragged.pane, dragged.ix, id, cx);
+            }));
+        // chrome's line starts under the chip and runs on under the group's tabs, a collapsed
+        // group has none
         Some(
             div()
-                .id(("group-chip", id))
-                .debug_selector(move || format!("group-chip-{id}"))
+                .relative()
                 .flex()
                 .flex_none()
-                .items_center()
-                .my_1()
-                .mx_1()
-                .px_2()
-                .rounded_md()
-                .bg(color)
-                .text_color(theme.terminal_background)
-                .whitespace_nowrap()
-                .child(content)
-                .on_click(cx.listener(move |this, _, _, cx| this.toggle_collapsed(id, cx)))
-                .on_mouse_down(
-                    MouseButton::Right,
-                    cx.listener(move |this, event: &MouseDownEvent, _, cx| {
-                        this.group_menu = Some((id, event.position));
-                        cx.notify();
-                    }),
-                )
-                // a tab dropped on the chip joins the group
-                .drag_over::<DraggedTab>(move |style, _, _, _| style.border_2().border_color(color))
-                .on_drop(cx.listener(move |this, dragged: &DraggedTab, _, cx| {
-                    this.join_group(dragged.pane, dragged.ix, id, cx);
-                }))
+                .h_full()
+                .px_1()
+                .when(!group.collapsed, |wrap| {
+                    wrap.child(group_line(color).left(px(4.)).rounded_l_sm())
+                })
+                .child(chip)
                 .into_any_element(),
         )
     }
@@ -485,6 +637,11 @@ impl Workspace {
         Some(
             deferred(anchored().position(position).snap_to_window().child(menu)).into_any_element(),
         )
+    }
+
+    /// color the next group made gets
+    pub(super) fn next_group_color(&self, cx: &Context<Self>) -> gpui::Hsla {
+        Theme::get(cx).ansi[GROUP_COLORS[self.groups.len() % GROUP_COLORS.len()]]
     }
 
     /// line under the tabs of a group in its color
@@ -544,7 +701,59 @@ impl Workspace {
 
 #[cfg(test)]
 mod tests {
-    use super::{color_for, project_root, together};
+    use super::{Join, TabDrop, color_for, plan_drop, project_root, together};
+
+    #[test]
+    fn tab_edges_reorder_and_its_middle_groups() {
+        assert_eq!(TabDrop::at(10., 200.), TabDrop::Before);
+        assert_eq!(TabDrop::at(100., 200.), TabDrop::Onto);
+        assert_eq!(TabDrop::at(190., 200.), TabDrop::After);
+    }
+
+    #[test]
+    fn drops_join_the_group_around_the_gap() {
+        // - a a -
+        let row = [None, Some(1), Some(1), None];
+        // onto an ungrouped tab makes a new group, onto a grouped one joins it, next to it
+        assert_eq!(
+            plan_drop(&row, Some(3), 0, TabDrop::Onto),
+            Some((1, Join::New))
+        );
+        assert_eq!(
+            plan_drop(&row, Some(0), 1, TabDrop::Onto),
+            Some((1, Join::Group(1)))
+        );
+        // the left edge of the first tab of a group is right after its chip, so inside
+        assert_eq!(
+            plan_drop(&row, Some(3), 1, TabDrop::Before),
+            Some((1, Join::Group(1)))
+        );
+        // between two tabs of the group is inside, past its last tab is outside
+        assert_eq!(
+            plan_drop(&row, Some(0), 1, TabDrop::After),
+            Some((1, Join::Group(1)))
+        );
+        assert_eq!(
+            plan_drop(&row, Some(0), 2, TabDrop::After),
+            Some((2, Join::Ungrouped))
+        );
+        assert_eq!(
+            plan_drop(&row, Some(1), 0, TabDrop::Before),
+            Some((0, Join::Ungrouped))
+        );
+        // the dragged tab itself is skipped when looking past the target, so the last tab of a
+        // group dropped on its own spot is past the group and leaves it
+        assert_eq!(
+            plan_drop(&row, Some(2), 1, TabDrop::After),
+            Some((2, Join::Ungrouped))
+        );
+        // from another pane nothing leaves first, and a tab onto itself does nothing
+        assert_eq!(
+            plan_drop(&row, None, 2, TabDrop::After),
+            Some((3, Join::Ungrouped))
+        );
+        assert_eq!(plan_drop(&row, Some(2), 2, TabDrop::Onto), None);
+    }
 
     #[test]
     fn groups_stay_together_where_their_first_tab_is() {

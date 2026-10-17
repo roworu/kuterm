@@ -1,6 +1,6 @@
 # presets
 
-ready settings files, each with a screenshot. copy one to `~/.config/kuterm/settings.jsonc`, or keep your own file and pull one in with `"import": ["path/to/preset/settings.jsonc"]`. a preset only lists what it changes, everything else keeps its default from `assets/default_settings.jsonc`.
+ready settings files, each with a video of it in use. copy one to `~/.config/kuterm/settings.jsonc`, or keep your own file and pull one in with `"import": ["path/to/preset/settings.jsonc"]`. a preset only lists what it changes, everything else keeps its default from `assets/default_settings.jsonc`.
 
 ## minimal
 
@@ -8,7 +8,9 @@ just the shell: no tab bar while one tab is open, no scrollbar, no popups, marks
 
 [settings](minimal/settings.jsonc)
 
-![minimal](minimal/screenshot.png)
+<video src="minimal/demo.mp4" controls muted loop width="100%"></video>
+
+[minimal/demo.mp4](minimal/demo.mp4)
 
 ## tmux
 
@@ -16,7 +18,9 @@ splits and tabs on a `ctrl-a` prefix: `v` / `s` split, `h j k l` move between pa
 
 [settings](tmux/settings.jsonc)
 
-![tmux](tmux/screenshot.png)
+<video src="tmux/demo.mp4" controls muted loop width="100%"></video>
+
+[tmux/demo.mp4](tmux/demo.mp4)
 
 ## reading
 
@@ -24,21 +28,25 @@ a calm light terminal for docs and logs: solarized light, big text with tall lin
 
 [settings](reading/settings.jsonc)
 
-![reading](reading/screenshot.png)
+<video src="reading/demo.mp4" controls muted loop width="100%"></video>
+
+[reading/demo.mp4](reading/demo.mp4)
 
 ## showcase
 
-most features at once: tabs grouped by git project with branch and ports in their titles, a full status bar (git, cpu graph, memory, network, ports, clock), the completion popup, dimmed splits, marks next to commands, profiles for a server, a sandbox and incognito, and extra palette commands and keys.
+most features at once: tabs grouped by git project with branch and ports in their titles, tabs dragged onto each other to group them like in chrome, a full status bar (git, cpu graph, memory, network, ports, clock), the completion popup, dimmed splits, marks next to commands, profiles for a server, a sandbox and incognito, and extra palette commands and keys.
 
 [settings](showcase/settings.jsonc)
 
-![showcase](showcase/screenshot.png)
+<video src="showcase/demo.mp4" controls muted loop width="100%"></video>
 
-## screenshots
+[showcase/demo.mp4](showcase/demo.mp4)
 
-taken by `e2e/test_presets.py`, which also checks every preset loads without a complaint. to refresh them:
+## videos
+
+60 fps at 1440×900, recorded by `tools/presets/record.sh`: kuterm runs with the preset on a virtual display with a window manager inside podman, typed into and clicked like a person would, and filmed with ffmpeg. to record them again, or a few of them, sharper or smaller:
 
 ```bash
-sh e2e/run.sh -k presets
-for p in minimal tmux reading showcase; do cp e2e/artifacts/presets-x11/$p.png examples/presets/$p/screenshot.png; done
+sh tools/presets/record.sh
+sh tools/presets/record.sh --crf 12 showcase
 ```

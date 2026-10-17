@@ -40,7 +40,7 @@ run_backend() (
 	b="$1"
 	shift
 	# the other backend's report stays
-	rm -rf "$ROOT/e2e/artifacts/report-$b.html" "$ROOT/e2e/artifacts/shots-$b" "$ROOT/e2e/artifacts/presets-$b"
+	rm -rf "$ROOT/e2e/artifacts/report-$b.html" "$ROOT/e2e/artifacts/shots-$b"
 	if [ "$workers" -gt 0 ]; then
 		# loadgroup keeps tests marked with the same xdist_group on one worker
 		set -- -n "$workers" --dist loadgroup "$@"
@@ -54,15 +54,13 @@ run_backend() (
 	podman create --name "$name" --init --memory "$((2 + 2 * n))g" --shm-size "${n}g" \
 		-e KUTERM_BIN=/src/kuterm -e E2E_BACKEND="$b" -e PYTHONDONTWRITEBYTECODE=1 \
 		kuterm-e2e python3 -m pytest -p no:cacheprovider -v -rfEs --tb=short e2e "$@" >/dev/null || exit
-	tar -C "$ROOT" --exclude=e2e/artifacts --exclude=__pycache__ -cf - e2e assets examples Cargo.toml |
+	tar -C "$ROOT" --exclude=e2e/artifacts --exclude=__pycache__ -cf - e2e assets Cargo.toml |
 		podman cp - "$name:/src" || exit
 	podman cp "$bin" "$name:/src/kuterm" || exit
 	podman start -a "$name"
 	status=$?
 	mkdir -p "$ROOT/e2e/artifacts"
 	podman cp "$name:/src/e2e/artifacts/report-$b.html" "$ROOT/e2e/artifacts/" 2>/dev/null
-	# screenshots of examples/presets, see e2e/test_presets.py
-	podman cp "$name:/src/e2e/artifacts/presets-$b" "$ROOT/e2e/artifacts/" 2>/dev/null
 	exit $status
 )
 

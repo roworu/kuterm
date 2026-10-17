@@ -237,11 +237,13 @@ def test_middle_click_closes_tab(app_factory):
 
 
 def test_drag_reorders_tabs(app_factory):
-    """dragging the first tab past the others moves it, the active tab follows its tab"""
+    """dragging the first tab onto the right edge of the last one moves it there, the active tab
+    follows its tab"""
     app = bar_app(app_factory, tab_width=200, **PLAIN)
     open_tabs(app, 3)
     h = app.bar_height()
-    app.drag((100, h // 2), (500, h // 2))
+    # the middle of a tab would group the two, its edges reorder
+    app.drag((100, h // 2), (585, h // 2))
     # the first tab is now last, so the active third tab sits in the middle
     app.wait_title("2")
     app.snap("first tab dragged to the end")

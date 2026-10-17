@@ -17,6 +17,7 @@ use skrifa::{
 use super::{
     DropSide, LayoutNode, Pane, SplitAxis, Workspace,
     end_truncated::EndTruncated,
+    groups::{TabDrop, group_line},
     tab_title::{self, Piece},
     window::{client_frame, shows_tab_bar},
 };
@@ -435,23 +436,46 @@ impl Workspace {
         };
         let drag = settings.drag_tabs && self.renaming.is_none();
         let group_color = self.group_color_of(pane, ix, cx);
+        let pane_tabs = &self.pane(pane).expect("pane from caller").tabs;
+        let last_of_group = pane_tabs.get(ix + 1).map(|next| next.group) != Some(tab_state.group);
+        // grouping with this tab makes a new group when it has none
+        let onto_color = group_color.unwrap_or_else(|| self.next_group_color(cx));
+        // where a tab dragged over this one would land, stale once the drag is gone
+        let hovered_drop = self
+            .tab_drop
+            .filter(|&(over_pane, over_ix, _)| over_pane == pane && over_ix == ix)
+            .filter(|_| cx.has_active_drag())
+            .map(|(_, _, zone)| zone);
         tab_with(ix, content, pinned, settings)
             .relative()
-            // a line in the group color under the tabs of a group
+            // a line in the group color under the tabs of a group, over the border between
+            // them so it runs on unbroken from the chip, rounded at the group's end
             .when_some(group_color, |tab, color| {
                 tab.child(
-                    div()
-                        .absolute()
-                        .bottom_0()
-                        .left_0()
-                        .right_0()
-                        .h(px(2.))
-                        .bg(color),
+                    group_line(color)
+                        .right(px(-1.))
+                        .when(last_of_group, |line| line.right_0().rounded_r_sm()),
                 )
             })
             .group("tab")
             .border_r_1()
             .border_color(theme.border)
+            .map(|tab| match hovered_drop {
+                Some(TabDrop::Before) => tab.border_l_2().border_color(indicator),
+                Some(TabDrop::After) => tab.border_r_2().border_color(indicator),
+                // the two would be grouped: the tab lights up in the color of its group, or
+                // the color a new group gets
+                Some(TabDrop::Onto) => tab.child(
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .rounded_md()
+                        .border_2()
+                        .border_color(onto_color)
+                        .bg(onto_color.opacity(0.15)),
+                ),
+                None => tab,
+            })
             // the terminal background, not the bright tab colors, so the tab blends with its pane
             .when_some(profile_theme, |tab, theme| {
                 tab.bg(theme.terminal_background)
@@ -501,22 +525,48 @@ impl Workspace {
                     },
                     |dragged: &DraggedTab, _, _, cx| cx.new(|_| dragged.clone()),
                 )
-                .drag_over::<DraggedTab>(move |style, dragged, _, _| {
-                    // an insertion marker only makes sense inside the same tab row
-                    if dragged.pane != pane {
-                        style
-                    } else if dragged.ix < ix {
-                        // remove then insert at ix puts the tab after ix when moving right
-                        style.border_r_2().border_color(indicator)
-                    } else if dragged.ix > ix {
-                        style.border_l_2().border_color(indicator)
-                    } else {
-                        style
-                    }
-                })
+                .on_drag_move::<DraggedTab>(cx.listener(
+                    move |this, event: &DragMoveEvent<DraggedTab>, _, cx| {
+                        let dragged = event.drag(cx);
+                        let over = event.bounds.contains(&event.event.position)
+                            && (dragged.pane, dragged.ix) != (pane, ix);
+                        let zone = over.then(|| {
+                            let x = event.event.position.x - event.bounds.origin.x;
+                            (
+                                pane,
+                                ix,
+                                TabDrop::at(f32::from(x), f32::from(event.bounds.size.width)),
+                            )
+                        });
+                        let mine = this.tab_drop.is_some_and(|(over_pane, over_ix, _)| {
+                            (over_pane, over_ix) == (pane, ix)
+                        });
+                        // every tab hears every move, each only sets or clears its own
+                        if (zone.is_some() || mine) && this.tab_drop != zone {
+                            this.tab_drop = zone;
+                            cx.notify();
+                        }
+                    },
+                ))
                 .on_drop(cx.listener(
                     move |this, dragged: &DraggedTab, window, cx| {
-                        this.move_tab_to_pane(dragged.pane, dragged.ix, pane, ix, window, cx);
+                        let zone = match this.tab_drop.take() {
+                            Some((over_pane, over_ix, zone))
+                                if (over_pane, over_ix) == (pane, ix) =>
+                            {
+                                zone
+                            }
+                            // no move seen over the tab: land on the side it came from
+                            _ if dragged.pane == pane && dragged.ix < ix => TabDrop::After,
+                            _ => TabDrop::Before,
+                        };
+                        this.drop_tab_on_tab(
+                            (dragged.pane, dragged.ix),
+                            (pane, ix),
+                            zone,
+                            window,
+                            cx,
+                        );
                     },
                 ))
             })
