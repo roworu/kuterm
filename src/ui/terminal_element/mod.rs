@@ -105,10 +105,9 @@ pub struct LayoutState {
     /// images with where they go, relative to the grid origin
     images: Vec<(Bounds<Pixels>, Arc<RenderImage>)>,
     hint_background: Hsla,
-    /// ghost text after the cursor and the hint line under the prompt, relative to the grid
-    /// origin, never part of the grid
-    ghost_texts: Vec<(Point<Pixels>, ShapedLine)>,
-    /// gutter marks, chips and popovers, relative to the window
+    /// hint line under the prompt, relative to the grid origin, never part of the grid
+    hint_line: Option<(Point<Pixels>, ShapedLine)>,
+    /// gutter marks and popovers, relative to the window
     decorations: decorations::DecorationsLayout,
 }
 
@@ -379,38 +378,30 @@ impl Element for TerminalElement {
             }
         });
 
-        // only while the cursor is on screen, they belong to the line being typed
-        let mut ghost_texts = Vec::new();
-        if cursor.is_some() {
-            let column = content.cursor.point.column.0 as f32;
-            let row = cursor_line as f32;
-            let shown = [
-                terminal.ghost_text().map(|ghost| (ghost, column, row)),
-                terminal
-                    .hint_line()
-                    .filter(|_| (cursor_line as usize) + 1 < dimensions.num_lines())
-                    .map(|hint| (hint, 0., row + 1.)),
-            ];
-            for (ghost, column, row) in shown.into_iter().flatten() {
-                if ghost.text.is_empty() {
-                    continue;
-                }
+        // only while the cursor is on screen, it belongs to the line being typed
+        let hint_line = terminal
+            .hint_line()
+            .filter(|hint| {
+                cursor.is_some()
+                    && !hint.text.is_empty()
+                    && (cursor_line as usize) + 1 < dimensions.num_lines()
+            })
+            .map(|hint| {
                 let text = window.text_system().shape_line(
-                    ghost.text.clone().into(),
+                    hint.text.clone().into(),
                     font_size,
                     &[TextRun {
-                        len: ghost.text.len(),
+                        len: hint.text.len(),
                         font: fonts.italic.clone(),
-                        color: ghost.color,
+                        color: hint.color,
                         background_color: None,
                         underline: None,
                         strikethrough: None,
                     }],
                     Some(cell_width),
                 );
-                ghost_texts.push((point(cell_width * column, line_height * row), text));
-            }
-        }
+                (point(px(0.), line_height * (cursor_line as f32 + 1.)), text)
+            });
 
         let decorations = decorations::layout_decorations(
             terminal,
@@ -515,7 +506,7 @@ impl Element for TerminalElement {
             hint_labels,
             hint_background,
             images,
-            ghost_texts,
+            hint_line,
             decorations,
         }
     }
@@ -601,10 +592,10 @@ impl Element for TerminalElement {
                 )
                 .ok();
             }
-            for (at, text) in &layout.ghost_texts {
+            if let Some((at, text)) = &layout.hint_line {
                 let at = *at + origin + layout.glyph_offset;
                 let background = self.terminal.read(cx).theme(cx).terminal_background;
-                // covers what the grid has there, the ghost reads as the rest of the line
+                // covers what the grid has there, the hint reads as a line of its own
                 window.paint_quad(fill(
                     Bounds::new(at, size(text.width, layout.dimensions.line_height)),
                     background,
@@ -629,9 +620,6 @@ impl Element for TerminalElement {
             for (at, icon) in &layout.decorations.gutter {
                 icon.paint(*at, line_height, gpui::TextAlign::Left, None, window, cx)
                     .ok();
-            }
-            for chip in &layout.decorations.chips {
-                chip.paint(line_height, window, cx);
             }
             if let Some((scrollbar, _)) = &layout.scrollbar {
                 scrollbar.paint(window);
@@ -686,5 +674,48 @@ impl IntoElement for TerminalElement {
 
     fn into_element(self) -> Self::Element {
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use alacritty_terminal::index::{Column, Line};
+
+    use super::*;
+
+    /// 10 columns by 3 lines of 5x10 cells
+    fn dims() -> TerminalBounds {
+        TerminalBounds::new(
+            px(10.),
+            px(5.),
+            Bounds::new(point(px(0.), px(0.)), size(px(50.), px(30.))),
+        )
+    }
+
+    #[test]
+    fn wrapped_link_is_underlined_on_each_visible_row() {
+        let link: Match = AlacPoint::new(Line(-1), Column(7))..=AlacPoint::new(Line(1), Column(2));
+        let underline = |x: f32, row: f32, cells: f32| {
+            Bounds::new(
+                point(px(5. * x), px(10. * (row + 1.) - 2.)),
+                size(px(5. * cells), px(1.)),
+            )
+        };
+        // its first row is in the history, out of view
+        assert_eq!(
+            link_underlines(&link, 0, &dims()),
+            [underline(0., 0., 10.), underline(0., 1., 3.)]
+        );
+        // scrolled up a line: from its start column, the whole middle row, up to its end
+        assert_eq!(
+            link_underlines(&link, 1, &dims()),
+            [
+                underline(7., 0., 3.),
+                underline(0., 1., 10.),
+                underline(0., 2., 3.)
+            ]
+        );
+        // scrolled up so far it is below the view
+        assert!(link_underlines(&link, 5, &dims()).is_empty());
     }
 }

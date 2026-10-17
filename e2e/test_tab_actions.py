@@ -776,32 +776,6 @@ def test_a_named_tab_keeps_its_name_when_it_moves(app_factory):
     assert "NAMED_TAB" in text(app, "mover"), "the name no longer finds the moved tab"
 
 
-def test_moving_a_sleeping_tab_keeps_its_history(app_factory):
-    """a tab whose history was packed away moves with it: the same tab, woken by the move,
-    with its output still there"""
-    app = tab_app(app_factory, sleep_tabs_after_minutes=0.02, terminal={"max_history_length": 0})
-    new_tabs(app, 2)
-    # a tab sleeps only with a history to pack away, so it prints enough lines first
-    app.run("seq 1 400; echo SLEEPY_TAB")
-    app.wait(lambda: "SLEEPY_TAB" in text(app), msg="the output")
-    sleepy = ids_of(app)[1]
-    first = one_window(app)
-    # the first tab comes to the front, so the second one is hidden long enough to sleep
-    app.click(tab_center(app, 0), app.bar_height() // 2)
-    app.wait_title("1")
-    app.wait(lambda: any(tab["asleep"] for tab in window_tabs(app)), msg="the tab asleep",
-             timeout=25)
-    app.snap("the second tab asleep, its history packed away")
-    # the menu of the sleeping tab acts on it, waking it and taking it out of the window
-    menu_click(app, open_menu(app, 1), MOVE_WINDOW)
-    app.wait(lambda: len(windows_of(app)) == 2, msg="a window of its own")
-    by_window = windows_of(app)
-    elsewhere = [window for window in by_window if window != first]
-    assert ids_of(app, elsewhere[0]) == [sleepy], by_window
-    app.wait(lambda: "SLEEPY_TAB" in text(app, sleepy), msg="the history came along")
-    app.snap("the sleeping tab in its own window, its output still there")
-
-
 def test_moving_an_incognito_tab_keeps_it_incognito(app_factory):
     """an incognito tab moved to a window of its own is the same tab: it still refuses to be
     read from outside"""

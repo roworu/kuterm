@@ -650,7 +650,7 @@ impl Focusable for TextInput {
 
 #[cfg(test)]
 mod tests {
-    use gpui::{Element, IntoElement, Modifiers, Render, TestAppContext, VisualTestContext};
+    use gpui::{IntoElement, Modifiers, Render, TestAppContext, VisualTestContext};
 
     use super::*;
 
@@ -1147,11 +1147,5 @@ mod tests {
             input.index_for_mouse_position(point(px(5.), px(5.)))
         });
         assert_eq!(index, 0);
-    }
-
-    #[gpui::test]
-    fn text_element_has_no_source_location(cx: &mut TestAppContext) {
-        let (input, _cx) = open(cx);
-        assert!(TextElement { input }.source_location().is_none());
     }
 }

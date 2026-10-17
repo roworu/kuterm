@@ -60,12 +60,19 @@ CI also runs `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings`
 - `src/settings/` and `src/theme.rs`: gpui globals read with `Settings::get(cx)` / `Theme::get(cx)`.
   - defaults live only in `assets/*.jsonc` (embedded as bin with `include_str!`); `Default` impls parse them, so NEVER hardcode defaults in rust as a code.
   - user files in `$XDG_CONFIG_HOME/kuterm/` are parsed and deep merged over the bundled json (`settings::merge`); enums and arrays are replaced whole. missing files are created from defaults, broken ones fall back to defaults with an error on stderr.
-  - new setting: add the struct field, add it with a comment to `assets/default_settings.jsonc`. numeric limits are enforced in `Settings::parse`.
+  - `mod.rs` is the schema, `limits.rs` checks parsed values (numeric limits, regexes, profiles), `files.rs` finds config and state dirs and reads and writes json state, `fonts.rs` checks font names and features, `config.rs` layers the files.
+  - new setting: add the struct field, add it with a comment to `assets/default_settings.jsonc`. numeric limits are enforced in `limits.rs`.
   - new action: add it to `binding()` in `keybindings.rs` and to `assets/default_keybindings.jsonc` and `assets/default_keybindings_macos.jsonc` with a comment.
 
 - `src/completion/`: autocomplete engine, no ui. `complete` turns a command line and cursor into candidates from fig-style json specs (`assets/completions/`), PATH and the filesystem, it never runs anything. `Bridge` is the private unix socket of one tab that kuterm's zsh script (`assets/shell/zsh/.zshenv`) reports its line on and gets picked completions back from (`protocol.rs`). the popup lives in `src/ui/terminal_view/completions.rs`. bundled specs are generated from the real programs inside podman, never on the host: follow `docs/COMPLETIONS.md` to add or refresh one.
 
+- `src/automation/`: other programs driving a running kuterm. `socket.rs` is the unix socket (json request in, json reply out, or an event stream), `protocol.rs` its requests and replies, `msg.rs` the `kuterm msg` client, `mcp.rs` the `kuterm mcp` server for ai agents, `events.rs` the bus of pane events both stream. requests about panes are answered in `src/ui/windows.rs` and `src/ui/workspace/remote_verbs.rs`.
+
 - `src/ui/`: `Workspace` (root view, tabs) -> `TerminalView` (focus, keys, scroll, paste) -> `TerminalElement`, a custom gpui `Element` that sizes terminal in `prepaint`, builds background rects and batched text runs (`grid.rs`), and paints cursor (`cursor.rs`).
+  - `workspace/` is split by responsibility, each file an `impl Workspace` block: `layout.rs` (split tree), `tabs.rs`, `closing.rs`, `tab_bar.rs`, `status_bar.rs`, `panes_view.rs`, `render.rs`, `title_refresh.rs` (titles, context and pty state built off the main thread), `tab_title.rs` (blocks to text), `title_sources.rs` (user, host, git, clock, exec), `notifications.rs` (in window) and `system_notifications.rs` (desktop). test helpers live in `workspace/test_support.rs`.
+  - context and pty state are read again only for visible tabs (the active tab of each pane), hidden ones keep what was read while shown. checks that must not miss a password prompt in a hidden tab read the pty live (`Terminal::asking_secret_now`).
+  - `terminal_view/` splits the view by input: `mouse.rs`, `links.rs`, `scroll.rs`, `clipboard.rs`, `bell.rs`, `completions.rs`.
+  - `dialogs/` holds the floating panels: command palette, input prompt, about page, close and paste confirmations.
 
 ## Conventions
 

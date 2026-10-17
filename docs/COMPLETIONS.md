@@ -172,7 +172,7 @@ left:
 | --- | --- |
 | zsh adapter | `assets/shell/zsh/.zshenv`, inside kuterm's zsh injection (`ZDOTDIR`) |
 | protocol | `src/completion/protocol.rs` |
-| session bridge | `src/completion/bridge.rs`, same unix socket pattern as `src/remote.rs` |
+| session bridge | `src/completion/bridge.rs`, same unix socket pattern as `src/automation/socket.rs` |
 | engine | `src/completion/mod.rs`, `parse.rs`, `sources.rs`, modelled on inshellisense |
 | specs | `src/completion/spec.rs`, `assets/completions/`, fig's format, a subset |
 | spec generator | `tools/completions/`, runs programs' help inside podman |

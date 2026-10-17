@@ -660,4 +660,141 @@ mod tests {
         terminal.sync();
         assert!(terminal.last_content.images.is_empty());
     }
+
+    fn reply_of(parser: &mut GraphicsParser, command: &str) -> String {
+        String::from_utf8(parser.command(command.as_bytes()).reply.unwrap()).unwrap()
+    }
+
+    #[test]
+    fn chunks_in_the_middle_add_to_the_first() {
+        let mut parser = parser(10);
+        let data = rgba(2, 2);
+        let (head, rest) = data.split_at(4);
+        let (middle, tail) = rest.split_at(4);
+        assert_eq!(
+            parser.command(format!("a=t,s=2,v=2,i=1,m=1;{head}").as_bytes()),
+            Default::default()
+        );
+        // only the last chunk answers, for the keys of the first one
+        assert_eq!(
+            parser.command(format!("m=1;{middle}").as_bytes()),
+            Default::default()
+        );
+        assert_eq!(
+            reply_of(&mut parser, &format!("m=0;{tail}")),
+            "\x1b_Gi=1;OK\x1b\\"
+        );
+        assert!(parser.shared.lock().unwrap().images.contains_key(&1));
+    }
+
+    #[test]
+    fn answers_name_the_image_by_id_and_number() {
+        let mut parser = parser(10);
+        // keys it doesn't know and pairs without a value are skipped
+        assert_eq!(
+            reply_of(&mut parser, "a=q,junk,zz=1,i=2,I=3,s=1,v=1,f=24;AAAA"),
+            "\x1b_Gi=2,I=3;OK\x1b\\"
+        );
+        assert_eq!(
+            reply_of(&mut parser, "a=p,I=5"),
+            "\x1b_GI=5;EINVAL:no image id\x1b\\"
+        );
+        assert_eq!(
+            reply_of(&mut parser, "a=z,i=1"),
+            "\x1b_Gi=1;EINVAL:unknown action\x1b\\"
+        );
+    }
+
+    #[test]
+    fn unsupported_or_short_data_is_refused() {
+        let mut parser = parser(10);
+        for (command, error) in [
+            (
+                "a=t,i=1,o=z,s=1,v=1;AAAA",
+                "EINVAL:compressed data is not supported",
+            ),
+            ("a=t,i=1,f=99;AAAA", "EINVAL:unknown format"),
+            (
+                "a=t,i=1,f=32,s=0,v=1;AAAA",
+                "ENODATA:not enough pixels for the size",
+            ),
+            (
+                "a=t,i=1,f=32,s=9,v=9;AAAA",
+                "ENODATA:not enough pixels for the size",
+            ),
+            (
+                "a=t,i=1,t=s;AAAA",
+                "EINVAL:only direct and file transmission are supported",
+            ),
+        ] {
+            let got = reply_of(&mut parser, command);
+            assert_eq!(got, format!("\x1b_Gi=1;{error}\x1b\\"), "{command}");
+        }
+        assert!(parser.shared.lock().unwrap().images.is_empty());
+    }
+
+    #[test]
+    fn deletes_pick_placements_or_images() {
+        let mut parser = parser(10);
+        let data = rgba(2, 2);
+        for id in [1, 2] {
+            parser.command(format!("a=T,s=2,v=2,i={id};{data}").as_bytes());
+        }
+        let shown = |parser: &GraphicsParser| {
+            let graphics = parser.shared.lock().unwrap();
+            let mut images: Vec<u32> = graphics.placements.values().map(|p| p.image).collect();
+            images.sort();
+            (images, graphics.images.contains_key(&1))
+        };
+        assert_eq!(shown(&parser), (vec![1, 2], true));
+        // ways to pick it doesn't know keep everything
+        parser.command(b"a=d,d=x");
+        assert_eq!(shown(&parser), (vec![1, 2], true));
+        // d=i hides the image, d=I also frees it
+        parser.command(b"a=d,d=i,i=1");
+        assert_eq!(shown(&parser), (vec![2], true));
+        parser.command(b"a=d,d=i");
+        assert_eq!(shown(&parser), (vec![2], true));
+        parser.command(b"a=p,i=1");
+        parser.command(b"a=d,d=I,i=1");
+        assert_eq!(shown(&parser), (vec![2], false));
+        // d=A takes every image with the placements
+        parser.command(b"a=d,d=A");
+        let graphics = parser.shared.lock().unwrap();
+        assert!(graphics.placements.is_empty() && graphics.images.is_empty());
+    }
+
+    #[test]
+    fn protocol_temp_files_are_removed_after_reading() {
+        let dir = std::env::temp_dir();
+        let pixels = base64::engine::general_purpose::STANDARD
+            .decode(rgba(1, 1))
+            .unwrap();
+        let send = |parser: &mut GraphicsParser, path: &std::path::Path| {
+            std::fs::write(path, &pixels).unwrap();
+            let name =
+                base64::engine::general_purpose::STANDARD.encode(path.to_string_lossy().as_bytes());
+            reply_of(parser, &format!("a=t,t=t,s=1,v=1,i=1;{name}"))
+        };
+        let mut parser = parser(10);
+        // kitty's own temp files are named for the protocol, other files are not ours
+        let ours = dir.join(format!("tty-graphics-protocol-{}", std::process::id()));
+        assert!(send(&mut parser, &ours).ends_with("OK\x1b\\"));
+        assert!(!ours.exists());
+        let other = dir.join(format!("kuterm-other-{}", std::process::id()));
+        assert!(send(&mut parser, &other).ends_with("OK\x1b\\"));
+        assert!(other.exists());
+        std::fs::remove_file(&other).ok();
+    }
+
+    #[test]
+    fn unknown_cell_size_places_one_cell() {
+        let mut parser = GraphicsParser::new(
+            Arc::new(Mutex::new(Graphics::new(true, 10))),
+            Default::default(),
+        );
+        parser.command(format!("a=T,s=25,v=50,i=7;{}", rgba(25, 50)).as_bytes());
+        let shown = parser.shared.lock().unwrap().placement(0).unwrap();
+        assert_eq!((shown.cols, shown.rows), (1, 1));
+    }
 }

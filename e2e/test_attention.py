@@ -1,6 +1,6 @@
 """ai agents waiting for the user: every waiting agent marks its own tab, the next-attention
 key takes the one waiting longest, the picker lists how long each waited, and the mark follows
-the theme, other windows, tab groups, sleeping tabs, bells, dialogs and the palette"""
+the theme, other windows, tab groups, bells, dialogs and the palette"""
 
 import os
 import time
@@ -532,29 +532,6 @@ def test_a_waiting_agent_in_a_grouped_tab_is_still_marked(app_factory):
     app.snap("the agent of a grouped tab waits, its dot behind the group chip")
     app.key("ctrl+shift+t")
     app.wait_title("2 D")
-    app.key("ctrl+shift+a")
-    app.wait_title("1 A")
-
-
-def test_a_waiting_agent_in_a_sleeping_tab_keeps_its_mark(app_factory):
-    """a tab hidden long enough to have its history packed away still marks its waiting agent,
-    and showing it wakes it with the agent still running"""
-    app = agent_app(app_factory, sleep_tabs_after_minutes=0.02)
-    listening(app)
-    install_agent(app)
-    app.run("seq 1 500")  # history for the sleeping tab to pack away
-    start_agent(app, "1")
-    app.wait_title("1 A")
-    app.key("ctrl+shift+t")
-    app.wait_title("2 D")
-    go(app, "1")
-    app.wait_file("idle1")
-    app.wait(lambda: marked(app) > 4, msg="the hidden tab marked")
-    pane = str(next(tab["id"] for tab in tabs(app) if tab["number"] == 1))
-    app.wait(lambda: next(tab["asleep"] for tab in tabs(app) if str(tab["id"]) == pane),
-             msg="the hidden tab asleep", timeout=20)
-    assert marked(app) > 4  # being asleep does not drop the wait
-    app.snap("the wait of a tab whose history slept")
     app.key("ctrl+shift+a")
     app.wait_title("1 A")
 

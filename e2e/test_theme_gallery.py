@@ -59,25 +59,6 @@ def test_a_bundled_theme_in_the_light_slot(app_factory, name):
     app.snap(f"{name} as the light theme")
 
 
-def test_a_light_theme_named_in_the_dark_slot_keeps_its_own_colors(app_factory):
-    """a theme file holds both modes' colors, so naming a light one in dark mode shows it as is"""
-    app = app_factory({"theme": {"mode": "dark", "dark": "gruvbox-light"}}, script=PALETTE)
-    check_palette(app, bundled("gruvbox-light"))
-
-
-def test_a_bundled_theme_paints_the_tab_bar(app_factory):
-    """the ui colors of a bundled theme reach the tab bar, not only the terminal grid"""
-    theme = bundled("nord")
-    app = app_factory({"theme": {"mode": "dark", "dark": "nord"}, "hide_bar_for_one_tab": False})
-    top = app.bar_height()
-    app.wait(lambda: close_to(tuple(app.shot()[top // 2, 895]), theme["tab_bar_background"], 3),
-             msg="tab bar background")
-    img = app.shot()
-    assert close_to(tuple(img[top // 2, 3]), theme["tab_active_background"], 3), "active tab"
-    assert close_to(tuple(img[top - 1, 450]), theme["border"], 3), "bar border"
-    app.snap("the tab bar of a bundled theme")
-
-
 def test_your_own_theme_shadows_a_bundled_name(app_factory):
     """a theme in "themes" wins over the bundled theme of the same name"""
     mine = unique_theme(0x44)

@@ -183,4 +183,39 @@ mod tests {
         assert_eq!(value["theme"]["dark"], "z");
         assert_eq!(set_string("[]", &["theme"], "z"), None);
     }
+
+    #[test]
+    fn block_comments_and_escaped_quotes_are_skipped() {
+        // a key spelled inside a comment or a string must not be taken for the real one
+        let text =
+            r#"{ /* "theme": "no" */ "say": "a \"theme\": b", /* x */ "theme" /* y */ : "old" }"#;
+        let changed = set_string(text, &["theme"], "new").unwrap();
+        assert!(changed.contains(r#"/* "theme": "no" */"#), "{changed}");
+        assert!(changed.contains(r#""say": "a \"theme\": b""#), "{changed}");
+        let value: serde_json_lenient::Value = serde_json_lenient::from_str(&changed).unwrap();
+        assert_eq!(value["theme"], "new");
+        // a comment left open runs to the end of the file
+        assert!(set_string("/* open", &["theme"], "x").is_none());
+        // no path names no value
+        assert_eq!(set_string("{}", &[], "x"), None);
+    }
+
+    #[test]
+    fn members_it_cannot_read_get_the_value_added_in_front() {
+        // an unquoted key, a key without colon, an open string and an open object end the
+        // search, the value then goes first in the object and the rest stays as it was
+        for text in [
+            "{ theme: 1 }",
+            r#"{ "theme" 1 }"#,
+            r#"{ "theme": "open }"#,
+            r#"{ "other": { "a": 1 }"#,
+        ] {
+            let changed = set_string(text, &["theme"], "x").unwrap();
+            assert!(
+                changed.starts_with("{\n  \"theme\": \"x\","),
+                "{text}: {changed}"
+            );
+            assert!(changed.ends_with(&text[1..]), "{text}: {changed}");
+        }
+    }
 }

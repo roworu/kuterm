@@ -25,6 +25,14 @@ pub struct PtyState {
     pub stopped: Vec<StoppedJob>,
 }
 
+impl PtyState {
+    /// a program reads a secret, like sudo or ssh asking for a password: echo is off and
+    /// input comes in lines, which full screen programs never ask for
+    pub fn asking_secret(&self) -> bool {
+        !self.shell_in_front && self.modes.is_some_and(|modes| !modes.echo && modes.icanon)
+    }
+}
+
 /// a question a program waits on
 #[derive(Clone, Debug, PartialEq)]
 pub struct Question {
@@ -74,14 +82,21 @@ impl Terminal {
         &self.pty_state.stopped
     }
 
-    /// a program reads a secret, like sudo or ssh asking for a password: echo is off and
-    /// input comes in lines, which full screen programs never ask for
+    /// a program reads a secret, from the last refresh
     pub fn asking_secret(&self) -> bool {
-        !self.pty_state.shell_in_front
-            && self
-                .pty_state
-                .modes
-                .is_some_and(|modes| !modes.echo && modes.icanon)
+        self.pty_state.asking_secret()
+    }
+
+    /// a program reads a secret, read from the pty now. the refresh only reads visible tabs,
+    /// so whatever must not miss a prompt in a hidden tab asks this too
+    pub(super) fn asking_secret_now(&self) -> bool {
+        let front = super::foreground_process(self.shell_pid).map_or(self.shell_pid, |p| p.pid);
+        let state = PtyState {
+            modes: super::pty_modes(front),
+            shell_in_front: front == self.shell_pid,
+            stopped: Vec::new(),
+        };
+        state.asking_secret()
     }
 
     /// output was paused with ctrl+s and nothing resumed it yet
@@ -97,9 +112,11 @@ impl Terminal {
     /// the question a program waits on: a secret prompt right away, or a running command quiet
     /// for a while whose cursor line matches `patterns`
     pub fn question(&self, patterns: &[Regex], now: Instant) -> Option<Question> {
-        let secret = self.asking_secret();
         let quiet = now.saturating_duration_since(self.last_output) >= QUESTION_QUIET;
-        if !secret && !(self.command_running() && quiet) {
+        let waits = self.command_running() && quiet;
+        // only a command waiting on input is worth reading the pty for
+        let secret = self.asking_secret() || (waits && self.asking_secret_now());
+        if !secret && !waits {
             return None;
         }
         let line = self.cursor_line_text();
@@ -226,7 +243,7 @@ mod tests {
         ] {
             assert!(!terminal.input(source, b"x".to_vec()), "{source:?}");
         }
-        assert!(terminal.input(InputSource::Keyboard, b"x".to_vec()));
+        assert!(terminal.type_text(b"x"));
         assert!(terminal.input(InputSource::Paste, b"x".to_vec()));
         terminal.set_pty_state(PtyState::default());
         assert!(terminal.input(InputSource::Remote, b"x".to_vec()));
@@ -245,21 +262,21 @@ mod tests {
             ..PtyState::default()
         };
         terminal.set_pty_state(ixon.clone());
-        assert!(terminal.input(InputSource::Keyboard, b"\x13".to_vec()));
+        assert!(terminal.type_text(b"\x13"));
         assert!(terminal.xoff_paused());
-        assert!(terminal.input(InputSource::Keyboard, b"\x11".to_vec()));
+        assert!(terminal.type_text(b"\x11"));
         assert!(!terminal.xoff_paused());
         // turning ixon off lets output go, nothing can pause it now
-        terminal.input(InputSource::Keyboard, b"\x13".to_vec());
+        terminal.type_text(b"\x13");
         terminal.set_pty_state(PtyState::default());
         assert!(!terminal.xoff_paused());
         // with send_xoff off ctrl+s never reaches a pty that would pause
         terminal.send_xoff = false;
         terminal.set_pty_state(ixon);
-        assert!(!terminal.input(InputSource::Keyboard, b"\x13".to_vec()));
+        assert!(!terminal.type_text(b"\x13"));
         assert!(!terminal.xoff_paused());
         terminal.set_pty_state(PtyState::default());
-        assert!(terminal.input(InputSource::Keyboard, b"\x13".to_vec()));
+        assert!(terminal.type_text(b"\x13"));
     }
 
     #[test]
@@ -286,21 +303,22 @@ mod tests {
         let question = terminal.question(&patterns(), later).unwrap();
         assert_eq!(question.line, "continue? [y/N]");
         assert!(question.yes_no && !question.secret);
-        terminal.input(InputSource::Keyboard, b"y\r".to_vec());
+        terminal.type_text(b"y\r");
         wait_for_text(terminal, "got_y");
     }
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn a_real_password_prompt_turns_echo_off() {
+    fn a_real_password_prompt_is_seen_live_and_blocks_automation() {
         use crate::{
             settings::Shell,
             terminal::{
-                foreground_process, pty_modes,
+                InputSource,
                 tests::{profile, spawn_with, wait_for_text},
             },
         };
-        let script = "python3 -c \"import getpass; getpass.getpass('Pw: ')\"; sleep 5";
+        // job control puts the prompt in its own foreground group, like an interactive shell
+        let script = "set -m; python3 -c \"import getpass; getpass.getpass('Pw: ')\"; sleep 5";
         let profile = profile(Shell::WithArguments {
             program: "/bin/sh".into(),
             args: vec!["-c".into(), script.into()],
@@ -309,14 +327,16 @@ mod tests {
         let terminal = &mut builder.terminal;
         wait_for_text(terminal, "Pw:");
         let deadline = Instant::now() + Duration::from_secs(10);
-        loop {
-            let front = foreground_process(terminal.shell_pid).unwrap();
-            let modes = pty_modes(front.pid);
-            if front.name.starts_with("python") && modes.is_some_and(|m| !m.echo && m.icanon) {
-                break;
-            }
-            assert!(Instant::now() < deadline, "{front:?} {modes:?}");
+        while !terminal.asking_secret_now() {
+            assert!(
+                Instant::now() < deadline,
+                "the prompt never turned echo off"
+            );
             std::thread::sleep(Duration::from_millis(50));
         }
+        // no refresh read the pty state yet, the live read alone keeps automation out
+        assert!(!terminal.asking_secret());
+        assert!(!terminal.input(InputSource::Automation, b"x".as_slice()));
+        assert!(terminal.input(InputSource::Keyboard, b"x".as_slice()));
     }
 }

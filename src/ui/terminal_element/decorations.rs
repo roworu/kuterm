@@ -1,5 +1,5 @@
-//! drawing block decorations next to the grid: gutter marks with their tooltip, chips and
-//! the popover. laid out in prepaint from plain data the terminal keeps
+//! drawing block decorations next to the grid: gutter marks with their tooltip and the
+//! popover. laid out in prepaint from plain data the terminal keeps
 
 use gpui::{
     App, Bounds, Font, Hsla, Pixels, Point, ShapedLine, TextRun, Window, fill, point, px, size,
@@ -46,7 +46,6 @@ impl TextBox {
 #[derive(Default)]
 pub struct DecorationsLayout {
     pub gutter: Vec<(Point<Pixels>, ShapedLine)>,
-    pub chips: Vec<TextBox>,
     pub boxes: Vec<TextBox>,
 }
 
@@ -141,26 +140,6 @@ pub fn layout_decorations(
             shape(&icon, font, color, font_size, window),
         ));
     }
-    for (row, chips) in terminal.visible_chips() {
-        let text = chips
-            .iter()
-            .map(|chip| chip.text.as_str())
-            .collect::<Vec<_>>()
-            .join("  ");
-        let top = origin.y + line_height * row as f32;
-        let mut chip = text_box(
-            &[(text, theme.text_muted)],
-            point(dims.bounds.right(), top),
-            area,
-            font,
-            font_size,
-            line_height,
-            theme,
-            window,
-        );
-        chip.bounds.origin.y = top;
-        layout.chips.push(chip);
-    }
     if let Some((text, at)) = tooltip {
         let tooltip = text_box(
             &[(text, theme.text)],
@@ -239,4 +218,87 @@ fn popover_box(
         theme,
         window,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use alacritty_terminal::index::{Column, Line, Point as AlacPoint};
+    use gpui::{TestAppContext, font};
+
+    use super::*;
+    use crate::terminal::snippet;
+
+    /// 20 columns by 5 lines of 5x10 cells at the window origin
+    fn dims() -> TerminalBounds {
+        TerminalBounds::new(
+            px(10.),
+            px(5.),
+            Bounds::new(point(px(0.), px(0.)), size(px(100.), px(50.))),
+        )
+    }
+
+    /// a peek of `lines` file lines over column 2 of `line`
+    fn popover_at(line: i32, lines: u32) -> Popover {
+        let at = AlacPoint::new(Line(line), Column(2));
+        // a file of its own per call, tests run side by side
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let number = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let file =
+            std::env::temp_dir().join(format!("kuterm-popover-{}-{number}", std::process::id()));
+        std::fs::write(&file, "first\nsecond\n").unwrap();
+        let content = if lines == 0 {
+            Vec::new()
+        } else {
+            snippet(&file, 1, lines - 1).unwrap()
+        };
+        std::fs::remove_file(&file).ok();
+        assert_eq!(content.len(), lines as usize);
+        Popover {
+            range: (at, at),
+            content,
+        }
+    }
+
+    /// bounds of the popover box, none when nothing is drawn
+    fn placed(
+        popover: &Popover,
+        display_offset: usize,
+        cx: &mut TestAppContext,
+    ) -> Option<Bounds<Pixels>> {
+        let cx = cx.add_empty_window();
+        cx.update(|window, _| {
+            let dims = dims();
+            popover_box(
+                popover,
+                display_offset,
+                &dims,
+                dims.bounds,
+                &font("Mono"),
+                px(9.),
+                &Theme::default(),
+                window,
+            )
+            .map(|text_box| text_box.bounds)
+        })
+    }
+
+    #[gpui::test]
+    fn popover_goes_below_its_line_or_above_when_there_is_no_room(cx: &mut TestAppContext) {
+        let below = placed(&popover_at(1, 2), 0, cx).expect("no popover on screen");
+        assert_eq!(below.top(), px(20.), "not right under line 1");
+        // under line 3 two lines would cross the bottom, so they end above line 3
+        let above = placed(&popover_at(3, 2), 0, cx).expect("no popover on screen");
+        assert!(above.bottom() <= px(30.), "{above:?} covers line 3");
+        assert!(above.top() >= px(0.));
+    }
+
+    #[gpui::test]
+    fn popover_off_screen_or_empty_draws_nothing(cx: &mut TestAppContext) {
+        // scrolled out below and above the view
+        assert!(placed(&popover_at(5, 2), 0, cx).is_none());
+        assert!(placed(&popover_at(-2, 2), 1, cx).is_none());
+        // in history, scrolled into view
+        assert!(placed(&popover_at(-2, 2), 2, cx).is_some());
+        assert!(placed(&popover_at(1, 0), 0, cx).is_none());
+    }
 }

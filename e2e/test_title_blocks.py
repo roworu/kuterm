@@ -8,7 +8,7 @@ import time
 import pytest
 
 from harness import App
-from kit import SOCKET, integrated, listening, msg, ready, send, tabs
+from kit import SOCKET, integrated, listening, msg, nothing_for, ready, send, tabs
 
 FEATURE = "title blocks"
 
@@ -76,13 +76,15 @@ def test_all_contexts_together_and_empty_when_unknown(app_factory):
     app.wait_title("|only|")
 
 
-def test_contexts_in_tab_titles_of_background_tabs(app_factory):
-    """tab titles are built for every tab, not only the active one"""
+def test_background_tabs_keep_the_context_read_while_shown(app_factory):
+    """only shown tabs read their context again, a tab sent to the background keeps its title"""
     app = app_factory({**SOCKET, "hide_bar_for_one_tab": False, "tab_title": ["number", {"text": ":"}, "aws"]})
     listening(app)
     app.run("AWS_PROFILE=bg sleep 60")
+    app.wait(lambda: [t["title"] for t in tabs(app)] == ["1:bg"], msg="context of the shown tab")
     app.key("ctrl+shift+t")
     app.wait(lambda: [t["title"] for t in tabs(app)] == ["1:bg", "2:"], msg="titles of both tabs")
+    nothing_for(2, lambda: [t["title"] for t in tabs(app)][0] != "1:bg")
 
 
 def git(app: App, *args: str) -> str:
@@ -169,8 +171,8 @@ def test_size_follows_the_window(app_factory):
     app.wait_title(lambda title: re.fullmatch(r"\d+×\d+", title) and title != first)
 
 
-@pytest.mark.parametrize("fmt,pattern", [("%Y", r"20\d\d"), ("%H:%M:%S", r"\d\d:\d\d:\d\d"),
-                                         ("clock %a", r"clock \w{3}")])
+# formats are unit tested, this one mixes text and a field
+@pytest.mark.parametrize("fmt,pattern", [("clock %a", r"clock \w{3}")])
 def test_clock_format(app_factory, fmt, pattern):
     app = titled(app_factory, ["clock"], settings={"status_bar": {"clock_format": fmt}})
     app.wait_title(lambda title: re.fullmatch(pattern, title))

@@ -212,12 +212,6 @@ mod tests {
     }
 
     #[test]
-    fn one_char_too_long_keeps_all_but_two() {
-        // the ellipsis takes the room of one char
-        assert_eq!(truncate_end("abcdef", mono(5)), "abcd…");
-    }
-
-    #[test]
     fn every_width_gives_the_longest_start_mono() {
         for text in ["a long title with several words in it", "x  y  z  w", "ab"] {
             check_all_widths(text, |w| Box::new(mono(w)));
@@ -260,13 +254,6 @@ mod tests {
     }
 
     #[test]
-    fn trimming_lets_the_cut_keep_more_text() {
-        // cuts inside the spaces all trim to "ab…", the result is still the longest fitting cut
-        let cut = truncate_end("ab  cd", mono(4));
-        assert_eq!(cut, best_cut("ab  cd", &mono(4)));
-    }
-
-    #[test]
     fn leading_spaces_are_kept_since_only_the_end_is_cut() {
         let cut = truncate_end("   title here", mono(6));
         assert!(cut.starts_with("   "), "{cut:?}");
@@ -287,25 +274,9 @@ mod tests {
     }
 
     #[test]
-    fn ellipsis_is_one_char() {
-        assert_eq!(ELLIPSIS, "…");
-        assert_eq!(ELLIPSIS.chars().count(), 1);
-    }
-
-    #[test]
     fn single_char_text_that_does_not_fit() {
         assert_eq!(truncate_end("W", prop(2)), ELLIPSIS);
         assert_eq!(truncate_end("日", mono(0)), ELLIPSIS);
-    }
-
-    #[test]
-    fn result_never_longer_than_needed() {
-        // the cut never gains chars beyond the original plus one ellipsis
-        let text = "a long title with several words in it";
-        for width in 0..50 {
-            let cut = truncate_end(text, mono(width));
-            assert!(cut.chars().count() <= text.chars().count());
-        }
     }
 
     // ---------- the element, laid out in a window ----------

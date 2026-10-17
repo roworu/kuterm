@@ -270,7 +270,7 @@ fn current_context(config: &str) -> Option<String> {
 }
 
 /// the git repository `path` is in, found by walking up to a folder with `.git`
-fn git_root(path: &Path) -> Option<PathBuf> {
+pub fn git_root(path: &Path) -> Option<PathBuf> {
     path.ancestors()
         .find(|dir| dir.join(".git").exists())
         .map(Path::to_path_buf)
@@ -396,6 +396,22 @@ mod tests {
     }
 
     #[test]
+    fn git_roots_are_found_by_their_git_folder() {
+        let root = std::env::temp_dir().join(format!("kuterm-git-root-{}", std::process::id()));
+        let deep = root.join("src/a/b");
+        std::fs::create_dir_all(&deep).unwrap();
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        assert_eq!(git_root(&deep), Some(root.clone()));
+        assert_eq!(git_root(&root), Some(root.clone()));
+        std::fs::remove_dir_all(&root).ok();
+        // the temp folder itself is in no repository
+        assert_eq!(
+            git_root(&std::env::temp_dir().join("no-such-project")),
+            None
+        );
+    }
+
+    #[test]
     fn process_tree_and_environ_of_a_child_are_read() {
         // a child named like ssh under a shell, with a venv in its environment
         let dir = std::env::temp_dir().join(format!("kuterm_ctx_ssh_{}", std::process::id()));
@@ -424,5 +440,63 @@ mod tests {
             Some("venv")
         );
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn containers_need_their_enter_verb() {
+        let container = |runtime: &str, name: &str| {
+            Some(ContextKind::Container {
+                runtime: runtime.into(),
+                name: name.into(),
+            })
+        };
+        // only exec and enter go into a container, other verbs run on this machine
+        assert_eq!(kind_of("kubectl", &args("get pods")), None);
+        assert_eq!(kind_of("oc", &args("logs api")), None);
+        assert_eq!(kind_of("distrobox", &args("list")), None);
+        assert_eq!(
+            kind_of("toolbox", &args("enter")),
+            container("toolbox", "toolbox")
+        );
+        assert_eq!(
+            kind_of("toolbox", &args("enter --container dev")),
+            container("toolbox", "dev")
+        );
+        // after "--" the next word is the target even when it looks like an option
+        assert_eq!(
+            kind_of("ssh", &args("-v -- -odd-host")),
+            Some(ContextKind::Ssh {
+                host: "-odd-host".into()
+            })
+        );
+        assert_eq!(kind_of("ssh", &args("-v --")), None);
+    }
+
+    #[test]
+    fn summary_names_containers_and_elevation() {
+        let context = PaneContext {
+            kind: ContextKind::Container {
+                runtime: "podman".into(),
+                name: "db".into(),
+            },
+            aws_profile: Some("dev".into()),
+            ..PaneContext::default()
+        };
+        assert_eq!(context.summary(), "podman db aws dev");
+        let context = PaneContext {
+            kind: ContextKind::Elevated {
+                tool: "sudo".into(),
+            },
+            ..PaneContext::default()
+        };
+        assert_eq!(context.summary(), "sudo");
+        // nothing in front, like a pane whose shell is gone
+        assert_eq!(PaneContext::read(None), PaneContext::default());
+    }
+
+    #[test]
+    fn empty_venv_prompt_falls_back_to_the_folder_name() {
+        let named = env(&[("VIRTUAL_ENV", "/p/.venv"), ("VIRTUAL_ENV_PROMPT", "() ")]);
+        assert_eq!(venv(&named).as_deref(), Some(".venv"));
     }
 }

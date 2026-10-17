@@ -23,10 +23,8 @@ pub fn fill(text: &str, values: impl Fn(&str) -> Option<String>) -> String {
             break;
         };
         let name = &after[..end];
-        let (name, raw) = match name.strip_suffix(":raw") {
-            Some(name) => (name, true),
-            None => (name, false),
-        };
+        let raw = name.ends_with(":raw");
+        let name = name.strip_suffix(":raw").unwrap_or(name);
         let known = !name.is_empty() && !name.contains(['{', ' ', '\t']);
         filled.push_str(&rest[..start]);
         match known.then(|| values(name)).flatten() {
@@ -57,9 +55,6 @@ pub struct Input {
     /// pick one of these
     #[serde(default)]
     pub pick: Option<Vec<String>>,
-    /// run the whole command once per picked value, each in a split of its own
-    #[serde(default)]
-    pub matrix: bool,
 }
 
 impl Input {
@@ -73,11 +68,6 @@ impl Input {
         if sources.iter().filter(|set| **set).count() != 1 {
             return Err(format!(
                 "input {name:?} needs one of \"text\", \"pick_from\" or \"pick\""
-            ));
-        }
-        if self.matrix && self.pick.is_none() {
-            return Err(format!(
-                "input {name:?} can only be a matrix with \"pick\" values"
             ));
         }
         Ok(())
@@ -153,17 +143,13 @@ impl From<CommandAction> for CommandStep {
 impl<'de> Deserialize<'de> for CommandStep {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = Value::deserialize(deserializer)?;
-        let text = |value: Option<&Value>| -> Result<String, D::Error> {
-            value
-                .and_then(Value::as_str)
-                .map(str::to_string)
-                .ok_or_else(|| Error::custom("a target is text like \"pane:tests\""))
-        };
         let target = match value.get("target") {
             None | Some(Value::Null) => None,
             Some(target) => {
-                let target = text(Some(target))?;
-                Some(Target::parse(&target).ok_or_else(|| {
+                let target = target
+                    .as_str()
+                    .ok_or_else(|| Error::custom("a target is text like \"pane:tests\""))?;
+                Some(Target::parse(target).ok_or_else(|| {
                     Error::custom(format!(
                         "unknown target {target:?}, use \"new_split_right\", \"pane:<name>\", \
                          \"all_panes_in_tab\" or \"new_window\""
@@ -253,10 +239,6 @@ pub enum CommandAction {
     FindInAllTabs,
     /// list the themes, showing each one while moving through them, enter keeps one
     PickTheme,
-    /// a grid of previews of every tab, picking one switches to it
-    TabOverview,
-    /// a map of the panes whose programs talk to each other
-    ShowTopology,
     /// put the active tab into a new group
     NewGroup,
     /// put the active tab into the group of the tab next to it
@@ -265,8 +247,6 @@ pub enum CommandAction {
     RemoveTabFromGroup,
     /// close every tab of the active tab's group
     CloseGroup,
-    /// list the password manager's entries, type the picked one's password into the tab
-    FillPassword,
     /// draw text programs concealed, or hide it again
     ShowHiddenText,
     /// type the name `kuterm msg --pane` finds the active tab by
@@ -333,11 +313,6 @@ pub enum CommandAction {
     Notify(String),
     /// show a notification with this text once the program running in the tab finishes
     NotifyWhenDone(String),
-    /// a palette command a plugin added
-    Plugin {
-        plugin: String,
-        command: String,
-    },
 }
 
 impl CommandAction {
@@ -386,6 +361,21 @@ pub struct Command {
 pub type Inputs = IndexMap<String, Input>;
 
 impl Command {
+    /// an unpinned command asking for no inputs, like a row of a picker
+    pub fn new(
+        name: impl Into<String>,
+        category: Option<String>,
+        actions: Vec<CommandStep>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            category,
+            pinned: false,
+            inputs: Inputs::new(),
+            actions,
+        }
+    }
+
     /// "category: name" shown in the palette, just the name when uncategorized
     pub fn label(&self) -> String {
         match &self.category {
@@ -401,14 +391,6 @@ impl Command {
                 .text()
                 .is_some_and(|text| text.contains("{hint}") || text.contains("{hint:raw}"))
         })
-    }
-
-    /// the input of a matrix, the one running the command once per value
-    pub fn matrix(&self) -> Option<(&str, &[String])> {
-        self.inputs
-            .iter()
-            .find(|(_, input)| input.matrix)
-            .and_then(|(name, input)| Some((name.as_str(), input.pick.as_deref()?)))
     }
 }
 
@@ -445,12 +427,6 @@ impl Commands {
                         command.name
                     )));
                 }
-            }
-            if command.inputs.values().filter(|input| input.matrix).count() > 1 {
-                return Err(Error::custom(format!(
-                    "command {:?}: only one input can be a matrix",
-                    command.name
-                )));
             }
         }
         Ok(commands)
@@ -662,33 +638,16 @@ mod tests {
             commands.commands[0].inputs["remote"].pick.as_deref(),
             Some(["origin".to_string(), "upstream".to_string()].as_slice())
         );
-        assert!(commands.commands[0].matrix().is_none());
 
         for json in [
-            // no source, two sources, and a matrix without values
+            // no source and two sources
             r#"{"commands": [{"name": "x", "inputs": {"a": {}}, "actions": ["about"]}]}"#,
             r#"{"commands": [{"name": "x", "inputs": {"a": {"text": "t", "pick": ["v"]}}, "actions": ["about"]}]}"#,
-            r#"{"commands": [{"name": "x", "inputs": {"a": {"text": "t", "matrix": true}}, "actions": ["about"]}]}"#,
             // a built in value can not be an input
             r#"{"commands": [{"name": "x", "inputs": {"cwd": {"text": "t"}}, "actions": ["about"]}]}"#,
-            // two matrices
-            r#"{"commands": [{"name": "x", "inputs": {"a": {"pick": ["1"], "matrix": true}, "b": {"pick": ["2"], "matrix": true}}, "actions": ["about"]}]}"#,
         ] {
             assert!(Commands::parse(json).is_err(), "{json} should be invalid");
         }
-    }
-
-    #[test]
-    fn matrix_inputs_are_found() {
-        let commands = Commands::parse(
-            r#"{"commands": [{"name": "test", "inputs": {
-                "python": {"pick": ["3.11", "3.12", "3.13"], "matrix": true},
-            }, "actions": [{"type": "pytest -$(python {python})\n"}]}]}"#,
-        )
-        .unwrap();
-        let (name, values) = commands.commands[0].matrix().unwrap();
-        assert_eq!(name, "python");
-        assert_eq!(values, ["3.11", "3.12", "3.13"]);
     }
 
     #[test]

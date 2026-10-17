@@ -350,16 +350,7 @@ mod tests {
     fn term_with(
         rows: &[&str],
     ) -> alacritty_terminal::Term<alacritty_terminal::event::VoidListener> {
-        use alacritty_terminal::{
-            Term,
-            event::VoidListener,
-            term::{Config, test::TermSize},
-            vte::ansi::Processor,
-        };
-        let mut term = Term::new(Config::default(), &TermSize::new(80, 6), VoidListener);
-        let mut parser: Processor = Processor::new();
-        parser.advance(&mut term, rows.join("\r\n").as_bytes());
-        term
+        crate::terminal::parsed_term(80, 6, rows.join("\r\n"))
     }
 
     fn urls() -> TextPatterns {
@@ -513,5 +504,37 @@ mod tests {
                 (Some("hash".into()), "1a2b3c4d".into()),
             ]
         );
+    }
+
+    #[test]
+    fn punctuation_at_the_edge_joins_when_the_url_goes_on() {
+        // the regex leaves the "." at the edge out, the next row shows it was inside the url
+        let first = format!("{}https://example.com/a.", "x".repeat(58));
+        assert_eq!(first.len(), 80);
+        let term = term_with(&[&first, "b/c", "next"]);
+        let link = super::pattern_at(&term, &mut urls(), at(0, 70)).unwrap();
+        assert_eq!(link.target, "https://example.com/a.b/c");
+        assert_eq!(link.range, at(0, 58)..=at(0, 79));
+        assert_eq!(link.rest, [at(1, 0)..=at(1, 2)]);
+        // a row of punctuation only ends the sentence, it adds nothing
+        let first = format!("{}https://example.com/abc", "x".repeat(57));
+        let term = term_with(&[&first, "...", "next"]);
+        let link = super::pattern_at(&term, &mut urls(), at(0, 70)).unwrap();
+        assert_eq!(link.target, "https://example.com/abc");
+        assert!(link.rest.is_empty());
+    }
+
+    #[test]
+    fn rows_ending_in_a_border_may_go_on() {
+        use alacritty_terminal::index::Line;
+        let ends = |row: &str| super::ends_in_url_at_edge(&term_with(&[row]), Line(0));
+        // url chars right before the border, with or without one space of padding
+        assert!(ends("│https://a.b/c│"));
+        assert!(ends("│https://a.b/c │"));
+        assert!(!ends("│https://a.b/c  │"));
+        // a border alone, or after nothing but padding, holds no url
+        assert!(!ends("│"));
+        assert!(!ends(" │"));
+        assert!(!ends("short row"));
     }
 }

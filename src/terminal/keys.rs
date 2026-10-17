@@ -55,20 +55,6 @@ pub(crate) fn to_esc_str(
         ("backspace", TerminalModifiers::Alt) => Some("\x1b\x7f"),
         ("backspace", TerminalModifiers::Shift) => Some("\x7f"),
         ("space", TerminalModifiers::Ctrl) => Some("\x00"),
-        ("home", TerminalModifiers::None) if mode.contains(TermMode::APP_CURSOR) => Some("\x1bOH"),
-        ("home", TerminalModifiers::None) if !mode.contains(TermMode::APP_CURSOR) => Some("\x1b[H"),
-        ("end", TerminalModifiers::None) if mode.contains(TermMode::APP_CURSOR) => Some("\x1bOF"),
-        ("end", TerminalModifiers::None) if !mode.contains(TermMode::APP_CURSOR) => Some("\x1b[F"),
-        ("up", TerminalModifiers::None) if mode.contains(TermMode::APP_CURSOR) => Some("\x1bOA"),
-        ("up", TerminalModifiers::None) if !mode.contains(TermMode::APP_CURSOR) => Some("\x1b[A"),
-        ("down", TerminalModifiers::None) if mode.contains(TermMode::APP_CURSOR) => Some("\x1bOB"),
-        ("down", TerminalModifiers::None) if !mode.contains(TermMode::APP_CURSOR) => Some("\x1b[B"),
-        ("right", TerminalModifiers::None) if mode.contains(TermMode::APP_CURSOR) => Some("\x1bOC"),
-        ("right", TerminalModifiers::None) if !mode.contains(TermMode::APP_CURSOR) => {
-            Some("\x1b[C")
-        }
-        ("left", TerminalModifiers::None) if mode.contains(TermMode::APP_CURSOR) => Some("\x1bOD"),
-        ("left", TerminalModifiers::None) if !mode.contains(TermMode::APP_CURSOR) => Some("\x1b[D"),
         ("back", TerminalModifiers::None) => Some("\x7f"),
         ("insert", TerminalModifiers::None) => Some("\x1b[2~"),
         ("delete", TerminalModifiers::None) => Some("\x1b[3~"),
@@ -673,5 +659,26 @@ mod test {
             ),
             Some("\x1b[97;2;65u".into())
         );
+    }
+
+    #[test]
+    fn ctrl_alt_on_a_non_letter_has_no_legacy_code() {
+        // control codes only exist for letters, the key is left to text input
+        let key = Keystroke::parse("ctrl-alt-1").unwrap();
+        assert_eq!(to_esc_str(&key, TermMode::empty(), true), None);
+    }
+
+    #[test]
+    fn kitty_text_without_modifiers_and_unknown_keys() {
+        let all = TermMode::REPORT_ALL_KEYS_AS_ESC | TermMode::REPORT_ASSOCIATED_TEXT;
+        let mut a = Keystroke::parse("a").unwrap();
+        a.key_char = Some("a".into());
+        // the text needs its place after the modifiers, so they are written as 1
+        assert_eq!(
+            to_kitty_str(&a, all, KeyEventKind::Press),
+            Some("\x1b[97;1;97u".into())
+        );
+        // keys kitty has no number for stay with the legacy encoding
+        assert_eq!(kitty("f40", all, KeyEventKind::Press), None);
     }
 }

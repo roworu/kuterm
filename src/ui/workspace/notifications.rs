@@ -4,10 +4,11 @@ use std::{rc::Rc, time::Duration};
 
 use gpui::{AnyElement, Context, Entity, Task, Window, deferred, div, prelude::*, rems};
 
+use super::system_notifications::*;
 use super::{Workspace, tab_bar::STATUS_BAR_HEIGHT};
 use crate::{
     settings::{ProgramNotifications, Settings},
-    terminal::{Link, foreground_process},
+    terminal::foreground_process,
     theme::Theme,
     ui::terminal_view::TerminalView,
 };
@@ -62,53 +63,9 @@ impl NotificationButton {
     }
 }
 
-/// button of a desktop notification, run on the tab it tells about
-#[derive(Clone, Debug, PartialEq)]
-pub(super) enum SystemAction {
-    /// switch to the tab
-    Show,
-    /// type this command line into the tab and run it
-    RunAgain(String),
-    /// run the action of the hint pattern that found this `file:line`
-    OpenError(Link),
-}
-
-impl SystemAction {
-    fn key(&self) -> &'static str {
-        match self {
-            // servers run "default" on a click on the notification itself
-            SystemAction::Show => "default",
-            SystemAction::RunAgain(_) => "run-again",
-            SystemAction::OpenError(_) => "open-error",
-        }
-    }
-
-    fn label(&self) -> &'static str {
-        match self {
-            SystemAction::Show => "show",
-            SystemAction::RunAgain(_) => "run again",
-            SystemAction::OpenError(_) => "open first error",
-        }
-    }
-}
-
-/// buttons for a finished command: show, run again when its line is known, and open first
-/// error when it failed and printed a `file:line`
-pub(super) fn finished_actions(
-    exit: Option<i32>,
-    line: Option<String>,
-    location: Option<Link>,
-) -> Vec<SystemAction> {
-    let failed = exit.is_some_and(|code| code != 0);
-    let mut actions = vec![SystemAction::Show];
-    actions.extend(line.map(SystemAction::RunAgain));
-    actions.extend(location.filter(|_| failed).map(SystemAction::OpenError));
-    actions
-}
-
 impl Workspace {
     /// show `text` until it times out or is clicked, a click switches to `tab`
-    pub(super) fn show_notification(
+    pub(crate) fn show_notification(
         &mut self,
         text: impl Into<String>,
         tab: Option<Entity<TerminalView>>,
@@ -315,65 +272,6 @@ impl Workspace {
         self.show_notification(text, Some(view.clone()), cx);
     }
 
-    /// desktop notification whose buttons run `actions` on the tab of `view`. other systems
-    /// than linux show it without buttons
-    fn system_notification_with_actions(
-        &self,
-        view: &Entity<TerminalView>,
-        title: &str,
-        body: &str,
-        actions: Vec<SystemAction>,
-        window: &Window,
-        cx: &mut Context<Self>,
-    ) {
-        #[cfg(target_os = "linux")]
-        {
-            let buttons = actions.iter().map(|a| (a.key(), a.label())).collect();
-            let picked = desktop_notification(title.to_string(), body.to_string(), buttons);
-            let view = view.clone();
-            cx.spawn_in(window, async move |this, cx| {
-                let Ok(key) = picked.await else {
-                    return;
-                };
-                let Some(action) = actions.into_iter().find(|action| action.key() == key) else {
-                    return;
-                };
-                this.update_in(cx, |this, window, cx| {
-                    this.run_system_action(&view, action, window, cx)
-                })
-                .ok();
-            })
-            .detach();
-        }
-        #[cfg(not(target_os = "linux"))]
-        {
-            let _ = (view, actions, window, cx);
-            system_notification(title, body);
-        }
-    }
-
-    /// a button of a desktop notification about the tab of `view` was clicked
-    fn run_system_action(
-        &mut self,
-        view: &Entity<TerminalView>,
-        action: SystemAction,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        window.activate_window();
-        let Some((pane, ix)) = self.find_view(view) else {
-            return;
-        };
-        self.activate_tab(pane, ix, window, cx);
-        match action {
-            SystemAction::Show => {}
-            SystemAction::RunAgain(line) => {
-                view.update(cx, |view, cx| view.commit_text(&format!("{line}\r"), cx))
-            }
-            SystemAction::OpenError(link) => view.update(cx, |view, cx| view.run_link(&link, cx)),
-        }
-    }
-
     /// a notification a program sent, shown as `notifications.from_programs` says
     pub(super) fn program_notification(
         &mut self,
@@ -569,154 +467,12 @@ fn copied_preview(text: &str) -> String {
     format!("{}…", cut.trim_end())
 }
 
-/// a notification of the desktop, for when the window is not looked at
-pub(super) fn system_notification(title: &str, body: &str) {
-    // over dbus like the ones with buttons, notify-send may not be installed
-    #[cfg(target_os = "linux")]
-    {
-        // nothing comes back without buttons
-        drop(desktop_notification(
-            title.to_string(),
-            body.to_string(),
-            Vec::new(),
-        ));
-        return;
-    }
-    #[allow(unreachable_code)]
-    let mut command = if cfg!(target_os = "macos") {
-        // quoted as applescript strings
-        let quote = |text: &str| format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""));
-        let mut command = std::process::Command::new("osascript");
-        command.arg("-e").arg(format!(
-            "display notification {} with title {}",
-            quote(body),
-            quote(title)
-        ));
-        command
-    } else {
-        let mut command = std::process::Command::new("notify-send");
-        command.arg("--app-name=kuterm").arg(title).arg(body);
-        command
-    };
-    // the desktop may have no notification service, that only loses the notification
-    std::thread::spawn(move || {
-        command.status().ok();
-    });
-}
-
-/// a desktop notification with `buttons` as (key, label), over dbus. the key of the clicked
-/// one comes back, nothing when it is closed or there is no notification service
-#[cfg(target_os = "linux")]
-fn desktop_notification(
-    title: String,
-    body: String,
-    buttons: Vec<(&'static str, &'static str)>,
-) -> futures::channel::oneshot::Receiver<&'static str> {
-    const NAME: &str = "org.freedesktop.Notifications";
-    let (picked, receiver) = futures::channel::oneshot::channel();
-    std::thread::spawn(move || {
-        let run = || -> zbus::Result<Option<&'static str>> {
-            let connection = zbus::blocking::Connection::session()?;
-            // listening before the notification shows, so a quick click is not missed
-            let rule = zbus::MatchRule::builder()
-                .msg_type(zbus::message::Type::Signal)
-                .interface(NAME)?
-                .build();
-            let signals = zbus::blocking::MessageIterator::for_match_rule(rule, &connection, None)?;
-            let actions: Vec<&str> = buttons
-                .iter()
-                .flat_map(|(key, label)| [*key, *label])
-                .collect();
-            let hints: std::collections::HashMap<&str, zbus::zvariant::Value> = Default::default();
-            let reply = connection.call_method(
-                Some(NAME),
-                "/org/freedesktop/Notifications",
-                Some(NAME),
-                "Notify",
-                &(
-                    "kuterm",
-                    0u32,
-                    "",
-                    title.as_str(),
-                    body.as_str(),
-                    actions,
-                    hints,
-                    -1i32,
-                ),
-            )?;
-            let id: u32 = reply.body().deserialize()?;
-            // nothing to click, nothing to wait for
-            if buttons.is_empty() {
-                return Ok(None);
-            }
-            for message in signals {
-                let message = message?;
-                let header = message.header();
-                match header.member().map(|member| member.as_str()) {
-                    Some("ActionInvoked") => {
-                        let (from, key): (u32, String) = message.body().deserialize()?;
-                        if from == id {
-                            return Ok(buttons.iter().find(|(k, _)| *k == key).map(|(k, _)| *k));
-                        }
-                    }
-                    Some("NotificationClosed") => {
-                        let (from, _): (u32, u32) = message.body().deserialize()?;
-                        if from == id {
-                            return Ok(None);
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            Ok(None)
-        };
-        // the desktop may have no notification service, that only loses the notification
-        if let Ok(Some(key)) = run() {
-            picked.send(key).ok();
-        }
-    });
-    receiver
-}
-
 #[cfg(test)]
 mod tests {
-    use alacritty_terminal::index::{Column, Line, Point};
+    use super::*;
+    use crate::ui::workspace::test_support::*;
 
-    use super::{COPIED_PREVIEW_CHARS, SystemAction, copied_preview, finished_actions};
-    use crate::{settings::PatternAction, terminal::Link};
-
-    #[test]
-    fn finished_commands_offer_what_they_can() {
-        let at = Point::new(Line(0), Column(0));
-        let location = Link {
-            range: at..=at,
-            rest: Vec::new(),
-            target: "src/main.rs:12".into(),
-            action: PatternAction::Copy,
-            name: Some("path".into()),
-        };
-        let line = || Some("make".to_string());
-        let run_again = SystemAction::RunAgain("make".into());
-        // success never offers errors, even when the output names a file
-        assert_eq!(
-            finished_actions(Some(0), line(), Some(location.clone())),
-            [SystemAction::Show, run_again.clone()]
-        );
-        assert_eq!(
-            finished_actions(Some(2), line(), Some(location.clone())),
-            [
-                SystemAction::Show,
-                run_again.clone(),
-                SystemAction::OpenError(location)
-            ]
-        );
-        assert_eq!(
-            finished_actions(Some(2), line(), None),
-            [SystemAction::Show, run_again]
-        );
-        // an unknown command line can't run again
-        assert_eq!(finished_actions(None, None, None), [SystemAction::Show]);
-    }
+    use super::{COPIED_PREVIEW_CHARS, copied_preview};
 
     #[test]
     fn short_text_is_shown_whole() {
@@ -743,5 +499,311 @@ mod tests {
     fn cut_respects_multibyte_chars() {
         let preview = copied_preview(&"日".repeat(COPIED_PREVIEW_CHARS * 2));
         assert_eq!(preview.chars().count(), COPIED_PREVIEW_CHARS);
+    }
+
+    #[gpui::test]
+    fn notify_command_shows_until_timeout(cx: &mut TestAppContext) {
+        let settings = Settings::parse(r#"{"notifications": {"timeout": 2}}"#).unwrap();
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        run_actions(&ws, cx, r#"{"notify": "hello"}"#);
+        assert_eq!(notifications(&ws, cx), ["hello"]);
+        assert!(cx.debug_bounds("notification-0").is_some());
+        cx.executor().advance_clock(Duration::from_millis(1500));
+        cx.run_until_parked();
+        assert_eq!(notifications(&ws, cx), ["hello"]);
+        cx.executor().advance_clock(Duration::from_secs(1));
+        cx.run_until_parked();
+        assert!(notifications(&ws, cx).is_empty());
+    }
+
+    #[gpui::test]
+    fn notifications_stay_above_the_status_bar(cx: &mut TestAppContext) {
+        let settings = Settings::parse(r#"{"status_bar": {"enable": true}}"#).unwrap();
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        run_actions(&ws, cx, r#"{"notify": "hello"}"#);
+        let note = cx.debug_bounds("notification-0").expect("no notification");
+        let bar = cx.debug_bounds("status-bar").expect("no status bar");
+        assert!(
+            note.bottom() <= bar.top(),
+            "notification at {note:?} covers the status bar at {bar:?}"
+        );
+    }
+
+    #[gpui::test]
+    fn zero_timeout_keeps_notification_until_clicked(cx: &mut TestAppContext) {
+        let settings = Settings::parse(r#"{"notifications": {"timeout": 0}}"#).unwrap();
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        run_actions(&ws, cx, r#"{"notify": "sticky"}"#);
+        cx.executor().advance_clock(Duration::from_secs(3600));
+        cx.run_until_parked();
+        assert_eq!(notifications(&ws, cx), ["sticky"]);
+        let center = cx.debug_bounds("notification-0").unwrap().center();
+        click(cx, center, 1);
+        release(cx, center);
+        cx.run_until_parked();
+        assert!(notifications(&ws, cx).is_empty());
+    }
+
+    #[gpui::test]
+    fn disabled_notifications_show_nothing(cx: &mut TestAppContext) {
+        let settings = Settings::parse(r#"{"notifications": {"enable": false}}"#).unwrap();
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        run_actions(&ws, cx, r#"{"notify": "hello"}"#);
+        assert!(notifications(&ws, cx).is_empty());
+        assert!(cx.debug_bounds("notification-0").is_none());
+    }
+
+    #[gpui::test]
+    fn copy_and_paste_keys_notify(cx: &mut TestAppContext) {
+        let settings =
+            Settings::parse(r#"{"notifications": {"timeout": 0, "copy": true, "paste": true}}"#)
+                .unwrap();
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        print_line(&ws, cx, "pick these words");
+        let position = cell_of(&ws, cx, "pick these words", 12, false);
+        click(cx, position, 2);
+        release(cx, position);
+        cx.simulate_keystrokes("ctrl-shift-c");
+        cx.simulate_keystrokes("ctrl-shift-v");
+        cx.run_until_parked();
+        assert_eq!(
+            notifications(&ws, cx),
+            ["copied words", "pasted from clipboard"]
+        );
+    }
+
+    #[gpui::test]
+    fn copy_and_paste_notifications_can_be_turned_off(cx: &mut TestAppContext) {
+        let settings =
+            Settings::parse(r#"{"notifications": {"copy": false, "paste": false}}"#).unwrap();
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        print_line(&ws, cx, "pick these words");
+        let position = cell_of(&ws, cx, "pick these words", 12, false);
+        click(cx, position, 2);
+        release(cx, position);
+        cx.simulate_keystrokes("ctrl-shift-c");
+        run_actions(&ws, cx, r#""copy", "paste""#);
+        cx.simulate_keystrokes("ctrl-shift-v");
+        cx.run_until_parked();
+        assert!(notifications(&ws, cx).is_empty());
+    }
+
+    #[gpui::test]
+    fn clipboard_ask_waits_for_an_answer_button(cx: &mut TestAppContext) {
+        let settings = Settings::parse(
+            r#"{"notifications": {"enable": false}, "terminal": {"clipboard": {"write": "ask", "read": "ask"}}}"#,
+        )
+        .unwrap();
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        cx.write_to_clipboard(ClipboardItem::new_string("before".into()));
+        let terminal = terminal(&ws, cx, 0);
+        terminal.update(cx, |terminal, cx| {
+            terminal.process_event(
+                alacritty_terminal::event::Event::ClipboardStore(
+                    alacritty_terminal::term::ClipboardType::Clipboard,
+                    "from program".into(),
+                ),
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        // asked even with notifications off, a program waits for it
+        assert_eq!(notifications(&ws, cx), ["tab 1 wants to copy from program"]);
+        assert_eq!(
+            cx.read_from_clipboard().and_then(|item| item.text()),
+            Some("before".into())
+        );
+        // clicking the text only does not answer
+        let center = cx.debug_bounds("notification-0").unwrap().center();
+        click(cx, center, 1);
+        release(cx, center);
+        cx.run_until_parked();
+        assert_eq!(notifications(&ws, cx).len(), 1);
+        let allow = cx.debug_bounds("notification-0-button-0").unwrap().center();
+        click(cx, allow, 1);
+        release(cx, allow);
+        cx.run_until_parked();
+        assert!(notifications(&ws, cx).is_empty());
+        assert_eq!(
+            cx.read_from_clipboard().and_then(|item| item.text()),
+            Some("from program".into())
+        );
+
+        // deny leaves the clipboard alone
+        terminal.update(cx, |terminal, cx| {
+            terminal.process_event(
+                alacritty_terminal::event::Event::ClipboardStore(
+                    alacritty_terminal::term::ClipboardType::Clipboard,
+                    "second".into(),
+                ),
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        let deny = cx.debug_bounds("notification-1-button-1").unwrap().center();
+        click(cx, deny, 1);
+        release(cx, deny);
+        cx.run_until_parked();
+        assert!(notifications(&ws, cx).is_empty());
+        assert_eq!(
+            cx.read_from_clipboard().and_then(|item| item.text()),
+            Some("from program".into())
+        );
+    }
+
+    #[gpui::test]
+    fn program_and_long_command_notifications_follow_settings(cx: &mut TestAppContext) {
+        let settings = Settings::parse(
+            r#"{"notifications": {"timeout": 0, "from_programs": "always"}, "shell_integration": {"notify_after": 5}}"#,
+        )
+        .unwrap();
+        let (ws, cx) = open_with_settings(cx, 2, "{}", settings);
+        cx.update(|window, _| window.activate_window());
+        cx.run_until_parked();
+        let notify = Event::Notify {
+            title: "build".into(),
+            body: "done".into(),
+        };
+        terminal(&ws, cx, 1).update(cx, |_, cx| cx.emit(notify.clone()));
+        cx.run_until_parked();
+        assert_eq!(notifications(&ws, cx), ["build: done"]);
+
+        // a short command, or one in the tab in front, tells nothing
+        let finished = |seconds: u64| Event::CommandFinished {
+            duration: Duration::from_secs(seconds),
+            exit: Some(1),
+        };
+        terminal(&ws, cx, 0).update(cx, |_, cx| cx.emit(finished(2)));
+        terminal(&ws, cx, 1).update(cx, |_, cx| cx.emit(finished(60)));
+        cx.run_until_parked();
+        assert_eq!(notifications(&ws, cx).len(), 1);
+        // a long one in a background tab does
+        terminal(&ws, cx, 0).update(cx, |_, cx| cx.emit(finished(60)));
+        cx.run_until_parked();
+        assert_eq!(
+            notifications(&ws, cx),
+            ["build: done", "command failed with 1 in tab 1"]
+        );
+
+        // "unfocused" leaves out notifications of the tab in front
+        let mut settings = cx.update(|_, cx| Settings::get(cx).clone());
+        settings.notifications.from_programs = crate::settings::ProgramNotifications::Unfocused;
+        cx.update(|_, cx| cx.set_global(settings));
+        terminal(&ws, cx, 1).update(cx, |_, cx| cx.emit(notify.clone()));
+        cx.run_until_parked();
+        assert_eq!(notifications(&ws, cx).len(), 2);
+    }
+
+    #[gpui::test]
+    fn program_notifications_show_what_they_have_and_never_hides_them(cx: &mut TestAppContext) {
+        let settings =
+            Settings::parse(r#"{"notifications": {"timeout": 0, "from_programs": "always"}}"#)
+                .unwrap();
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        cx.update(|window, _| window.activate_window());
+        let notify = |title: &str, body: &str, cx: &mut VisualTestContext| {
+            let event = Event::Notify {
+                title: title.into(),
+                body: body.into(),
+            };
+            terminal(&ws, cx, 0).update(cx, |_, cx| cx.emit(event));
+            cx.run_until_parked();
+        };
+        notify("build", "", cx);
+        notify("", "tests passed", cx);
+        assert_eq!(notifications(&ws, cx), ["build", "tests passed"]);
+
+        let mut settings = cx.update(|_, cx| Settings::get(cx).clone());
+        settings.notifications.from_programs = crate::settings::ProgramNotifications::Never;
+        cx.update(|_, cx| cx.set_global(settings));
+        notify("build", "done", cx);
+        assert_eq!(notifications(&ws, cx).len(), 2);
+    }
+
+    #[gpui::test]
+    fn long_command_that_passed_is_told_as_finished(cx: &mut TestAppContext) {
+        let settings = Settings::parse(
+            r#"{"notifications": {"timeout": 0}, "shell_integration": {"notify_after": 5}}"#,
+        )
+        .unwrap();
+        let (ws, cx) = open_with_settings(cx, 2, "{}", settings);
+        cx.update(|window, _| window.activate_window());
+        for exit in [Some(0), None] {
+            let finished = Event::CommandFinished {
+                duration: Duration::from_secs(60),
+                exit,
+            };
+            terminal(&ws, cx, 0).update(cx, |_, cx| cx.emit(finished));
+        }
+        cx.run_until_parked();
+        assert_eq!(
+            notifications(&ws, cx),
+            ["command finished in tab 1", "command finished in tab 1"]
+        );
+    }
+
+    #[gpui::test]
+    fn clipboard_read_ask_says_it_reads(cx: &mut TestAppContext) {
+        let settings = Settings::parse(r#"{"terminal": {"clipboard": {"read": "ask"}}}"#).unwrap();
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        cx.write_to_clipboard(ClipboardItem::new_string("secret".into()));
+        let load = std::sync::Arc::new(|text: &str| format!("load:{text}"));
+        terminal(&ws, cx, 0).update(cx, |terminal, cx| {
+            terminal.process_event(
+                alacritty_terminal::event::Event::ClipboardLoad(
+                    alacritty_terminal::term::ClipboardType::Clipboard,
+                    load,
+                ),
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            notifications(&ws, cx),
+            ["tab 1 wants to read the clipboard"]
+        );
+        // a question comes with its answers
+        assert!(cx.debug_bounds("notification-0-button-0").is_some());
+        assert!(cx.debug_bounds("notification-0-button-1").is_some());
+    }
+
+    #[gpui::test]
+    fn notify_when_done_on_an_idle_shell_waits_a_few_polls(cx: &mut TestAppContext) {
+        let settings = Settings::parse(r#"{"notifications": {"timeout": 0}}"#).unwrap();
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        wait_until(cx, "shell never got ready", |cx| {
+            ws.update(cx, |ws, _| ws.focused_pane().tabs[0].ready)
+        });
+        run_actions(&ws, cx, r#"{"notify_when_done": "idle done"}"#);
+        // nothing started, so it takes more idle polls than after a program ran
+        for _ in 0..DONE_IDLE_POLLS - 1 {
+            cx.executor().advance_clock(DONE_POLL);
+            cx.run_until_parked();
+        }
+        assert!(notifications(&ws, cx).is_empty());
+        wait_until(cx, "never notified", |cx| {
+            !notifications(&ws, cx).is_empty()
+        });
+        assert_eq!(notifications(&ws, cx), ["idle done"]);
+    }
+
+    #[gpui::test]
+    fn notify_when_done_tells_when_the_tab_closes(cx: &mut TestAppContext) {
+        let settings = Settings::parse(
+            r#"{"notifications": {"timeout": 0}, "close_running_tab_warn": false}"#,
+        )
+        .unwrap();
+        let (ws, cx) = open_with_settings(cx, 2, "{}", settings);
+        start_program(&ws, cx);
+        run_actions(&ws, cx, r#"{"notify_when_done": "gone"}"#);
+        pump(cx);
+        assert!(notifications(&ws, cx).is_empty());
+        close_active(&ws, cx);
+        assert_eq!(views(&ws, cx).len(), 1);
+        wait_until(cx, "never notified", |cx| {
+            !notifications(&ws, cx).is_empty()
+        });
+        assert_eq!(notifications(&ws, cx), ["gone"]);
     }
 }

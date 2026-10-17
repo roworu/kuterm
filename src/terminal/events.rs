@@ -4,7 +4,6 @@ use alacritty_terminal::event::Event as AlacTermEvent;
 use gpui::Context;
 
 use super::{ClipboardRequest, Event, Terminal};
-use crate::settings::ClipboardAccess;
 
 impl Terminal {
     pub(crate) fn process_event(&mut self, event: AlacTermEvent, cx: &mut Context<Self>) {
@@ -61,27 +60,32 @@ impl Terminal {
             AlacTermEvent::MouseCursorDirty | AlacTermEvent::CursorBlinkingChange => {}
         }
     }
+}
 
-    // a denied read gets no reply, like a terminal without osc 52
-    fn request_clipboard(
-        &mut self,
-        access: ClipboardAccess,
-        request: ClipboardRequest,
-        cx: &mut Context<Self>,
-    ) {
-        match access {
-            ClipboardAccess::Allow => self.use_clipboard(request, cx),
-            ClipboardAccess::Deny => {}
-            ClipboardAccess::Ask => {
-                let id = self.next_clipboard_request;
-                self.next_clipboard_request += 1;
-                let text = match &request {
-                    ClipboardRequest::Write(_, text) => Some(text.clone()),
-                    ClipboardRequest::Read(..) => None,
-                };
-                self.clipboard_requests.insert(id, request);
-                cx.emit(Event::ClipboardAsk { id, text });
-            }
-        }
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use alacritty_terminal::event::Event as AlacTermEvent;
+    use gpui::AppContext;
+
+    use crate::{settings::TerminalSettings, terminal::tests::spawn};
+
+    #[gpui::test]
+    fn output_after_the_grace_ends_a_ctrl_s_pause(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| cx.set_global(crate::theme::Theme::default()));
+        let terminal = cx.new(|_| spawn(&TerminalSettings::default()).terminal);
+        // output read before the pause still comes in right after it, it resumes nothing
+        terminal.update(cx, |terminal, cx| {
+            terminal.xoff_at = Some(Instant::now());
+            terminal.process_event(AlacTermEvent::Wakeup, cx);
+            assert!(terminal.xoff_paused());
+        });
+        // output well after it means something let the pty go again
+        terminal.update(cx, |terminal, cx| {
+            terminal.xoff_at = Some(Instant::now() - Duration::from_secs(2));
+            terminal.process_event(AlacTermEvent::Wakeup, cx);
+            assert!(!terminal.xoff_paused());
+        });
     }
 }

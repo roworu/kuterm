@@ -554,4 +554,31 @@ mod tests {
         assert!(specs.get("notes").is_none());
         assert!(specs.get("missing/part").is_none());
     }
+
+    #[test]
+    fn is_repeatable_takes_a_bool_or_a_count() {
+        let repeatable = |value: &str| {
+            let json = format!(
+                r#"{{"name": "t", "options": [{{"name": "-v", "isRepeatable": {value}}}]}}"#
+            );
+            parse(&json).unwrap().options[0].repeatable()
+        };
+        assert!(repeatable("true"));
+        assert!(!repeatable("false"));
+        // a count of one is the same as not repeatable
+        assert!(!repeatable("1"));
+        assert!(repeatable("2"));
+        assert!(!repeatable(r#""often""#));
+    }
+
+    #[test]
+    fn a_folder_named_like_a_spec_is_skipped() {
+        let dir = std::env::temp_dir().join(format!("kuterm-specs-dir-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("folder.json")).unwrap();
+        std::fs::write(dir.join("fine.json"), r#"{"name": "fine"}"#).unwrap();
+        let specs = Specs::load(Some(&dir));
+        std::fs::remove_dir_all(&dir).ok();
+        assert!(specs.get("folder").is_none());
+        assert!(specs.get("fine").is_some());
+    }
 }

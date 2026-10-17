@@ -6,7 +6,6 @@
   "window_title": ["folder"],
   "show_tab_close_button": false,
   "new_tab_button": "right",
-  "sleep_tabs_after_minutes": 0,
   "command_palette": { "show_recent": false },
   "notifications": {
     "copy": false,

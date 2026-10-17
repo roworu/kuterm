@@ -1,5 +1,5 @@
-//! the command line being typed at the prompt, and text drawn over the grid next to it that
-//! never reaches the pty: ghost text after the cursor and a hint line under the prompt
+//! the command line being typed at the prompt, and a hint line drawn under it over the grid
+//! that never reaches the pty
 
 use alacritty_terminal::{
     grid::Dimensions,
@@ -9,15 +9,12 @@ use gpui::Hsla;
 
 use super::{Terminal, blocks::visible_text, integration::mark_cells, scanner::PROMPT_MARK};
 
-/// text drawn right after the cursor, render only
+/// text drawn on the line under the prompt, render only
 #[derive(Clone, Debug, PartialEq)]
-pub struct GhostText {
+pub struct HintLine {
     pub text: String,
     pub color: Hsla,
 }
-
-/// text drawn on the line under the prompt, render only
-pub type HintLine = GhostText;
 
 /// cell after `point`, wrapping to the next line, none past the end of the grid
 fn after(point: AlacPoint, last_column: Column, bottom: i32) -> Option<AlacPoint> {
@@ -62,29 +59,6 @@ impl Terminal {
         Some(text)
     }
 
-    /// show `ghost` after the cursor until the next command starts, none takes it down
-    #[allow(dead_code)]
-    pub fn set_ghost_text(&mut self, ghost: Option<GhostText>) {
-        if self.ghost_text != ghost {
-            self.ghost_text = ghost;
-            self.dirty.store(true, std::sync::atomic::Ordering::Release);
-        }
-    }
-
-    /// show `hint` under the prompt line until the next command starts, none takes it down
-    #[allow(dead_code)]
-    pub fn set_hint_line(&mut self, hint: Option<HintLine>) {
-        if self.hint_line != hint {
-            self.hint_line = hint;
-            self.dirty.store(true, std::sync::atomic::Ordering::Release);
-        }
-    }
-
-    /// text drawn after the cursor
-    pub fn ghost_text(&self) -> Option<&GhostText> {
-        self.ghost_text.as_ref()
-    }
-
     /// text drawn under the prompt line
     pub fn hint_line(&self) -> Option<&HintLine> {
         self.hint_line.as_ref()
@@ -108,15 +82,9 @@ mod tests {
         let bash = with_shell_integration(&profile(Shell::Program("/bin/bash".into())));
         let mut builder = spawn_with(&TerminalSettings::default(), &bash);
         let terminal = &mut builder.terminal;
-        terminal.input(
-            crate::terminal::InputSource::Keyboard,
-            b"echo ready_$((1+1))\r".to_vec(),
-        );
+        terminal.type_text(b"echo ready_$((1+1))\r");
         wait_for_text(terminal, "ready_2");
-        terminal.input(
-            crate::terminal::InputSource::Keyboard,
-            b"echo half typed".to_vec(),
-        );
+        terminal.type_text(b"echo half typed");
         wait_for_text(terminal, "half typed");
         let deadline = Instant::now() + Duration::from_secs(15);
         loop {
@@ -134,10 +102,7 @@ mod tests {
         }
         assert!(terminal.at_prompt());
         // a running command has no prompt to read
-        terminal.input(
-            crate::terminal::InputSource::Keyboard,
-            b"; sleep 3\r".to_vec(),
-        );
+        terminal.type_text(b"; sleep 3\r");
         let deadline = Instant::now() + Duration::from_secs(15);
         while terminal.prompt_text().is_some() {
             terminal.sync();
@@ -148,7 +113,7 @@ mod tests {
     }
 
     #[test]
-    fn ghost_text_and_hint_line_go_away_when_a_command_starts() {
+    fn hint_line_goes_away_when_a_command_starts() {
         let script = concat!(
             "printf '\\033]133;A\\007$ \\033]133;B\\007'; read x; ",
             "printf '\\033]133;C\\007started\\n'; sleep 5"
@@ -160,17 +125,29 @@ mod tests {
         let mut builder = spawn_with(&TerminalSettings::default(), &profile);
         let terminal = &mut builder.terminal;
         wait_for_text(terminal, "$");
-        let ghost = super::GhostText {
+        let hint = super::HintLine {
             text: "next".into(),
             color: gpui::black(),
         };
-        terminal.set_ghost_text(Some(ghost.clone()));
-        terminal.set_hint_line(Some(ghost.clone()));
-        assert_eq!(terminal.ghost_text(), Some(&ghost));
-        terminal.input(crate::terminal::InputSource::Keyboard, b"\r".to_vec());
+        terminal.hint_line = Some(hint.clone());
+        assert_eq!(terminal.hint_line(), Some(&hint));
+        terminal.type_text(b"\r");
         wait_for_text(terminal, "started");
         terminal.handle_scan_events();
-        assert_eq!(terminal.ghost_text(), None);
         assert_eq!(terminal.hint_line(), None);
+    }
+
+    #[test]
+    fn cells_after_and_before_wrap_at_the_line_ends() {
+        use alacritty_terminal::index::{Column, Line, Point};
+
+        use super::{after, before};
+        let last = Column(79);
+        let at = |line: i32, column: usize| Point::new(Line(line), Column(column));
+        assert_eq!(after(at(2, 5), last, 23), Some(at(2, 6)));
+        // the last column goes on in the next line, the last cell of the grid has no after
+        assert_eq!(after(at(2, 79), last, 23), Some(at(3, 0)));
+        assert_eq!(after(at(23, 79), last, 23), None);
+        assert_eq!(before(at(3, 0), last), Some(at(2, 79)));
     }
 }

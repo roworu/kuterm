@@ -2,19 +2,17 @@
 //! menu listing them
 
 use gpui::{
-    AnyElement, App, Context, Focusable, KeyDownEvent, Window, anchored, deferred, div, prelude::*,
-    px,
+    AnyElement, App, Context, KeyDownEvent, Window, anchored, deferred, div, prelude::*, px,
 };
 
 use super::{
     Workspace,
-    tab_bar::{menu_item, popup_menu},
+    tab_bar::{menu_item, popup_menu, rename_input},
     tab_cwd, terminal_size,
 };
 use crate::{
     settings::{CommandAction, Settings, TabTitleBlock},
     theme::Theme,
-    ui::text_input::TextInput,
 };
 
 impl Workspace {
@@ -28,13 +26,7 @@ impl Workspace {
     ) {
         let title = self.tab_title(pane_id, ix, cx);
         let id = self.view_at(pane_id, ix).entity_id();
-        let input = cx.new(|cx| {
-            let mut input = TextInput::new("tab title", cx);
-            input.set_content(title, cx);
-            input
-        });
-        input.focus_handle(cx).focus(window, cx);
-        self.renaming = Some((id, input));
+        self.renaming = Some((id, rename_input("tab title", title, window, cx)));
         self.renaming_name = false;
         cx.notify();
     }
@@ -46,13 +38,7 @@ impl Workspace {
             return;
         };
         let (id, name) = (tab.view.entity_id(), tab.name.clone().unwrap_or_default());
-        let input = cx.new(|cx| {
-            let mut input = TextInput::new("pane name", cx);
-            input.set_content(name, cx);
-            input
-        });
-        input.focus_handle(cx).focus(window, cx);
-        self.renaming = Some((id, input));
+        self.renaming = Some((id, rename_input("pane name", name, window, cx)));
         self.renaming_name = true;
         cx.notify();
     }
@@ -111,12 +97,7 @@ impl Workspace {
         let Some(tab) = self.pane(pane_id).and_then(|pane| pane.tabs.get(ix)) else {
             return;
         };
-        let settings = Settings::get(cx);
-        // a profile renamed or removed since falls back to the default one
-        let mut profile = settings
-            .profile(&tab.profile)
-            .unwrap_or_else(|| settings.default_profile())
-            .clone();
+        let mut profile = Settings::get(cx).profile_or_default(&tab.profile).clone();
         if let Some(cwd) = tab_cwd(tab, cx).filter(|cwd| cwd.is_dir()) {
             profile.working_directory = Some(cwd);
         }
@@ -220,5 +201,109 @@ impl Workspace {
         Some(
             deferred(anchored().position(position).snap_to_window().child(menu)).into_any_element(),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use crate::ui::workspace::test_support::*;
+
+    #[gpui::test]
+    fn double_click_renames_a_tab(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 2);
+        let at = tab_center(cx, 1);
+        for count in [1, 2] {
+            click(cx, at, count);
+            cx.simulate_event(MouseUpEvent {
+                position: at,
+                modifiers: Modifiers::default(),
+                button: MouseButton::Left,
+                click_count: count,
+            });
+        }
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("rename-tab-1").is_some());
+        // the shown title is selected, so typing replaces it
+        type_keys(cx, "w o r k enter");
+        assert_eq!(custom_title(&ws, cx, 1).as_deref(), Some("work"));
+        assert_eq!(
+            ws.update(cx, |ws, cx| ws.tab_title(ws.focused, 1, cx)),
+            "work"
+        );
+        assert!(cx.debug_bounds("rename-tab-1").is_none());
+        // typing goes back to the terminal
+        assert_eq!(current(&ws, cx), 1);
+
+        run_actions(&ws, cx, r#""rename_tab""#);
+        type_keys(cx, "x escape");
+        assert_eq!(custom_title(&ws, cx, 1).as_deref(), Some("work"));
+        // an empty title goes back to the blocks
+        run_actions(&ws, cx, r#""rename_tab""#);
+        type_keys(cx, "backspace enter");
+        assert_eq!(custom_title(&ws, cx, 1), None);
+    }
+
+    #[gpui::test]
+    fn pinned_tabs_stay_in_front_and_survive_closing_others(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 4);
+        let ids = views(&ws, cx);
+        run_actions(&ws, cx, r#"{"activate_tab": 3}, "pin_tab""#);
+        assert_eq!(views(&ws, cx), [ids[2], ids[0], ids[1], ids[3]]);
+        assert_eq!(current(&ws, cx), 0);
+        assert!(cx.debug_bounds("close-tab-0").is_none());
+        assert!(cx.debug_bounds("close-tab-1").is_some());
+        // dragging can't put a tab in front of a pinned one, nor a pinned one after it
+        ws.update(cx, |ws, cx| ws.move_tab(ws.focused, 3, 0, cx));
+        assert_eq!(views(&ws, cx), [ids[2], ids[3], ids[0], ids[1]]);
+        ws.update(cx, |ws, cx| ws.move_tab(ws.focused, 0, 3, cx));
+        assert_eq!(views(&ws, cx)[0], ids[2]);
+        // a middle click leaves it open
+        let at = tab_center(cx, 0);
+        cx.simulate_event(MouseDownEvent {
+            position: at,
+            modifiers: Modifiers::default(),
+            button: MouseButton::Middle,
+            click_count: 1,
+            first_mouse: false,
+        });
+        cx.run_until_parked();
+        assert_eq!(views(&ws, cx).len(), 4);
+
+        run_actions(&ws, cx, r#"{"activate_tab": 3}, "close_other_tabs""#);
+        assert_eq!(views(&ws, cx), [ids[2], ids[0]]);
+        run_actions(&ws, cx, r#"{"activate_tab": 1}, "pin_tab""#);
+        assert!(ws.update(cx, |ws, _| ws.focused_pane().tabs.iter().all(|t| !t.pinned)));
+        assert_eq!(views(&ws, cx), [ids[2], ids[0]]);
+    }
+
+    #[gpui::test]
+    fn tab_menu_acts_on_the_clicked_tab(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 2);
+        let ids = views(&ws, cx);
+        let at = tab_center(cx, 0);
+        right_click(cx, at);
+        assert!(cx.debug_bounds("tab-menu").is_some());
+        let duplicate = cx.debug_bounds("tab-menu-duplicate").unwrap().center();
+        click(cx, duplicate, 1);
+        release(cx, duplicate);
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("tab-menu").is_none());
+        // the copy opens right after the clicked tab, with its profile
+        let now = views(&ws, cx);
+        assert_eq!(now.len(), 3);
+        assert_eq!((now[0], now[2]), (ids[0], ids[1]));
+        assert_eq!(current(&ws, cx), 1);
+
+        let at = tab_center(cx, 2);
+        right_click(cx, at);
+        let pin = cx.debug_bounds("tab-menu-pin").unwrap().center();
+        click(cx, pin, 1);
+        release(cx, pin);
+        cx.run_until_parked();
+        assert_eq!(views(&ws, cx)[0], ids[1]);
+        let at = tab_center(cx, 0);
+        right_click(cx, at);
+        assert!(cx.debug_bounds("tab-menu-unpin").is_some());
     }
 }

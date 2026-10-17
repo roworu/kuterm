@@ -21,6 +21,7 @@ use super::{
     Terminal,
     integration::{command_after_prompt, mark_cells},
     scanner::{OUTPUT_MARK, PROMPT_MARK},
+    selection::select_range,
 };
 
 // blocks each terminal remembers, older ones are dropped
@@ -46,8 +47,6 @@ pub struct Block {
     pub prompt_mark: Option<usize>,
     /// what wrote its command line, like the keyboard or a remote client
     pub source: super::Sources,
-    /// columns of the pane when it ended, none while it runs
-    pub columns: Option<usize>,
 }
 
 /// text people see in cells from `start` to `end`: concealed text and text in its background
@@ -165,7 +164,6 @@ impl Blocks {
             mark,
             prompt_mark,
             source,
-            columns: None,
         });
         if self.list.len() > MAX_BLOCKS {
             self.list.pop_front();
@@ -174,27 +172,17 @@ impl Blocks {
     }
 
     /// the running command ended
-    pub(super) fn end(
-        &mut self,
-        exit: Option<i32>,
-        ended: Instant,
-        columns: usize,
-    ) -> Option<&Block> {
-        let block = self.list.back_mut().filter(|block| block.ended.is_none())?;
-        block.ended = Some(ended);
-        block.exit = exit;
-        block.columns = Some(columns);
-        Some(block)
+    pub(super) fn end(&mut self, exit: Option<i32>, ended: Instant) {
+        if let Some(block) = self.list.back_mut().filter(|block| block.ended.is_none()) {
+            block.ended = Some(ended);
+            block.exit = exit;
+        }
     }
 }
 
 impl Terminal {
     /// commands run in this terminal whose lines are still in its history, oldest first
     pub fn blocks(&mut self) -> &VecDeque<Block> {
-        // the marks of blocks in packed away history are not in the grid
-        if self.asleep() {
-            return &self.blocks.list;
-        }
         let term = self.term.lock_unfair();
         let oldest = oldest_mark(&term);
         drop(term);
@@ -212,7 +200,7 @@ impl Terminal {
         self.block(id).is_some()
     }
 
-    fn block(&self, id: u64) -> Option<&Block> {
+    pub(super) fn block(&self, id: u64) -> Option<&Block> {
         self.blocks.list.iter().find(|block| block.id == id)
     }
 
@@ -233,23 +221,6 @@ impl Terminal {
         let term = self.term.lock_unfair();
         let (text, hidden) = visible_text(&term, start, end);
         Some((text.trim_end().to_string(), hidden))
-    }
-
-    /// first and last cell of the prompt and command line of block `id`
-    #[allow(dead_code)]
-    pub fn command_range(&self, id: u64) -> Option<(AlacPoint, AlacPoint)> {
-        let prompt = self.block(id)?.prompt_mark?;
-        let term = self.term.lock_unfair();
-        let (start, end) = mark_cells(&term, &format!("{PROMPT_MARK}{prompt}"))?;
-        let mut last = end.line;
-        while last < term.bottommost_line()
-            && term.grid()[last][term.last_column()]
-                .flags
-                .contains(Flags::WRAPLINE)
-        {
-            last += 1;
-        }
-        Some((start, AlacPoint::new(last, term.last_column())))
     }
 
     /// block whose output covers grid line `line`
@@ -290,16 +261,8 @@ impl Terminal {
             }
             None => (start, end),
         };
-        let mut term = self.term.lock();
-        let mut selection = alacritty_terminal::selection::Selection::new(
-            alacritty_terminal::selection::SelectionType::Lines,
-            start,
-            alacritty_terminal::index::Side::Left,
-        );
-        selection.update(end, alacritty_terminal::index::Side::Right);
-        term.selection = Some(selection);
-        term.scroll_to_point(start);
-        drop(term);
+        let lines = alacritty_terminal::selection::SelectionType::Lines;
+        select_range(&mut self.term.lock(), lines, start, end);
         self.dirty.store(true, Ordering::Release);
         true
     }
@@ -314,8 +277,6 @@ mod tests {
         event::VoidListener,
         grid::Dimensions,
         index::{Column, Line, Point as AlacPoint},
-        term::{Config, test::TermSize},
-        vte::ansi::Processor,
     };
 
     use super::visible_text;
@@ -325,10 +286,7 @@ mod tests {
     };
 
     fn term_with(bytes: &str) -> Term<VoidListener> {
-        let mut term = Term::new(Config::default(), &TermSize::new(30, 4), VoidListener);
-        let mut parser: Processor = Processor::new();
-        parser.advance(&mut term, bytes.as_bytes());
-        term
+        crate::terminal::parsed_term(30, 4, bytes)
     }
 
     fn all(term: &Term<VoidListener>) -> (String, bool) {
@@ -399,13 +357,48 @@ mod tests {
         let (start, _) = terminal.output_range(blocks[1].id).unwrap();
         assert_eq!(terminal.block_at(start.line), Some(blocks[1].id));
 
+        // a kuterm://block link selects the whole output, or the lines it names
+        assert!(terminal.has_block(blocks[1].id));
+        assert!(terminal.select_block_lines(blocks[1].id, None));
+        let selected = terminal.selection_text().unwrap();
+        assert_eq!(selected.trim_end(), "two\nlines");
+        assert!(terminal.select_block_lines(blocks[1].id, Some((2, 9))));
+        assert_eq!(terminal.selection_text().unwrap().trim_end(), "lines");
+        // line 0 is read as the first, and a last before the first as the first alone
+        assert!(terminal.select_block_lines(blocks[1].id, Some((0, 0))));
+        assert_eq!(terminal.selection_text().unwrap().trim_end(), "two");
+
         // their lines leave the short history, the blocks go with them
-        terminal.input(crate::terminal::InputSource::Keyboard, b"\r".to_vec());
+        terminal.type_text(b"\r");
         wait_for_text(terminal, "all_gone");
         let deadline = Instant::now() + Duration::from_secs(5);
         while !terminal.blocks().is_empty() {
             assert!(Instant::now() < deadline, "blocks stayed");
             std::thread::sleep(Duration::from_millis(50));
         }
+        assert!(!terminal.has_block(blocks[1].id));
+        assert!(!terminal.select_block_lines(blocks[1].id, None));
+    }
+
+    #[test]
+    fn only_the_newest_blocks_are_kept() {
+        // more commands than the list holds, each one a finished block
+        let script = concat!(
+            "i=0; while [ $i -lt 1003 ]; do ",
+            "printf '\\033]133;A\\007$ \\033]133;B\\007\\033]133;E;c%d\\007\\n\\033]133;C\\007\\033]133;D;0\\007' $i; ",
+            "i=$((i+1)); done; echo many_done; sleep 5"
+        );
+        let profile = profile(Shell::WithArguments {
+            program: "/bin/sh".into(),
+            args: vec!["-c".into(), script.into()],
+        });
+        let mut builder = spawn_with(&TerminalSettings::default(), &profile);
+        let terminal = &mut builder.terminal;
+        wait_for_text(terminal, "many_done");
+        terminal.handle_scan_events();
+        let blocks = terminal.blocks();
+        assert_eq!(blocks.len(), super::MAX_BLOCKS);
+        assert_eq!(blocks.front().unwrap().command, "c3");
+        assert_eq!(blocks.back().unwrap().command, "c1002");
     }
 }

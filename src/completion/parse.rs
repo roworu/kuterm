@@ -154,4 +154,11 @@ mod tests {
         assert_eq!(context.words, ["sort"]);
         assert!(!context.redirect);
     }
+
+    #[test]
+    fn backslash_in_double_quotes_stays_before_plain_letters() {
+        // like the shell: "a\nb" keeps its backslash, "a\"b" and "a\$b" lose it
+        let context = at_end(r#"echo "a\nb" "a\"b" "a\$b" x"#);
+        assert_eq!(context.words, ["echo", r"a\nb", r#"a"b"#, "a$b"]);
+    }
 }

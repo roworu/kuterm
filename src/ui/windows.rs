@@ -8,12 +8,12 @@ use std::{
 
 use futures::channel::oneshot;
 use gpui::{
-    App, AppContext, Bounds, EntityId, Pixels, TitlebarOptions, WindowBounds, WindowHandle,
-    WindowOptions, px, size,
+    App, AppContext, Bounds, Context, EntityId, Pixels, TitlebarOptions, Window, WindowBounds,
+    WindowHandle, WindowOptions, px, size,
 };
 
 use crate::{
-    remote::{Reply, Request},
+    automation::{Reply, Request},
     settings::Settings,
     ui::workspace::{
         MovedTab, PaneMatch, Workspace, background_appearance, parse_run_link, startup_bounds,
@@ -41,15 +41,9 @@ pub fn open_workspace_window(
         .is_none()
         .then(|| Workspace::spawn_first_tab(bounds.size, cx))
         .flatten();
-    match cx.open_window(window_options(bounds, cx), |window, cx| {
-        cx.new(|cx| Workspace::with_start(folder, first, window, cx))
-    }) {
-        Ok(handle) => Some(handle),
-        Err(error) => {
-            eprintln!("failed to open window: {error:#}");
-            None
-        }
-    }
+    open_window(bounds, cx, |window, cx| {
+        Workspace::with_start(folder, first, window, cx)
+    })
 }
 
 /// open a window at `bounds` holding a tab moved out of another one
@@ -58,15 +52,22 @@ pub fn open_moved_tab_window(
     bounds: Bounds<Pixels>,
     cx: &mut App,
 ) -> Option<WindowHandle<Workspace>> {
-    match cx.open_window(window_options(bounds, cx), |window, cx| {
-        cx.new(|cx| Workspace::with_moved_tab(moved, window, cx))
-    }) {
-        Ok(handle) => Some(handle),
-        Err(error) => {
-            eprintln!("failed to open window: {error:#}");
-            None
-        }
-    }
+    open_window(bounds, cx, |window, cx| {
+        Workspace::with_moved_tab(moved, window, cx)
+    })
+}
+
+/// open a window at `bounds` showing the workspace `build` makes
+fn open_window(
+    bounds: Bounds<Pixels>,
+    cx: &mut App,
+    build: impl FnOnce(&mut Window, &mut Context<Workspace>) -> Workspace + 'static,
+) -> Option<WindowHandle<Workspace>> {
+    cx.open_window(window_options(bounds, cx), |window, cx| {
+        cx.new(|cx| build(window, cx))
+    })
+    .inspect_err(|error| eprintln!("failed to open window: {error:#}"))
+    .ok()
 }
 
 fn window_options(bounds: Bounds<Pixels>, cx: &App) -> WindowOptions {
@@ -88,34 +89,6 @@ fn window_options(bounds: Bounds<Pixels>, cx: &App) -> WindowOptions {
 
 /// the window and tab `spec` names: a tab name first, then a title, then an id from
 /// list-tabs. without one, the active tab of the window in front
-/// put a gutter mark a plugin asked for on a block: `{ "pane": "3", "block": 12, "icon":
-/// "x", "tooltip": "..." }`, the last block of the pane without one
-pub fn decorate_block(params: &serde_json_lenient::Value, cx: &mut App) -> Result<(), String> {
-    use serde_json_lenient::Value;
-    let pane = match params.get("pane") {
-        Some(Value::Number(number)) => Some(number.to_string()),
-        Some(Value::String(text)) => Some(text.clone()),
-        _ => None,
-    };
-    let text = |key: &str| {
-        params
-            .get(key)
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string()
-    };
-    let (icon, tooltip) = (text("icon"), text("tooltip"));
-    let block = params.get("block").and_then(Value::as_u64);
-    let (handle, id) = resolve_pane(pane.as_deref(), cx).ok_or("no such pane")?;
-    let mut result = Err("the window is gone".to_string());
-    handle
-        .update(cx, |workspace, _, cx| {
-            result = workspace.decorate_tab(id, block, icon, tooltip, cx);
-        })
-        .ok();
-    result
-}
-
 fn resolve_pane(spec: Option<&str>, cx: &mut App) -> Option<(WindowHandle<Workspace>, EntityId)> {
     let workspaces: Vec<WindowHandle<Workspace>> = cx
         .active_window()
@@ -146,18 +119,19 @@ fn resolve_pane(spec: Option<&str>, cx: &mut App) -> Option<(WindowHandle<Worksp
 pub fn handle_request(request: Request, reply: oneshot::Sender<Reply>, cx: &mut App) {
     let answer = match request {
         Request::NewTab { cwd, profile, name } => {
-            let mut result = Err("no window is open".to_string());
-            with_workspace(cx, |workspace, window, cx| {
-                result = workspace.open_tab(profile.as_deref(), cwd, window, cx);
+            let result = with_workspace(cx, |workspace, window, cx| {
+                let result = workspace.open_tab(profile.as_deref(), cwd, window, cx);
                 if result.is_ok()
                     && let Some(name) = name
                 {
                     workspace.name_active_tab(name);
                 }
+                result
             });
             match result {
-                Ok(()) => Reply::done(),
-                Err(error) => Reply::failed(error),
+                Some(Ok(())) => Reply::done(),
+                Some(Err(error)) => Reply::failed(error),
+                None => Reply::failed("no window is open"),
             }
         }
         Request::ListTabs => {
@@ -197,16 +171,11 @@ pub fn handle_request(request: Request, reply: oneshot::Sender<Reply>, cx: &mut 
                     .ok();
                 return;
             };
-            let mut opened = false;
-            with_workspace(cx, |workspace, window, cx| {
-                workspace.open_run_link(link, window, cx);
-                window.activate_window();
-                opened = true;
-            });
-            if opened {
-                Reply::done()
-            } else {
-                Reply::failed("no window is open")
+            match with_workspace(cx, |workspace, window, cx| {
+                workspace.open_run_link(link, window, cx)
+            }) {
+                Some(()) => Reply::done(),
+                None => Reply::failed("no window is open"),
             }
         }
         // the socket thread streams these itself
@@ -237,4 +206,61 @@ pub fn handle_request(request: Request, reply: oneshot::Sender<Reply>, cx: &mut 
         }
     };
     reply.send(answer).ok();
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui::TestAppContext;
+
+    use super::*;
+
+    /// what kuterm answers `request` with right away
+    fn ask(request: Request, cx: &mut TestAppContext) -> Reply {
+        let (tx, mut rx) = oneshot::channel();
+        cx.update(|cx| handle_request(request, tx, cx));
+        rx.try_recv().unwrap().expect("no reply yet")
+    }
+
+    #[gpui::test]
+    fn open_url_refuses_what_is_no_run_link(cx: &mut TestAppContext) {
+        // the starting process opens these itself when the running one says no
+        for url in [
+            "file:///tmp",
+            "kuterm://run?cwd=%2Ftmp",
+            "https://example.com",
+        ] {
+            let reply = ask(Request::OpenUrl { url: url.into() }, cx);
+            assert!(!reply.ok, "{url} was taken");
+            assert_eq!(
+                reply.error.as_deref(),
+                Some(format!("not a kuterm://run link with a command: {url}").as_str())
+            );
+        }
+    }
+
+    #[gpui::test]
+    fn requests_without_a_window_fail_with_a_reason(cx: &mut TestAppContext) {
+        let no_window = |request: Request, cx: &mut TestAppContext| {
+            let reply = ask(request, cx);
+            assert!(!reply.ok);
+            reply.error.unwrap()
+        };
+        let new_tab = Request::NewTab {
+            cwd: None,
+            profile: None,
+            name: None,
+        };
+        assert_eq!(no_window(new_tab, cx), "no window is open");
+        let url = "kuterm://run?cmd=ls".to_string();
+        assert_eq!(no_window(Request::OpenUrl { url }, cx), "no window is open");
+        let focus = Request::FocusTab { pane: None };
+        assert_eq!(no_window(focus, cx), "no window is open");
+        let focus = Request::FocusTab {
+            pane: Some("build".into()),
+        };
+        assert_eq!(no_window(focus, cx), "no pane named \"build\"");
+        // listing works without windows, it just lists nothing
+        let reply = ask(Request::ListTabs, cx);
+        assert!(reply.ok && reply.tabs.is_empty());
+    }
 }

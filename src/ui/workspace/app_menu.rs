@@ -264,4 +264,29 @@ mod tests {
         assert_eq!(folder_of("https://example.com"), None);
         std::fs::remove_dir_all(&dir).ok();
     }
+
+    #[gpui::test]
+    fn block_links_switch_to_the_tab_that_ran_the_block(cx: &mut gpui::TestAppContext) {
+        use crate::ui::workspace::test_support::*;
+
+        with_own_state("block_links", || {
+            let (ws, cx) = open(cx, 2);
+            let block = finished_block(&ws, cx, 0, "printf 'one\\ntwo\\n'");
+            assert_eq!(current(&ws, cx), 1);
+            // a block no tab has leaves everything as it was
+            cx.cx
+                .update(|cx| open_urls(&[format!("kuterm://block/{}", block + 1000)], cx));
+            cx.run_until_parked();
+            assert_eq!(current(&ws, cx), 1);
+
+            cx.cx
+                .update(|cx| open_urls(&[format!("kuterm://block/{block}#L2")], cx));
+            cx.run_until_parked();
+            assert_eq!(current(&ws, cx), 0);
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(String::new()));
+            run_actions(&ws, cx, r#""copy""#);
+            // the whole second output line, not the first
+            assert_eq!(clipboard(cx).as_deref(), Some("two\n"));
+        });
+    }
 }

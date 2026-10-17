@@ -272,8 +272,6 @@ impl Terminal {
         scope: SearchScope,
     ) -> Option<impl FnOnce() -> Vec<FoundLine> + Send + use<>> {
         let mut regex = RegexSearch::new(pattern).ok()?;
-        // the history of a sleeping tab is searched too
-        self.wake();
         let ranges = self.scope_lines(scope);
         let term: Arc<FairMutex<Term<ZedListener>>> = self.term.clone();
         // lines move as output scrolls, so the ranges are only good while nothing printed
@@ -288,14 +286,8 @@ impl Terminal {
         if start.line < term.topmost_line() || end.line > term.bottommost_line() {
             return false;
         }
-        let mut selection = alacritty_terminal::selection::Selection::new(
-            alacritty_terminal::selection::SelectionType::Simple,
-            start,
-            alacritty_terminal::index::Side::Left,
-        );
-        selection.update(end, alacritty_terminal::index::Side::Right);
-        term.selection = Some(selection);
-        term.scroll_to_point(start);
+        let simple = alacritty_terminal::selection::SelectionType::Simple;
+        super::selection::select_range(&mut term, simple, start, end);
         drop(term);
         self.dirty.store(true, Ordering::Release);
         true
@@ -436,20 +428,18 @@ impl Terminal {
 #[cfg(test)]
 mod tests {
     use super::{SearchQuery, search_pattern};
+    use crate::settings::TerminalSettings;
+    use crate::terminal::tests::*;
 
     #[test]
     fn find_lines_lists_newest_matches_first_up_to_the_cap() {
         use alacritty_terminal::{
-            Term,
-            event::VoidListener,
             index::{Column, Line},
-            term::{Config, search::RegexSearch, test::TermSize},
-            vte::ansi::Processor,
+            term::search::RegexSearch,
         };
-        let mut term = Term::new(Config::default(), &TermSize::new(40, 4), VoidListener);
-        let mut parser: Processor = Processor::new();
-        parser.advance(
-            &mut term,
+        let term = crate::terminal::parsed_term(
+            40,
+            4,
             b"alpha one\r\nbeta\r\nsay alpha two\r\nalpha three",
         );
         let mut regex = RegexSearch::new("alpha").unwrap();
@@ -563,5 +553,153 @@ mod tests {
             .find_task(&pattern, 10, super::SearchScope::Failed)
             .unwrap();
         assert_eq!(task().len(), 2);
+
+        // the block under the mouse wins, else the first one shown from the top
+        let (start, _) = terminal.output_range(ids[1]).unwrap();
+        let row = |line: i32| gpui::point(gpui::px(5.), gpui::px(line as f32 * 20. + 10.));
+        assert_eq!(
+            terminal.block_for_search(Some(row(start.line.0))),
+            Some(ids[1])
+        );
+        assert_eq!(terminal.block_for_search(Some(row(23))), Some(ids[0]));
+    }
+
+    fn search_for(text: &str, regex: bool, whole_word: bool) -> super::SearchQuery {
+        super::SearchQuery {
+            text: text.into(),
+            regex,
+            whole_word,
+            case: crate::settings::SearchCase::Smart,
+            scope: Default::default(),
+        }
+    }
+
+    #[test]
+    fn search_counts_matches_and_walks_them_up_from_the_bottom() {
+        let mut builder = spawn_long_output(&TerminalSettings::default());
+        let terminal = &mut builder.terminal;
+        // line_1, line_10..line_19 and line_100..line_199
+        let status = terminal
+            .search(&search_for("line_1", false, false))
+            .unwrap();
+        assert_eq!(status.count, 111);
+        // the closest match above the bottom of the screen
+        assert_eq!(status.active, Some(110));
+        terminal.sync();
+        let active = terminal.last_content.active_match.clone().unwrap();
+        let line: String = terminal
+            .last_content
+            .cells
+            .iter()
+            .filter(|cell| cell.point.line == active.start().line)
+            .map(|cell| cell.cell.c)
+            .collect();
+        assert!(line.starts_with("line_199"), "{line:?}");
+        assert!(!terminal.last_content.search_matches.is_empty());
+
+        assert_eq!(terminal.search_next(true).active, Some(109));
+        assert_eq!(terminal.search_next(false).active, Some(110));
+        // wraps around at the ends
+        assert_eq!(terminal.search_next(false).active, Some(0));
+        assert_eq!(terminal.search_next(true).active, Some(110));
+
+        terminal.end_search();
+        terminal.sync();
+        assert!(terminal.last_content.search_matches.is_empty());
+        assert_eq!(terminal.last_content.active_match, None);
+    }
+
+    #[test]
+    fn search_scrolls_to_a_match_in_history() {
+        let mut builder = spawn_long_output(&TerminalSettings::default());
+        let terminal = &mut builder.terminal;
+        let status = terminal.search(&search_for("line_3", false, true)).unwrap();
+        // whole words only: not line_30 and the others
+        assert_eq!(status.count, 1);
+        terminal.sync();
+        assert!(terminal.last_content.display_offset > 0);
+        let active = terminal.last_content.active_match.clone().unwrap();
+        let visible = -(terminal.last_content.display_offset as i32);
+        assert!(
+            active.start().line.0 >= visible,
+            "{active:?} above the view"
+        );
+        assert!(
+            screen_text(terminal)
+                .lines()
+                .any(|line| line.trim_end() == "line_3")
+        );
+    }
+
+    #[test]
+    fn search_reports_broken_regex_and_no_matches() {
+        let mut builder = spawn_long_output(&TerminalSettings::default());
+        let terminal = &mut builder.terminal;
+        assert!(terminal.search(&search_for("line_(", true, false)).is_err());
+        let status = terminal
+            .search(&search_for(r"line_1\d\d", true, false))
+            .unwrap();
+        assert_eq!(status.count, 100);
+        let status = terminal
+            .search(&search_for("nowhere", false, false))
+            .unwrap();
+        assert_eq!((status.count, status.active), (0, None));
+        assert_eq!(terminal.search_next(true).active, None);
+    }
+
+    #[test]
+    fn without_a_search_there_is_nothing_to_walk() {
+        let mut builder = spawn(&TerminalSettings::default());
+        let terminal = &mut builder.terminal;
+        assert_eq!(terminal.search_next(true), super::SearchStatus::default());
+        assert_eq!(terminal.search_status(), super::SearchStatus::default());
+    }
+
+    #[test]
+    fn matches_printed_after_the_search_are_walked_to() {
+        use crate::settings::Shell;
+        let profile = profile(Shell::WithArguments {
+            program: "/bin/sh".into(),
+            args: vec![
+                "-c".into(),
+                "echo ready; read x; echo late_word; sleep 5".into(),
+            ],
+        });
+        let mut builder = spawn_with(&TerminalSettings::default(), &profile);
+        let terminal = &mut builder.terminal;
+        wait_for_text(terminal, "ready");
+        let status = terminal
+            .search(&search_for("late_word", false, false))
+            .unwrap();
+        assert_eq!((status.count, status.active), (0, None));
+        terminal.type_text(b"\r");
+        wait_for_text(terminal, "late_word");
+        // the next step rescans, so the match that came since is the current one
+        let status = terminal.search_next(true);
+        assert_eq!((status.count, status.active), (1, Some(0)));
+    }
+
+    #[test]
+    fn a_found_line_that_left_the_history_is_not_selected() {
+        use crate::settings::Shell;
+        let profile = profile(Shell::WithArguments {
+            program: "/bin/sh".into(),
+            args: vec![
+                "-c".into(),
+                "seq 1 40; echo first_line; echo found_ready; sleep 5".into(),
+            ],
+        });
+        let mut builder = spawn_with(&TerminalSettings::default(), &profile);
+        let terminal = &mut builder.terminal;
+        wait_for_text(terminal, "found_ready");
+        let task = terminal
+            .find_task("first_line", 10, super::SearchScope::All)
+            .unwrap();
+        let found = task();
+        assert_eq!(found.len(), 1);
+        // clearing drops the history the line was counted in
+        terminal.clear();
+        assert!(!terminal.select_found(&found[0]));
+        assert_eq!(terminal.selection_text(), None);
     }
 }

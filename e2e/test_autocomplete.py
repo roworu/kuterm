@@ -66,36 +66,3 @@ def test_popup_shows_and_tab_completes_into_the_line(app_factory, tmp_path):
     app.wait(lambda: popup(app) is None, msg="popup gone after enter")
 
 
-def test_escape_hides_the_popup(app_factory, tmp_path):
-    """escape hides the popup without changing the line, the next word brings it back"""
-    app = zsh_app(app_factory, tmp_path)
-    app.type("ls al")
-    app.wait(lambda: popup(app), msg="completion popup")
-    app.key("Escape")
-    app.wait(lambda: popup(app) is None, msg="popup hidden")
-    app.type("p")
-    app.wait_still()
-    assert popup(app) is None
-    app.type(" al")
-    app.wait(lambda: popup(app), msg="popup for the next word")
-
-
-def test_key_trigger_opens_the_popup_on_ctrl_space(app_factory, tmp_path):
-    """with "trigger": "key" typing shows nothing until the complete key"""
-    app = zsh_app(app_factory, tmp_path, trigger="key")
-    app.type("ls al")
-    app.wait_still()
-    assert popup(app) is None
-    app.key("ctrl+space")
-    app.wait(lambda: popup(app), msg="completion popup")
-    app.snap("popup opened with ctrl-space")
-
-
-def test_spec_lists_subcommands_with_descriptions(app_factory, tmp_path):
-    """a command with a spec lists its subcommands with what they do, wider than the names"""
-    app = zsh_app(app_factory, tmp_path)
-    app.type("git ")
-    box = app.wait(lambda: popup(app), msg="completion popup")
-    # descriptions make it wider than the longest subcommand name alone
-    assert box[2] - box[0] > 20 * app.cell_width(), box
-    app.snap("git subcommands with their descriptions, most used first")

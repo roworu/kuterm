@@ -405,6 +405,7 @@ impl Workspace {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::workspace::test_support::*;
 
     #[test]
     fn resize_areas_cover_free_edges_of_the_shadow() {
@@ -435,5 +436,275 @@ mod tests {
         assert_eq!(at(left, 5., 100.), None);
         assert_eq!(at(left, 5., 5.), Some(ResizeEdge::Top));
         assert!(resize_areas(window, Tiling::tiled()).is_empty());
+    }
+
+    #[gpui::test]
+    fn padding_moves_and_shrinks_the_grid(cx: &mut TestAppContext) {
+        let settings = window_settings(
+            r#"{"decorations": "server", "padding": {"x": 30, "y": 20}, "padding_balance": false}"#,
+        );
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        cx.run_until_parked();
+        let b = grid_bounds(&ws, cx);
+        assert_eq!(b.bounds.origin, point(gpui::px(30.), gpui::px(20.)));
+        assert_eq!(b.bounds.size, gpui::size(gpui::px(840.), gpui::px(560.)));
+        assert_eq!(b.num_columns(), (840. / f32::from(b.cell_width)) as usize);
+        assert_eq!(b.num_lines(), (560. / f32::from(b.line_height)) as usize);
+    }
+
+    #[gpui::test]
+    fn balanced_padding_centers_the_grid(cx: &mut TestAppContext) {
+        let settings = window_settings(
+            r#"{"decorations": "server", "padding": {"x": 30, "y": 20}, "padding_balance": true}"#,
+        );
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        cx.run_until_parked();
+        let b = grid_bounds(&ws, cx);
+        let spare_x = 840. % f32::from(b.cell_width);
+        let spare_y = 560. % f32::from(b.line_height);
+        // origins are snapped down to whole device pixels
+        let expected_x = (30. + spare_x / 2.).floor();
+        let expected_y = (20. + spare_y / 2.).floor();
+        assert_eq!(f32::from(b.bounds.origin.x), expected_x);
+        assert_eq!(f32::from(b.bounds.origin.y), expected_y);
+        // the grid is never pushed past the padding on the far side
+        let right = f32::from(b.bounds.origin.x + b.cell_width * b.num_columns() as f32);
+        let bottom = f32::from(b.bounds.origin.y + b.line_height * b.num_lines() as f32);
+        assert!(right <= 870., "{right}");
+        assert!(bottom <= 580., "{bottom}");
+    }
+
+    #[gpui::test]
+    fn startup_size_fits_columns_and_rows(cx: &mut TestAppContext) {
+        let settings = window_settings(
+            r#"{"decorations": "server", "padding": {"x": 7, "y": 3}, "columns": 83, "rows": 27,
+                "startup": "windowed", "remember_size": false}"#,
+        );
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        let bounds = cx.update(|_, cx| startup_bounds(cx));
+        cx.simulate_resize(bounds.size);
+        cx.run_until_parked();
+        let b = grid_bounds(&ws, cx);
+        assert_eq!((b.num_columns(), b.num_lines()), (83, 27));
+        // the shell spawned before the window gets the same grid
+        let early = cx.update(|_, cx| window::startup_grid(bounds.size, cx));
+        assert_eq!((early.num_columns(), early.num_lines()), (83, 27));
+    }
+
+    #[gpui::test]
+    fn startup_size_counts_the_tab_bar_without_frame(cx: &mut TestAppContext) {
+        let settings = window_settings(
+            r#"{"decorations": "none", "padding": {"x": 0, "y": 0}, "columns": 50, "rows": 10,
+                "startup": "windowed", "remember_size": false}"#,
+        );
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        let bounds = cx.update(|_, cx| startup_bounds(cx));
+        cx.simulate_resize(bounds.size);
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("drag-area").is_some(), "tab bar is hidden");
+        let b = grid_bounds(&ws, cx);
+        assert_eq!((b.num_columns(), b.num_lines()), (50, 10));
+        let early = cx.update(|_, cx| window::startup_grid(bounds.size, cx));
+        assert_eq!((early.num_columns(), early.num_lines()), (50, 10));
+    }
+
+    #[gpui::test]
+    fn frameless_window_shows_tab_bar_with_drag_area(cx: &mut TestAppContext) {
+        let settings = window_settings(r#"{"decorations": "server"}"#);
+        let (_ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        assert!(cx.debug_bounds("drag-area").is_none());
+        assert!(
+            cx.debug_bounds("new-tab").is_none(),
+            "one tab shows the bar"
+        );
+
+        let settings = window_settings(r#"{"decorations": "none"}"#);
+        let (_ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        let area = cx.debug_bounds("drag-area").expect("no drag area");
+        let tab = cx.debug_bounds("tab-title-0").expect("no tab bar");
+        assert!(area.left() >= tab.right(), "drag area overlaps the tab");
+        assert!(cx.debug_bounds("window-close").is_none());
+    }
+
+    #[gpui::test]
+    fn expanded_tabs_leave_only_a_grip_to_drag_the_window_by(cx: &mut TestAppContext) {
+        let settings = Settings::parse(
+            r#"{"expand_tabs": true, "window": {"decorations": "none"},
+                "terminal": {"scrollbar": {"enable": "off"}}}"#,
+        )
+        .unwrap();
+        let (_ws, cx) = open_with_settings(cx, 2, "{}", settings);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        let area = cx.debug_bounds("drag-area").expect("no drag area");
+        let rem = cx.update(|window, _| window.rem_size());
+        assert!(
+            (area.size.width - rem * 3.).abs() < gpui::px(1.),
+            "drag area is not a grip: {area:?}"
+        );
+        // the tabs take the rest of the row, the grip sits at its end
+        assert!(area.left() > gpui::px(700.), "{area:?}");
+        let tab = cx.debug_bounds("tab-title-1").expect("no tab bar");
+        assert!(area.left() >= tab.right());
+    }
+
+    #[gpui::test]
+    fn client_frame_draws_window_buttons_in_the_corner_pane(cx: &mut TestAppContext) {
+        let settings = window_settings(r#"{"decorations": "client"}"#);
+        let (ws, cx) = open_with_settings(cx, 2, "{}", settings);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        let ids = [
+            "window-fullscreen",
+            "window-minimize",
+            "window-maximize",
+            "window-close",
+        ];
+        for (id, next) in ids.iter().zip(ids.iter().skip(1)) {
+            let button = cx.debug_bounds(id).unwrap_or_else(|| panic!("no {id}"));
+            assert!(button.left() > gpui::px(450.), "{id} is not on the right");
+            assert!(button.right() <= cx.debug_bounds(next).unwrap().left());
+        }
+        let fullscreen = cx.debug_bounds("window-fullscreen").unwrap().center();
+        cx.simulate_click(fullscreen, Modifiers::none());
+        assert!(cx.update(|window, _| window.is_fullscreen()));
+        cx.simulate_click(fullscreen, Modifiers::none());
+        assert!(!cx.update(|window, _| window.is_fullscreen()));
+        run_actions(&ws, cx, r#""split_left""#);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        // the moved tab is on the left, the buttons stay at the right edge
+        let close = cx.debug_bounds("window-close").expect("no close button");
+        assert!(close.left() > gpui::px(450.));
+        assert_eq!(ws.update(cx, |ws, _| ws.layout.panes().len()), 2);
+
+        // the close button asks like any other quit
+        start_program(&ws, cx);
+        cx.simulate_click(close.center(), Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(dialog(&ws, cx).map(|d| d.0), Some(CloseTarget::Window));
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[gpui::test]
+    fn one_tab_hides_the_tab_bar_under_a_top_row(cx: &mut TestAppContext) {
+        let ids = |cx: &mut VisualTestContext| {
+            ["tab-title-0", "menu-bar", "title-bar", "window-close"]
+                .map(|id| cx.debug_bounds(id).is_some())
+        };
+        // the menu bar moves the window and holds the buttons
+        let settings = window_settings(r#"{"decorations": "client", "menu_bar": "always"}"#);
+        let (_, cx) = open_with_settings(cx, 1, "{}", settings);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        assert_eq!(ids(cx), [false, true, false, true]);
+        let settings = window_settings(r#"{"decorations": "none", "menu_bar": "always"}"#);
+        let (_, cx) = open_with_settings(cx, 1, "{}", settings);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        assert_eq!(ids(cx), [false, true, false, false]);
+        // without menus a client frame gets an empty title bar
+        let settings = window_settings(r#"{"decorations": "client", "menu_bar": "never"}"#);
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        assert_eq!(ids(cx), [false, false, true, true]);
+        assert!(cx.debug_bounds("menu-drag-area").is_some());
+        // a second tab brings the tab bar back with the buttons on it
+        run_actions(&ws, cx, r#""new_tab""#);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        assert_eq!(ids(cx), [true, false, false, true]);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[gpui::test]
+    fn client_frame_puts_window_buttons_on_the_menu_bar(cx: &mut TestAppContext) {
+        let settings = window_settings(r#"{"decorations": "client", "menu_bar": "always"}"#);
+        let (_, cx) = open_with_settings(cx, 2, "{}", settings);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        // the menu bar is the top row, the tab bar below it has no buttons
+        let bar = cx.debug_bounds("menu-bar").expect("no menu bar");
+        for id in [
+            "window-fullscreen",
+            "window-minimize",
+            "window-maximize",
+            "window-close",
+        ] {
+            let button = cx.debug_bounds(id).unwrap_or_else(|| panic!("no {id}"));
+            assert!(
+                button.bottom() <= bar.bottom(),
+                "{id} is below the menu bar"
+            );
+            assert!(button.left() > gpui::px(450.), "{id} is not on the right");
+        }
+        // the free room between the menus and the buttons moves the window
+        let area = cx.debug_bounds("menu-drag-area").expect("no drag area");
+        assert!(area.top() >= bar.top() && area.bottom() <= bar.bottom());
+        assert!(area.right() <= cx.debug_bounds("window-fullscreen").unwrap().left());
+        // a framed window has neither
+        let settings = window_settings(r#"{"decorations": "server", "menu_bar": "always"}"#);
+        let (_, cx) = open_with_settings(cx, 2, "{}", settings);
+        assert!(cx.debug_bounds("menu-bar").is_some());
+        assert!(cx.debug_bounds("menu-drag-area").is_none());
+        assert!(cx.debug_bounds("window-close").is_none());
+    }
+
+    #[test]
+    fn corner_pane_is_top_right() {
+        let leaf = |id| {
+            Box::new(LayoutNode::Leaf(Pane {
+                id,
+                tabs: Vec::new(),
+                active: 0,
+                tab_scroll: ScrollHandle::new(),
+            }))
+        };
+        assert_eq!(leaf(3).corner_pane_id(), Some(3));
+        let side_by_side = LayoutNode::Split {
+            axis: SplitAxis::Horizontal,
+            ratio: 0.5,
+            first: leaf(1),
+            second: leaf(2),
+        };
+        assert_eq!(side_by_side.corner_pane_id(), Some(2));
+        // right column split into top and bottom
+        let nested = LayoutNode::Split {
+            axis: SplitAxis::Horizontal,
+            ratio: 0.5,
+            first: leaf(1),
+            second: Box::new(LayoutNode::Split {
+                axis: SplitAxis::Vertical,
+                ratio: 0.5,
+                first: leaf(4),
+                second: leaf(5),
+            }),
+        };
+        assert_eq!(nested.corner_pane_id(), Some(4));
+        assert_eq!(LayoutNode::Empty.corner_pane_id(), None);
+    }
+
+    #[test]
+    fn opacity_and_blur_pick_background_appearance() {
+        use gpui::WindowBackgroundAppearance as Appearance;
+        for (json, expected) in [
+            (r#"{"opacity": 1.0, "blur": true}"#, Appearance::Opaque),
+            (
+                r#"{"opacity": 0.8, "blur": false}"#,
+                Appearance::Transparent,
+            ),
+            (r#"{"opacity": 0.8, "blur": true}"#, Appearance::Blurred),
+        ] {
+            assert_eq!(
+                background_appearance(&window_settings(json)),
+                expected,
+                "{json}"
+            );
+        }
+        for (mode, expected) in [
+            ("server", gpui::WindowDecorations::Server),
+            ("none", gpui::WindowDecorations::Client),
+            ("client", gpui::WindowDecorations::Client),
+        ] {
+            let settings = window_settings(&format!(r#"{{"decorations": "{mode}"}}"#));
+            assert_eq!(window_decorations(&settings), expected, "{mode}");
+        }
     }
 }

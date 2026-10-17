@@ -338,4 +338,132 @@ mod tests {
         terminal.sync();
         assert!(terminal.last_content.display_offset > 0);
     }
+
+    /// text `keys` select in vi mode, starting at the top left
+    fn select_with(terminal: &mut crate::terminal::Terminal, keys: &[&str]) -> Option<String> {
+        terminal.toggle_vi_mode();
+        for k in ["g", "g", "0"].iter().chain(keys) {
+            assert_eq!(terminal.vi_key(&key(k)), ViKey::Handled, "{k}");
+        }
+        match terminal.vi_key(&key("y")) {
+            ViKey::Copy(text) => Some(text),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn vi_motions_move_by_chars_words_lines_and_screens() {
+        let profile = profile(Shell::WithArguments {
+            program: "/bin/sh".into(),
+            args: vec![
+                "-c".into(),
+                "printf 'alpha (beta) gamma\\n  delta.x epsilon\\n\\nzeta gamma\\n'; echo vi_ready; sleep 5"
+                    .into(),
+            ],
+        });
+        let mut builder = spawn_with(&TerminalSettings::default(), &profile);
+        let terminal = &mut builder.terminal;
+        wait_for_text(terminal, "vi_ready");
+        for (keys, want) in [
+            (&["l", "l", "v", "l"][..], "ph"),
+            (&["l", "l", "h", "v", "l"], "lp"),
+            (&["$", "v", "h", "h"], "mma"),
+            (&["end", "B", "v", "$"], "gamma"),
+            // W, B and E split at blanks only, b at punctuation too
+            (&["W", "v", "E"], "(beta)"),
+            (&["W", "%", "v", "%"], "(beta)"),
+            (&["j", "^", "v", "E"], "delta.x"),
+            (&["j", "$", "b", "v", "$"], "epsilon"),
+            (&["G", "H", "V"], "alpha (beta) gamma\n"),
+            (&["j", "j", "j", "{", "V"], "alpha (beta) gamma\n"),
+            (&["}", "j", "V"], "zeta gamma\n"),
+            // pressing the running selection's key again ends it
+            (&["v", "l", "v"], ""),
+        ] {
+            let got = select_with(terminal, keys).unwrap_or_default();
+            assert_eq!(got, want, "{keys:?}");
+            assert!(!terminal.vi_mode());
+        }
+        // M and L land on the middle and last rows of the screen, below the text here
+        assert_eq!(select_with(terminal, &["M", "V"]).as_deref(), Some("\n"));
+        assert_eq!(select_with(terminal, &["L", "V"]).as_deref(), Some("\n"));
+        // ctrl-v selects a block, the same columns of each line
+        terminal.toggle_vi_mode();
+        for k in ["g", "g", "0", "ctrl-v", "j", "j", "j", "l"] {
+            terminal.vi_key(&key(k));
+        }
+        let selection = terminal.term.lock().selection.clone().unwrap();
+        assert_eq!(
+            selection.ty,
+            alacritty_terminal::selection::SelectionType::Block
+        );
+        // an unknown key does nothing and stays in vi mode
+        assert_eq!(terminal.vi_key(&key("z")), ViKey::Handled);
+        assert!(terminal.vi_mode());
+    }
+
+    #[test]
+    fn vi_n_walks_search_matches_with_the_cursor() {
+        let profile = profile(Shell::WithArguments {
+            program: "/bin/sh".into(),
+            args: vec![
+                "-c".into(),
+                "printf 'one gamma\\ntwo\\nthree gamma\\n'; echo vi_ready; sleep 5".into(),
+            ],
+        });
+        let mut builder = spawn_with(&TerminalSettings::default(), &profile);
+        let terminal = &mut builder.terminal;
+        wait_for_text(terminal, "vi_ready");
+        terminal.toggle_vi_mode();
+        let query = crate::terminal::SearchQuery {
+            text: "gamma".into(),
+            regex: false,
+            whole_word: false,
+            case: crate::settings::SearchCase::Smart,
+            scope: Default::default(),
+        };
+        // the search puts the vi cursor on the lowest match, n goes up to the one above
+        terminal.search(&query).unwrap();
+        assert_eq!(terminal.vi_key(&key("V")), ViKey::Handled);
+        assert_eq!(terminal.selection_text().as_deref(), Some("three gamma\n"));
+        terminal.vi_key(&key("V"));
+        assert_eq!(terminal.vi_key(&key("n")), ViKey::Handled);
+        terminal.vi_key(&key("V"));
+        assert_eq!(terminal.selection_text().as_deref(), Some("one gamma\n"));
+        terminal.vi_key(&key("V"));
+        // N goes down again
+        terminal.vi_key(&key("N"));
+        assert_eq!(
+            terminal.vi_key(&key("y")),
+            ViKey::Exit,
+            "nothing selected, y just leaves"
+        );
+    }
+
+    #[test]
+    fn vi_whole_pages_move_the_view() {
+        let profile = profile(Shell::WithArguments {
+            program: "/bin/sh".into(),
+            args: vec![
+                "-c".into(),
+                "i=0; while [ $i -lt 100 ]; do echo row_$i; i=$((i+1)); done; echo vi_ready; sleep 5"
+                    .into(),
+            ],
+        });
+        let mut builder = spawn_with(&TerminalSettings::default(), &profile);
+        let terminal = &mut builder.terminal;
+        wait_for_text(terminal, "vi_ready");
+        terminal.toggle_vi_mode();
+        terminal.vi_key(&key("ctrl-b"));
+        terminal.sync();
+        let lines = {
+            use alacritty_terminal::grid::Dimensions;
+            terminal.term.lock().screen_lines()
+        };
+        // a whole screen up, where ctrl-u goes half of it
+        assert!(terminal.last_content.display_offset >= lines);
+        terminal.vi_key(&key("ctrl-f"));
+        terminal.sync();
+        assert_eq!(terminal.last_content.display_offset, 0);
+    }
 }

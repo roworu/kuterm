@@ -109,21 +109,6 @@ def test_bundled_patterns_miss_an_own_prompt(app_factory):
     nothing_for(5, lambda: notification_box(app, C))
 
 
-def test_password_prompt_in_the_background_offers_fill_password(app_factory):
-    app = waiting_app(app_factory, password_manager={"list": ["sh", "-c", "echo entry"],
-                                                      "get": ["sh", "-c", "echo s3cret"], "enter": True})
-    in_background(app, SECRET)
-    buttons = wait_buttons(app, C, 1, timeout=15)
-    app.snap("tab 1 asks for a password, fill password offered")
-    app.click(*buttons[0])
-    # the button switched to the tab and listed the entries, enter picks the only one
-    app.wait_title(lambda title: title.startswith("1 "))
-    time.sleep(1)
-    app.key("Return")
-    app.wait(lambda: app.file("secret").exists() and app.file("secret").read_text() == "s3cret",
-             msg="password filled into the prompt", timeout=15)
-
-
 def test_password_prompt_shows_a_lock_and_refuses_automation(app_factory):
     app = waiting_app(app_factory, commands=[{"name": "type it", "actions": [{"type": "macro\n"}]}])
     send(app, SECRET)

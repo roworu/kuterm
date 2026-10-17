@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use super::state_dir;
+use super::{load_json, save_json, state_dir};
 
 /// window size in logical pixels
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -32,25 +32,13 @@ impl WindowSize {
     }
 
     fn load_from(path: &Path) -> Option<Self> {
-        let json = std::fs::read_to_string(path).ok()?;
-        let size: Self = serde_json_lenient::from_str(&json)
-            .inspect_err(|error| eprintln!("invalid window size in {}: {error}", path.display()))
-            .ok()?;
+        let size: Self = load_json(path, "window size")?;
         let valid = |v: f32| v.is_finite() && v > 0.;
         (valid(size.width) && valid(size.height)).then_some(size)
     }
 
     fn save_to(&self, path: &Path) {
-        let result = path
-            .parent()
-            .map_or(Ok(()), std::fs::create_dir_all)
-            .and_then(|()| {
-                serde_json_lenient::to_string_pretty(self).map_err(std::io::Error::other)
-            })
-            .and_then(|json| std::fs::write(path, json));
-        if let Err(error) = result {
-            eprintln!("failed to write {}: {error}", path.display());
-        }
+        save_json(path, self);
     }
 }
 

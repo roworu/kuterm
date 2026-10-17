@@ -3,6 +3,7 @@
 mod blocks;
 mod bounds;
 mod builder;
+mod clipboard;
 mod content;
 mod context;
 mod decorations;
@@ -25,10 +26,8 @@ mod scanner;
 mod scrollback;
 mod search;
 mod selection;
-mod sleep;
 mod sources;
 mod vi;
-mod wide_blocks;
 
 use std::{
     borrow::Cow,
@@ -45,17 +44,16 @@ use alacritty_terminal::{
     event_loop::{Msg, Notifier},
     grid::{Dimensions, Scroll},
     sync::FairMutex,
-    term::{ClipboardType, TermMode},
+    term::TermMode,
     vte::ansi::{ClearMode, Handler},
 };
-use gpui::{App, ClipboardItem, Context, EventEmitter, Keystroke, Task, WindowAppearance};
+use gpui::{App, EventEmitter, Keystroke, Task, WindowAppearance};
 
-#[allow(unused_imports)]
-pub use blocks::Block;
 pub use bounds::TerminalBounds;
 pub use builder::TerminalBuilder;
+use clipboard::ClipboardRequest;
 pub use content::{Content, IndexedCell};
-pub use context::PaneContext;
+pub use context::{PaneContext, git_root};
 pub use decorations::{Decorations, GutterMark, Popover};
 pub use file_links::{FileLine, parse_file_line, resolve as resolve_file, snippet};
 pub use integration::with_shell_integration;
@@ -65,15 +63,17 @@ pub use mouse::{MouseAction, MouseButton};
 pub(crate) use process::tests::{Kill, spawn};
 pub use process::{
     ForegroundProcess, PtyModes, StoppedJob, children, foreground_process, process_info, pty_modes,
-    stopped_jobs, tty_echoes,
+    stopped_jobs,
 };
-pub use prompt::{GhostText, HintLine};
+pub use prompt::HintLine;
 pub use pty_state::{PtyState, Question};
 pub use queue::{CommandQueue, parse_entry as parse_queue_entry};
 pub use sampler::{CPU_HISTORY, ProcessSampler, TreeSample};
 pub use scanner::{Progress, ScanEvent};
 pub use search::{FoundLine, SearchQuery, SearchScope, SearchStatus, search_pattern};
 pub use sources::{InputSource, Sources};
+#[cfg(test)]
+pub(crate) use tests::parsed_term;
 pub use vi::ViKey;
 
 use builder::{ZedListener, term_config};
@@ -144,16 +144,6 @@ fn typed_after(typed: &mut Vec<TypedSource>, at: std::time::Instant) {
     }
 }
 
-/// clipboard access waiting for the user to allow it
-enum ClipboardRequest {
-    Write(ClipboardType, String),
-    /// builds the reply to the program from the clipboard text
-    Read(
-        ClipboardType,
-        Arc<dyn Fn(&str) -> String + Sync + Send + 'static>,
-    ),
-}
-
 enum InternalEvent {
     Resize(TerminalBounds),
     Scroll(Scroll),
@@ -209,8 +199,6 @@ pub struct Terminal {
     prompt_mark: Option<usize>,
     /// the shell marks the end of its prompts with `B`
     saw_prompt_end: bool,
-    /// drawn after the cursor until the next command
-    ghost_text: Option<GhostText>,
     /// drawn under the prompt line until the next command
     hint_line: Option<HintLine>,
     /// commands typed at the next prompts
@@ -219,14 +207,8 @@ pub struct Terminal {
     queue_stop_on_failure: bool,
     /// tty settings and stopped jobs from the last title refresh
     pty_state: PtyState,
-    /// marks, chips and popovers drawn with the grid
+    /// marks and popovers drawn with the grid
     decorations: Decorations,
-    /// history packed away while the tab sleeps
-    slept: Option<sleep::Slept>,
-    /// finished blocks drawn at the width they were printed at, by block id
-    wide_blocks: HashMap<u64, wide_blocks::WideBlock>,
-    /// narrowing keeps finished blocks at their width
-    keep_block_width: bool,
     /// when ctrl+s paused output, none once something let it go
     xoff_at: Option<std::time::Instant>,
     /// ctrl+s from the keyboard may pause output
@@ -298,7 +280,6 @@ impl Terminal {
         self.clipboard = settings.clipboard;
         self.queue_stop_on_failure = settings.queue_stop_on_failure;
         self.send_xoff = settings.send_xoff;
-        self.keep_block_width = settings.keep_block_width;
         self.term.lock().set_options(term_config(settings));
         self.dirty.store(true, Ordering::Release);
     }
@@ -311,7 +292,8 @@ impl Terminal {
     /// scrollback. false when it was refused, like automation typing into a password prompt
     pub fn input(&mut self, source: InputSource, input: impl Into<Cow<'static, [u8]>>) -> bool {
         let input = input.into();
-        if !source.may_answer_secret() && self.asking_secret() {
+        // the last refresh may be old for a hidden tab, so the pty is read again
+        if !source.may_answer_secret() && (self.asking_secret() || self.asking_secret_now()) {
             return false;
         }
         if source == InputSource::Keyboard && self.xoff_filter(&input).is_none() {
@@ -405,56 +387,6 @@ impl Terminal {
         true
     }
 
-    /// paste text from `source`, wrapping it when program asked for bracketed paste. false
-    /// when it was refused
-    pub fn paste(&mut self, source: InputSource, text: &str) -> bool {
-        let bracketed = self.last_content.mode.contains(TermMode::BRACKETED_PASTE);
-        self.input(source, pasted(text, bracketed).into_bytes())
-    }
-
-    /// true when pasting `text` should be confirmed: without bracketed paste a newline runs
-    /// it right away and control characters reach the program as keys
-    pub fn paste_is_unsafe(&self, text: &str) -> bool {
-        !self.last_content.mode.contains(TermMode::BRACKETED_PASTE)
-            && text.chars().any(|c| c.is_control() && c != '\t')
-    }
-
-    /// let or refuse a clipboard access the program asked for
-    pub fn answer_clipboard(&mut self, id: usize, allow: bool, cx: &mut Context<Self>) {
-        let Some(request) = self.clipboard_requests.remove(&id) else {
-            return;
-        };
-        if allow {
-            self.use_clipboard(request, cx);
-        }
-    }
-
-    fn use_clipboard(&mut self, request: ClipboardRequest, cx: &mut Context<Self>) {
-        match request {
-            ClipboardRequest::Write(ClipboardType::Clipboard, text) => {
-                cx.write_to_clipboard(ClipboardItem::new_string(text))
-            }
-            #[cfg(any(target_os = "linux", target_os = "freebsd"))]
-            ClipboardRequest::Write(ClipboardType::Selection, text) => {
-                cx.write_to_primary(ClipboardItem::new_string(text))
-            }
-            ClipboardRequest::Read(kind, format) => {
-                let item = match kind {
-                    ClipboardType::Clipboard => cx.read_from_clipboard(),
-                    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
-                    ClipboardType::Selection => cx.read_from_primary(),
-                    #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
-                    ClipboardType::Selection => None,
-                };
-                let text = item.and_then(|item| item.text()).unwrap_or_default();
-                self.write_to_pty(format(&text).into_bytes());
-            }
-            // no primary selection outside linux, and it must not land in the clipboard
-            #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
-            ClipboardRequest::Write(ClipboardType::Selection, _) => {}
-        }
-    }
-
     /// turn images on or off and limit the memory they take
     pub fn configure_graphics(&self, enable: bool, max_memory_mb: usize) {
         self.graphics
@@ -513,7 +445,6 @@ impl Terminal {
                 ScanEvent::CommandStart { prompt, output } => {
                     self.at_prompt = false;
                     self.prompt_mark = None;
-                    self.ghost_text = None;
                     self.hint_line = None;
                     self.command_started = Some(at);
                     self.last_command = Some((prompt, output));
@@ -544,8 +475,7 @@ impl Terminal {
                     {
                         events.remove(at);
                     }
-                    let columns = self.term.lock_unfair().columns();
-                    self.blocks.end(exit, at, columns);
+                    self.blocks.end(exit, at);
                     if self.queue.ended(exit, self.queue_stop_on_failure) {
                         events.push(Event::QueuePaused { exit });
                     }
@@ -607,20 +537,9 @@ impl Terminal {
         if self.holds_frame() {
             return;
         }
-        // only shown tabs sync, so a sleeping one wakes when it is shown, and before a
-        // resize reflows its history
-        self.wake();
         // many frames are repaints for focus or tab changes, skip the copy for those
         if !self.dirty.swap(false, Ordering::Acquire) && self.events.is_empty() {
             return;
-        }
-        // wide blocks are copied before alacritty reflows them, and found again after
-        let resize_to = self.events.iter().rev().find_map(|event| match event {
-            InternalEvent::Resize(bounds) => Some(bounds.num_columns()),
-            InternalEvent::Scroll(_) => None,
-        });
-        if let Some(columns) = resize_to {
-            self.keep_wide_blocks(columns);
         }
         let mut term = self.term.lock_unfair();
         for event in self.events.drain(..) {
@@ -632,34 +551,9 @@ impl Terminal {
                 InternalEvent::Scroll(scroll) => term.scroll_display(scroll),
             }
         }
-        if resize_to.is_some() && !self.wide_blocks.is_empty() {
-            drop(term);
-            self.place_wide_blocks();
-            term = self.term.lock_unfair();
-        }
         let graphics = self.graphics.lock().unwrap();
         self.last_content
             .refresh(&term, self.search.as_mut(), &graphics);
-        wide_blocks::replace_rows(
-            &mut self.last_content.cells,
-            &self.wide_blocks,
-            term.grid().history_size(),
-            term.columns(),
-        );
-    }
-}
-
-/// bytes a paste sends: bracketed paste wraps it and drops control characters, so the text
-/// can't fake the end of the paste, otherwise newlines become enter presses
-fn pasted(text: &str, bracketed: bool) -> String {
-    if bracketed {
-        let text: String = text
-            .chars()
-            .filter(|c| !c.is_control() || matches!(c, '\t' | '\n' | '\r'))
-            .collect();
-        format!("\x1b[200~{text}\x1b[201~")
-    } else {
-        text.replace("\r\n", "\r").replace('\n', "\r")
     }
 }
 
@@ -669,6 +563,14 @@ impl Drop for Terminal {
         if self.incognito {
             self.wipe();
         }
+    }
+}
+
+#[cfg(test)]
+impl Terminal {
+    /// type `text` like the user at the keyboard
+    pub(crate) fn type_text(&mut self, text: &[u8]) -> bool {
+        self.input(InputSource::Keyboard, text.to_vec())
     }
 }
 
@@ -712,6 +614,25 @@ mod tests {
         Terminal, TerminalBounds, TerminalBuilder, foreground_process, process::ForegroundProcess,
     };
     use crate::settings::{CursorShape, Profile, Settings, Shell, TerminalSettings};
+
+    /// a bare alacritty term `columns` by `lines` after it parsed `bytes`
+    pub(crate) fn parsed_term(
+        columns: usize,
+        lines: usize,
+        bytes: impl AsRef<[u8]>,
+    ) -> alacritty_terminal::Term<alacritty_terminal::event::VoidListener> {
+        use alacritty_terminal::{
+            Term,
+            event::VoidListener,
+            term::{Config, test::TermSize},
+            vte::ansi::Processor,
+        };
+        let size = TermSize::new(columns, lines);
+        let mut term = Term::new(Config::default(), &size, VoidListener);
+        let mut parser: Processor = Processor::new();
+        parser.advance(&mut term, bytes.as_ref());
+        term
+    }
 
     pub(super) fn spawn(settings: &TerminalSettings) -> TerminalBuilder {
         spawn_with(settings, Settings::default().default_profile())
@@ -805,20 +726,16 @@ mod tests {
     #[test]
     fn shell_runs_input() {
         let mut builder = spawn(&TerminalSettings::default());
-        builder.terminal.input(
-            crate::terminal::InputSource::Keyboard,
-            b"echo out_$((6*7))\r".to_vec(),
-        );
+        builder.terminal.type_text(b"echo out_$((6*7))\r");
         wait_for_text(&mut builder.terminal, "out_42");
     }
 
     #[test]
     fn term_program_version_is_own() {
         let mut builder = spawn(&TerminalSettings::default());
-        builder.terminal.input(
-            crate::terminal::InputSource::Keyboard,
-            b"echo ver=$TERM_PROGRAM_VERSION=\r".to_vec(),
-        );
+        builder
+            .terminal
+            .type_text(b"echo ver=$TERM_PROGRAM_VERSION=\r");
         wait_for_text(
             &mut builder.terminal,
             &format!("ver={}=", env!("CARGO_PKG_VERSION")),
@@ -920,10 +837,10 @@ mod tests {
         let mut builder = spawn_with(&TerminalSettings::default(), &profile);
         let terminal = &mut builder.terminal;
         assert!(!terminal.last_content.cursor_blinking);
-        terminal.input(crate::terminal::InputSource::Keyboard, b"\r".to_vec());
+        terminal.type_text(b"\r");
         wait_for_text(terminal, "blink_on");
         assert!(terminal.last_content.cursor_blinking);
-        terminal.input(crate::terminal::InputSource::Keyboard, b"\r".to_vec());
+        terminal.type_text(b"\r");
         wait_for_text(terminal, "blink_off");
         assert!(!terminal.last_content.cursor_blinking);
     }
@@ -936,19 +853,14 @@ mod tests {
             px(10.),
             Bounds::new(point(px(0.), px(0.)), size(px(1000.), px(500.))),
         ));
-        builder.terminal.input(
-            crate::terminal::InputSource::Keyboard,
-            b"echo size=$(stty size)\r".to_vec(),
-        );
+        builder.terminal.type_text(b"echo size=$(stty size)\r");
         wait_for_text(&mut builder.terminal, "size=25 100");
     }
 
     #[test]
     fn exit_emits_exit_event() {
         let mut builder = spawn(&TerminalSettings::default());
-        builder
-            .terminal
-            .input(crate::terminal::InputSource::Keyboard, b"exit\r".to_vec());
+        builder.terminal.type_text(b"exit\r");
         let deadline = Instant::now() + Duration::from_secs(15);
         loop {
             while let Some(event) = builder.events_rx.next().now_or_never() {
@@ -966,10 +878,7 @@ mod tests {
     #[test]
     fn foreground_process_follows_shell() {
         let mut builder = spawn(&TerminalSettings::default());
-        builder.terminal.input(
-            crate::terminal::InputSource::Keyboard,
-            b"cd /tmp && sleep 5\r".to_vec(),
-        );
+        builder.terminal.type_text(b"cd /tmp && sleep 5\r");
         let deadline = Instant::now() + Duration::from_secs(15);
         loop {
             let process = foreground_process(builder.terminal.shell_pid);
@@ -988,7 +897,7 @@ mod tests {
     }
 
     /// terminal that prints 200 numbered lines, then waits
-    fn spawn_long_output(settings: &TerminalSettings) -> TerminalBuilder {
+    pub(super) fn spawn_long_output(settings: &TerminalSettings) -> TerminalBuilder {
         let profile = profile(Shell::WithArguments {
             program: "/bin/sh".into(),
             args: vec![
@@ -999,9 +908,7 @@ mod tests {
         });
         let mut builder = spawn_with(settings, &profile);
         // print only after the resize, growing the screen later pulls lines out of history
-        builder
-            .terminal
-            .input(crate::terminal::InputSource::Keyboard, b"\r".to_vec());
+        builder.terminal.type_text(b"\r");
         wait_for_text(&mut builder.terminal, "long_done");
         builder
     }
@@ -1066,89 +973,6 @@ mod tests {
         assert_eq!(terminal.last_content.display_offset, 0);
     }
 
-    fn search_for(text: &str, regex: bool, whole_word: bool) -> super::SearchQuery {
-        super::SearchQuery {
-            text: text.into(),
-            regex,
-            whole_word,
-            case: crate::settings::SearchCase::Smart,
-            scope: Default::default(),
-        }
-    }
-
-    #[test]
-    fn search_counts_matches_and_walks_them_up_from_the_bottom() {
-        let mut builder = spawn_long_output(&TerminalSettings::default());
-        let terminal = &mut builder.terminal;
-        // line_1, line_10..line_19 and line_100..line_199
-        let status = terminal
-            .search(&search_for("line_1", false, false))
-            .unwrap();
-        assert_eq!(status.count, 111);
-        // the closest match above the bottom of the screen
-        assert_eq!(status.active, Some(110));
-        terminal.sync();
-        let active = terminal.last_content.active_match.clone().unwrap();
-        let line: String = terminal
-            .last_content
-            .cells
-            .iter()
-            .filter(|cell| cell.point.line == active.start().line)
-            .map(|cell| cell.cell.c)
-            .collect();
-        assert!(line.starts_with("line_199"), "{line:?}");
-        assert!(!terminal.last_content.search_matches.is_empty());
-
-        assert_eq!(terminal.search_next(true).active, Some(109));
-        assert_eq!(terminal.search_next(false).active, Some(110));
-        // wraps around at the ends
-        assert_eq!(terminal.search_next(false).active, Some(0));
-        assert_eq!(terminal.search_next(true).active, Some(110));
-
-        terminal.end_search();
-        terminal.sync();
-        assert!(terminal.last_content.search_matches.is_empty());
-        assert_eq!(terminal.last_content.active_match, None);
-    }
-
-    #[test]
-    fn search_scrolls_to_a_match_in_history() {
-        let mut builder = spawn_long_output(&TerminalSettings::default());
-        let terminal = &mut builder.terminal;
-        let status = terminal.search(&search_for("line_3", false, true)).unwrap();
-        // whole words only: not line_30 and the others
-        assert_eq!(status.count, 1);
-        terminal.sync();
-        assert!(terminal.last_content.display_offset > 0);
-        let active = terminal.last_content.active_match.clone().unwrap();
-        let visible = -(terminal.last_content.display_offset as i32);
-        assert!(
-            active.start().line.0 >= visible,
-            "{active:?} above the view"
-        );
-        assert!(
-            screen_text(terminal)
-                .lines()
-                .any(|line| line.trim_end() == "line_3")
-        );
-    }
-
-    #[test]
-    fn search_reports_broken_regex_and_no_matches() {
-        let mut builder = spawn_long_output(&TerminalSettings::default());
-        let terminal = &mut builder.terminal;
-        assert!(terminal.search(&search_for("line_(", true, false)).is_err());
-        let status = terminal
-            .search(&search_for(r"line_1\d\d", true, false))
-            .unwrap();
-        assert_eq!(status.count, 100);
-        let status = terminal
-            .search(&search_for("nowhere", false, false))
-            .unwrap();
-        assert_eq!((status.count, status.active), (0, None));
-        assert_eq!(terminal.search_next(true).active, None);
-    }
-
     #[test]
     fn sync_skips_unchanged_grid_and_reuses_cell_buffer() {
         let profile = profile(Shell::WithArguments {
@@ -1177,106 +1001,6 @@ mod tests {
         terminal.sync();
         assert!(screen_text(terminal).contains("quiet_ready"));
         assert_eq!(terminal.last_content.cells.as_ptr(), buffer);
-    }
-
-    #[test]
-    fn bracketed_paste_drops_control_characters() {
-        assert_eq!(
-            super::pasted("a\x1b[201~b\x03c\u{9b}d\te\nf\r", true),
-            "\x1b[200~a[201~bcd\te\nf\r\x1b[201~"
-        );
-        assert_eq!(super::pasted("a\nb\r\nc", false), "a\rb\rc");
-    }
-
-    #[test]
-    fn paste_is_unsafe_only_without_bracketed_paste() {
-        let mut builder = spawn(&TerminalSettings::default());
-        let terminal = &mut builder.terminal;
-        terminal.last_content.mode = TermMode::empty();
-        assert!(!terminal.paste_is_unsafe("ls -la\tdone"));
-        assert!(terminal.paste_is_unsafe("ls\n"));
-        assert!(terminal.paste_is_unsafe("ls\r"));
-        assert!(terminal.paste_is_unsafe("\x1b[A"));
-        terminal.last_content.mode = TermMode::BRACKETED_PASTE;
-        assert!(!terminal.paste_is_unsafe("ls\nrm -rf x\x1b[201~"));
-    }
-
-    #[gpui::test]
-    fn clipboard_access_follows_settings(cx: &mut gpui::TestAppContext) {
-        use std::{cell::RefCell, rc::Rc};
-
-        use alacritty_terminal::term::ClipboardType;
-        use gpui::ClipboardItem;
-
-        use super::Event;
-        use crate::settings::{ClipboardAccess, ClipboardSettings};
-
-        cx.update(|cx| cx.set_global(crate::theme::Theme::default()));
-        let settings = TerminalSettings {
-            clipboard: ClipboardSettings {
-                write: ClipboardAccess::Deny,
-                read: ClipboardAccess::Ask,
-            },
-            ..TerminalSettings::default()
-        };
-        let builder = spawn(&settings);
-        let terminal = cx.new(|_| builder.terminal);
-        let events = Rc::new(RefCell::new(Vec::new()));
-        cx.update(|cx| {
-            let events = events.clone();
-            cx.subscribe(&terminal, move |_, event: &Event, _| {
-                events.borrow_mut().push(event.clone())
-            })
-            .detach()
-        });
-        cx.write_to_clipboard(ClipboardItem::new_string("before".into()));
-        let store =
-            |text: &str| AlacTermEvent::ClipboardStore(ClipboardType::Clipboard, text.into());
-        let clipboard =
-            |cx: &mut gpui::TestAppContext| cx.read_from_clipboard().and_then(|item| item.text());
-
-        terminal.update(cx, |terminal, cx| {
-            terminal.process_event(store("denied"), cx)
-        });
-        assert_eq!(clipboard(cx), Some("before".into()));
-        let load = std::sync::Arc::new(|text: &str| format!("load:{text}"));
-        terminal.update(cx, |terminal, cx| {
-            terminal.process_event(
-                AlacTermEvent::ClipboardLoad(ClipboardType::Clipboard, load),
-                cx,
-            )
-        });
-        cx.run_until_parked();
-        assert_eq!(
-            *events.borrow(),
-            [Event::ClipboardAsk { id: 0, text: None }]
-        );
-
-        terminal.update(cx, |terminal, cx| {
-            terminal.clipboard.write = ClipboardAccess::Ask;
-            terminal.process_event(store("asked"), cx);
-        });
-        cx.run_until_parked();
-        assert_eq!(
-            events.borrow().last(),
-            Some(&Event::ClipboardAsk {
-                id: 1,
-                text: Some("asked".into())
-            })
-        );
-        assert_eq!(clipboard(cx), Some("before".into()));
-        terminal.update(cx, |terminal, cx| terminal.answer_clipboard(1, true, cx));
-        assert_eq!(clipboard(cx), Some("asked".into()));
-        // an answer counts once
-        cx.write_to_clipboard(ClipboardItem::new_string("after".into()));
-        terminal.update(cx, |terminal, cx| terminal.answer_clipboard(1, true, cx));
-        assert_eq!(clipboard(cx), Some("after".into()));
-
-        terminal.update(cx, |terminal, cx| {
-            terminal.clipboard.write = ClipboardAccess::Allow;
-            terminal.process_event(store("allowed"), cx);
-        });
-        assert_eq!(clipboard(cx), Some("allowed".into()));
     }
 
     #[test]
@@ -1321,7 +1045,7 @@ mod tests {
         });
         let mut builder = spawn_with(&TerminalSettings::default(), &profile);
         let terminal = &mut builder.terminal;
-        terminal.input(crate::terminal::InputSource::Keyboard, b"\r".to_vec());
+        terminal.type_text(b"\r");
         let deadline = Instant::now() + Duration::from_secs(15);
         loop {
             // a local change makes `sync` take a snapshot even without new output
@@ -1415,5 +1139,46 @@ mod tests {
             terminal.process_event(AlacTermEvent::ChildExit(status), cx);
             terminal.process_event(AlacTermEvent::Wakeup, cx);
         });
+    }
+
+    #[test]
+    fn clear_drops_history_and_keeps_the_cursor_line() {
+        let profile = profile(Shell::WithArguments {
+            program: "/bin/sh".into(),
+            args: vec!["-c".into(), "seq 1 60; printf 'keep_me'; sleep 5".into()],
+        });
+        let mut builder = spawn_with(&TerminalSettings::default(), &profile);
+        let terminal = &mut builder.terminal;
+        wait_for_text(terminal, "keep_me");
+        assert!(terminal.history_size() > 0);
+        terminal.clear();
+        terminal.sync();
+        assert_eq!(terminal.history_size(), 0);
+        let text = screen_text(terminal);
+        // the line with the cursor, like a prompt and what is typed, moved to the top
+        assert_eq!(
+            text.lines().next().map(str::trim_end),
+            Some("keep_me"),
+            "{text}"
+        );
+        assert!(!text.contains("60"), "{text}");
+    }
+
+    #[test]
+    fn clear_leaves_full_screen_programs_alone() {
+        let profile = profile(Shell::WithArguments {
+            program: "/bin/sh".into(),
+            args: vec![
+                "-c".into(),
+                "printf '\\033[?1049h\\033[5;1Hin_alt'; sleep 5".into(),
+            ],
+        });
+        let mut builder = spawn_with(&TerminalSettings::default(), &profile);
+        let terminal = &mut builder.terminal;
+        wait_for_text(terminal, "in_alt");
+        let before = screen_text(terminal);
+        terminal.clear();
+        terminal.sync();
+        assert_eq!(screen_text(terminal), before);
     }
 }

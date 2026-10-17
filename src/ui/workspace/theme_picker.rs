@@ -5,9 +5,9 @@ use gpui::{AppContext, Context, DismissEvent, Window};
 
 use super::Workspace;
 use crate::{
-    settings::{Command, Inputs, Settings, edit},
+    settings::{Command, Settings, edit},
     theme::{GALLERY, Theme},
-    ui::command_palette::{CommandPalette, Highlighted},
+    ui::dialogs::{CommandPalette, Highlighted},
 };
 
 impl Workspace {
@@ -34,13 +34,7 @@ impl Workspace {
         }
         let items = names
             .into_iter()
-            .map(|name| Command {
-                name,
-                category: None,
-                pinned: false,
-                inputs: Inputs::new(),
-                actions: Vec::new(),
-            })
+            .map(|name| Command::new(name, None, Vec::new()))
             .collect();
         let palette = cx.new(|cx| CommandPalette::picker(items, "pick a theme...", cx));
         self.open_overlay(&palette, window, cx);

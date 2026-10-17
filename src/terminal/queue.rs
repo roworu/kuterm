@@ -93,21 +93,15 @@ impl CommandQueue {
     pub fn ended(&mut self, exit: Option<i32>, stop_on_failure: bool) -> bool {
         // like `&&`: the commands after a failed one would run on a broken state
         let failed = exit.is_some_and(|exit| exit != 0);
-        if failed && stop_on_failure && !self.entries.is_empty() && !self.paused {
-            self.paused = true;
-            return true;
-        }
-        false
+        let pauses = failed && stop_on_failure && !self.entries.is_empty() && !self.paused;
+        self.paused |= pauses;
+        pauses
     }
 
     /// the entry to type at an idle prompt at `now`, an entry waiting for its time holds back
     /// the ones after it
     pub fn take_due(&mut self, now: SystemTime) -> Option<QueueEntry> {
-        if self.paused {
-            return None;
-        }
-        let head = self.entries.front()?;
-        if head.at.is_some_and(|at| at > now) {
+        if self.paused || self.entries.front()?.at.is_some_and(|at| at > now) {
             return None;
         }
         self.entries.pop_front()
@@ -287,6 +281,7 @@ mod tests {
         assert!(queue.remove(c));
         assert!(!queue.remove(c));
         assert!(!queue.edit(99, "x"));
+        assert!(!queue.move_to(99, 0));
         queue.ended(Some(1), true);
         queue.clear();
         assert!(!queue.paused());
@@ -329,10 +324,7 @@ mod tests {
         let bash = with_shell_integration(&profile(Shell::Program("/bin/bash".into())));
         let mut builder = spawn_with(&TerminalSettings::default(), &bash);
         let terminal = &mut builder.terminal;
-        terminal.input(
-            crate::terminal::InputSource::Keyboard,
-            b"echo st_$((1+1)); sleep 1\r".to_vec(),
-        );
+        terminal.type_text(b"echo st_$((1+1)); sleep 1\r");
         wait_for_text(terminal, "st_2");
         terminal.update_queue(|queue| {
             queue.push("echo q_$((2+3))".into(), None);

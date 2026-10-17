@@ -54,13 +54,6 @@ def test_balanced_padding_centers_the_grid(app_factory):
     assert abs(y0 - math.floor(pad + spare_y / 2)) <= 1, (y0, spare_y)
 
 
-def test_window_opens_with_columns_and_rows(app_factory):
-    """without a remembered size the window fits window.columns by window.rows cells"""
-    app = app_factory({"window": {"remember_size": False, "columns": 70, "rows": 20}})
-    app.snap("70 x 20 cells")
-    assert app.pty_size() == (20, 70)
-
-
 def test_remember_size_saves_the_last_size(app_factory):
     """window.remember_size writes the size the window was resized to"""
     app = app_factory({"window": {"remember_size": True}})

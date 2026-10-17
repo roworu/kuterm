@@ -170,10 +170,7 @@ fn binding(action: &str, keys: &str, when: Option<&str>) -> Option<KeyBinding> {
         }
         "rename_pane" => KeyBinding::new(keys, RunAction(CommandAction::RenamePane), when),
         "show_hidden_text" => KeyBinding::new(keys, RunAction(CommandAction::ShowHiddenText), when),
-        "fill_password" => KeyBinding::new(keys, RunAction(CommandAction::FillPassword), when),
         "close_group" => KeyBinding::new(keys, RunAction(CommandAction::CloseGroup), when),
-        "tab_overview" => KeyBinding::new(keys, RunAction(CommandAction::TabOverview), when),
-        "show_topology" => KeyBinding::new(keys, RunAction(CommandAction::ShowTopology), when),
         "pick_theme" => KeyBinding::new(keys, RunAction(CommandAction::PickTheme), when),
         "find_in_all_tabs" => KeyBinding::new(keys, RunAction(CommandAction::FindInAllTabs), when),
         "toggle_broadcast_all" => {
@@ -517,5 +514,64 @@ mod tests {
             let full = config::combine(serde_json_lenient::from_str(json).unwrap());
             assert!(Keybindings::from_full(&full).is_err(), "{json}");
         }
+    }
+
+    #[test]
+    fn keymap_when_names_the_gpui_context() {
+        let full = config::combine(
+            serde_json_lenient::from_str(
+                r#"{"keymap": [
+                {"keys": "ctrl-alt-1", "action": "new_tab", "when": "search"},
+                {"keys": "ctrl-alt-2", "action": "new_tab", "when": "palette"},
+                {"keys": "ctrl-alt-3", "action": "new_tab", "when": "vi_mode"},
+            ]}"#,
+            )
+            .unwrap(),
+        );
+        let bindings = Keybindings::from_full(&full).unwrap().bindings();
+        let contexts: Vec<String> = bindings[bindings.len() - 3..]
+            .iter()
+            .map(|binding| binding.predicate().unwrap().to_string())
+            .collect();
+        let want: Vec<String> = ["Search", "CommandPalette", "Terminal && vi_mode"]
+            .iter()
+            .map(|source| {
+                gpui::KeyBindingContextPredicate::parse(source)
+                    .unwrap()
+                    .to_string()
+            })
+            .collect();
+        assert_eq!(contexts, want);
+    }
+
+    #[test]
+    fn actions_unbound_by_default_bind_when_given_keys() {
+        // these have no default keys, so only a user's binding reaches them
+        let keys = Keybindings::parse(
+            r#"{"select_last_output": "ctrl-alt-o", "new_incognito_tab": "ctrl-alt-i"}"#,
+        )
+        .unwrap();
+        let actions: Vec<CommandAction> = keys
+            .bindings()
+            .iter()
+            .filter_map(|binding| binding.action().as_any().downcast_ref::<RunAction>())
+            .map(|action| action.0.clone())
+            .collect();
+        assert!(
+            actions.contains(&CommandAction::SelectLastOutput),
+            "{actions:?}"
+        );
+        assert!(
+            actions.contains(&CommandAction::NewIncognitoTab),
+            "{actions:?}"
+        );
+    }
+
+    #[test]
+    fn settings_without_keymap_have_no_entries() {
+        let full = serde_json_lenient::json!({"keybindings": {"new_tab": "ctrl-shift-t"}});
+        let keys = Keybindings::from_full(&full).unwrap();
+        assert!(keys.1.is_empty());
+        assert_eq!(keys.bindings().len(), 1);
     }
 }

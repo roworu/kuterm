@@ -4,10 +4,9 @@
 use std::{cell::RefCell, collections::HashMap, ops::Range, sync::LazyLock};
 
 use gpui::{
-    AnyElement, App, Bounds, ClickEvent, Context, CursorStyle, DispatchPhase, Div, DragMoveEvent,
-    ExternalPaths, KeyDownEvent, ModifiersChangedEvent, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, PlatformInput, Point, ScrollHandle, Stateful, StyleRefinement,
-    Window, anchored, canvas, deferred, div, prelude::*, px, relative, rems,
+    AnyElement, App, ClickEvent, Context, Div, DragMoveEvent, Entity, Focusable, KeyDownEvent,
+    MouseButton, MouseDownEvent, ScrollHandle, Stateful, Window, anchored, deferred, div,
+    prelude::*, px, rems,
 };
 use skrifa::{
     FontRef, MetadataProvider,
@@ -15,35 +14,27 @@ use skrifa::{
 };
 
 use super::{
-    DropSide, LayoutNode, Pane, SplitAxis, Workspace,
+    Workspace,
     end_truncated::EndTruncated,
     groups::{TabDrop, group_line},
-    tab_title::{self, Piece},
-    window::{client_frame, shows_tab_bar},
+    tab_title::{self},
 };
 use crate::{
-    settings::{BellTarget, Decorations, NewTabButton, Settings, TabTitleAlign},
-    terminal::CPU_HISTORY,
+    settings::{BellTarget, Settings, TabTitleAlign},
     theme::Theme,
-    ui::terminal_view::open_link,
+    ui::{terminal_view::open_link, text_input::TextInput},
 };
 
 // tab bar text size in rems, the icon offset is scaled by it
-const TEXT_SIZE: f32 = 0.875;
+pub(super) const TEXT_SIZE: f32 = 0.875;
 
 /// status bar height in rems
 pub(super) const STATUS_BAR_HEIGHT: f32 = 1.5;
-// status bar text size in rems, smaller than the tabs so the bar stays quiet
-const STATUS_TEXT_SIZE: f32 = 0.75;
-
 // nerd font bell, shown on a background tab that rang
-const BELL_ICON: &str = "\u{f0f3}";
-
-// narrowest a divider is to grab, a thinner one is widened by an invisible handle
-const DIVIDER_GRAB: f32 = 6.;
+pub(super) const BELL_ICON: &str = "\u{f0f3}";
 
 /// how far `icon` must move down, in ems, for its lowest point to stand on the baseline
-fn icon_drop(icon: &str) -> f32 {
+pub(super) fn icon_drop(icon: &str) -> f32 {
     // every tab asks on every frame with output, and there are only a few distinct icons
     thread_local! {
         static DROPS: RefCell<HashMap<String, f32>> = RefCell::default();
@@ -58,7 +49,7 @@ fn icon_drop(icon: &str) -> f32 {
     })
 }
 
-fn measure_icon_drop(icon: &str) -> f32 {
+pub(super) fn measure_icon_drop(icon: &str) -> f32 {
     // nerd font icons are centered on the line, not set on the baseline like letters.
     // gpui can't measure glyph outlines on linux, so they are read from the bundled font
     static FONT: LazyLock<Option<FontRef<'static>>> =
@@ -76,37 +67,6 @@ fn measure_icon_drop(icon: &str) -> f32 {
         .map(|bounds| bounds.y_min)
         .reduce(f32::min)
         .map_or(0., |y_min| y_min / units_per_em)
-}
-
-/// cpu graph as thin bars, newest on the right. older bars fade, busier ones turn from green
-/// to yellow to red, and slots without samples yet are a flat line
-fn graph_bars(graph: &[f32], theme: &Theme) -> Div {
-    let empty = CPU_HISTORY.saturating_sub(graph.len());
-    let newest = &graph[graph.len().saturating_sub(CPU_HISTORY)..];
-    let bar = || div().flex_none().w(px(3.)).rounded_t(px(1.));
-    let bars = newest.iter().enumerate().map(|(ix, &value)| {
-        let color = match value {
-            v if v < 0.5 => theme.ansi[2],
-            v if v < 0.8 => theme.ansi[3],
-            _ => theme.ansi[1],
-        };
-        let age = (empty + ix) as f32 / (CPU_HISTORY - 1).max(1) as f32;
-        bar()
-            .h(relative(value.max(0.08)))
-            .bg(color.opacity(0.35 + 0.65 * age))
-    });
-    div()
-        .flex()
-        .items_end()
-        .gap(px(1.))
-        .h(rems(0.9))
-        .px(px(2.))
-        .pt(px(2.))
-        .rounded_sm()
-        // a faint track, so the graph reads as one widget even while idle
-        .bg(theme.text_muted.opacity(0.1))
-        .children((0..empty).map(|_| bar().h(px(1.)).bg(theme.border)))
-        .children(bars)
 }
 
 /// floating menu at the pointer, closed by a click anywhere else
@@ -140,8 +100,48 @@ pub(super) fn menu_item(
         .child(label.to_owned())
 }
 
+/// focused input holding `text`, for a tab or group name
+pub(super) fn rename_input(
+    placeholder: &'static str,
+    text: String,
+    window: &mut Window,
+    cx: &mut Context<Workspace>,
+) -> Entity<TextInput> {
+    let input = cx.new(|cx| {
+        let mut input = TextInput::new(placeholder, cx);
+        input.set_content(text, cx);
+        input
+    });
+    input.focus_handle(cx).focus(window, cx);
+    input
+}
+
+/// field a tab or group name is typed into: enter keeps it, escape drops it, a click
+/// elsewhere keeps it. `finish` gets whether to keep it
+pub(super) fn rename_field(
+    input: Entity<TextInput>,
+    finish: fn(&mut Workspace, bool, &mut Window, &mut Context<Workspace>),
+    cx: &Context<Workspace>,
+) -> Div {
+    div()
+        .min_w(rems(6.))
+        .on_key_down(cx.listener(move |this, event: &KeyDownEvent, window, cx| {
+            let keep = match event.keystroke.key.as_str() {
+                "enter" => true,
+                "escape" => false,
+                _ => return,
+            };
+            finish(this, keep, window, cx);
+            cx.stop_propagation();
+        }))
+        // clicks in the field move its caret, they don't pick or drag the tab
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .on_mouse_down_out(cx.listener(move |this, _, window, cx| finish(this, true, window, cx)))
+        .child(input)
+}
+
 /// row holding the tabs, fills the bar next to the new tab button
-fn tab_row(scroll: &ScrollHandle) -> Stateful<Div> {
+pub(super) fn tab_row(scroll: &ScrollHandle) -> Stateful<Div> {
     div()
         .id("tabs")
         .flex()
@@ -156,7 +156,7 @@ fn tab_row(scroll: &ScrollHandle) -> Stateful<Div> {
 
 /// title text with `icon` drawn at each byte offset of `icon_at`, the link modifier and a click
 /// on a port of `ports_at` opens it
-fn title_with_icons(
+pub(super) fn title_with_icons(
     ix: usize,
     title: &str,
     icon: &str,
@@ -230,7 +230,7 @@ fn title_with_icons(
 
 /// tab sized from settings, with its title and icons
 #[cfg(test)]
-fn tab(
+pub(super) fn tab(
     ix: usize,
     title: &str,
     icon: &str,
@@ -247,7 +247,7 @@ fn tab(
 }
 
 /// tab sized from settings around `content`, a compact one only as wide as its content
-fn tab_with(
+pub(super) fn tab_with(
     ix: usize,
     content: impl IntoElement,
     compact: bool,
@@ -320,30 +320,6 @@ impl Render for DraggedTab {
     }
 }
 
-/// divider handle, dragged to resize a split. the preview it draws is never seen
-#[derive(Clone)]
-struct SplitDrag;
-
-impl Render for SplitDrag {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        div()
-    }
-}
-
-/// translucent half pane showing where a dropped tab splits
-fn drop_overlay(side: DropSide, theme: &Theme) -> AnyElement {
-    div()
-        .absolute()
-        .bg(theme.text.opacity(0.15))
-        .map(|overlay| match side {
-            DropSide::Left => overlay.top_0().bottom_0().left_0().w(relative(0.5)),
-            DropSide::Right => overlay.top_0().bottom_0().right_0().w(relative(0.5)),
-            DropSide::Top => overlay.left_0().right_0().top_0().h(relative(0.5)),
-            DropSide::Bottom => overlay.left_0().right_0().bottom_0().h(relative(0.5)),
-        })
-        .into_any_element()
-}
-
 impl Workspace {
     /// title shown for tab `ix` of pane `pane_id`, also listed by the tab picker
     pub(super) fn tab_title(&self, pane_id: usize, ix: usize, cx: &App) -> String {
@@ -364,7 +340,7 @@ impl Workspace {
         }
     }
 
-    fn render_tab(&self, pane: usize, ix: usize, cx: &Context<Self>) -> Stateful<Div> {
+    pub(super) fn render_tab(&self, pane: usize, ix: usize, cx: &Context<Self>) -> Stateful<Div> {
         let is_active = self.pane(pane).is_some_and(|state| ix == state.active);
         let settings = Settings::get(cx);
         let title = tab_title::spin(&self.tab_title(pane, ix, cx), self.spinner_frame);
@@ -411,26 +387,11 @@ impl Workspace {
         };
         // a spinner frame has the same length, so the ranges still fit
         let content = match renaming {
-            Some(input) => div()
+            Some(input) => rename_field(input, Workspace::finish_rename, cx)
                 .id(("rename-tab", ix))
                 .debug_selector(move || format!("rename-tab-{ix}"))
                 .flex_1()
-                .min_w(rems(6.))
-                .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-                    match event.keystroke.key.as_str() {
-                        "enter" => this.finish_rename(true, window, cx),
-                        "escape" => this.finish_rename(false, window, cx),
-                        _ => return,
-                    }
-                    cx.stop_propagation();
-                }))
-                // clicks in the field move its caret, they don't pick or drag the tab
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(|_, _, cx| cx.stop_propagation())
-                .on_mouse_down_out(
-                    cx.listener(|this, _, window, cx| this.finish_rename(true, window, cx)),
-                )
-                .child(input)
                 .into_any_element(),
             None => title_with_icons(ix, &title, &icon, &icon_at, &ports_at).into_any_element(),
         };
@@ -619,7 +580,7 @@ impl Workspace {
     }
 
     /// "+" button of pane `pane_id`, opening a new tab there
-    fn render_new_tab_button(&self, pane: usize, cx: &Context<Self>) -> Stateful<Div> {
+    pub(super) fn render_new_tab_button(&self, pane: usize, cx: &Context<Self>) -> Stateful<Div> {
         let theme = Theme::get(cx);
         let has_profiles = Settings::get(cx).profiles.len() > 1;
         div()
@@ -655,347 +616,7 @@ impl Workspace {
             })
     }
 
-    /// one pane: its tab row on top and its active terminal below
-    fn render_pane(&self, pane: &Pane, cx: &Context<Self>) -> AnyElement {
-        let settings = Settings::get(cx);
-        let theme = Theme::get(cx);
-        let pane_id = pane.id;
-        let show_bar = shows_tab_bar(settings, pane.tabs.len());
-        let flash = pane
-            .tabs
-            .get(pane.active)
-            .and_then(|tab| tab.view.read(cx).bell_color(cx))
-            .filter(|_| settings.bell.visual.target == BellTarget::Tab);
-        let framed = settings.window.decorations == Decorations::Server;
-        // fixed width tabs only take the room they need, so the button follows the last one.
-        // expanded tabs fill the row anyway, which puts the button at the right end.
-        // without a frame the room after the tabs is left free for moving the window
-        let hug_tabs = (settings.new_tab_button == NewTabButton::AfterTabs || !framed)
-            && !settings.expand_tabs;
-        let tab_row = tab_row(&pane.tab_scroll)
-            .when(hug_tabs, |row| row.flex_initial())
-            .children((0..pane.tabs.len()).flat_map(|ix| {
-                // a group's chip goes before its first tab, a collapsed group hides its tabs
-                let chip = self.render_group_chip(pane_id, ix, cx);
-                let tab = (!self.hidden_in_group(pane_id, ix))
-                    .then(|| self.render_tab(pane_id, ix, cx).into_any_element());
-                chip.into_iter().chain(tab)
-            }));
-        let new_tab = self.render_new_tab_button(pane_id, cx);
-        let drag_area = (!framed).then(|| self.render_drag_area(pane_id, cx));
-        let bar = div()
-            .flex()
-            .flex_none()
-            .h(rems(2.))
-            .bg(theme.tab_bar_background)
-            .border_b_1()
-            .border_color(theme.border)
-            .map(|bar| match settings.new_tab_button {
-                NewTabButton::Left => bar.child(new_tab).child(tab_row).children(drag_area),
-                NewTabButton::Right => bar.child(tab_row).children(drag_area).child(new_tab),
-                NewTabButton::AfterTabs => bar.child(tab_row).child(new_tab).children(drag_area),
-            })
-            // the menu bar is the top row when shown, so the buttons go there instead
-            .when(
-                settings.window.decorations == Decorations::Client
-                    && !settings.window.menu_bar.shown()
-                    && self.layout.corner_pane_id() == Some(pane_id),
-                |bar| bar.child(self.render_window_buttons(cx)),
-            );
-        // only a pane without focus next to others is dimmed
-        let dim =
-            if pane_id != self.focused && self.zoomed.is_none() && self.layout.pane_ids().len() > 1
-            {
-                settings.panes.dim_inactive
-            } else {
-                0.
-            };
-        let zone = self
-            .drop_zone
-            .filter(|(id, _)| *id == pane_id)
-            .map(|(_, side)| side);
-        let terminal = div()
-            .debug_selector(move || format!("pane-terminal-{pane_id}"))
-            .flex_1()
-            .min_h_0()
-            .relative()
-            // drops land on the terminal area, so dropping on the tab row only reorders
-            .on_drag_move::<DraggedTab>(cx.listener(
-                move |this, event: &DragMoveEvent<DraggedTab>, _, cx| {
-                    this.update_drop_zone(pane_id, event.event.position, event.bounds, cx);
-                },
-            ))
-            .on_drop(cx.listener(move |this, dragged: &DraggedTab, window, cx| {
-                this.drop_tab_on_pane(pane_id, dragged.pane, dragged.ix, window, cx);
-            }))
-            // files from other apps are typed into the pane they land on, which takes focus
-            .on_drop(cx.listener(move |this, paths: &ExternalPaths, window, cx| {
-                this.focus_pane(pane_id, window, cx);
-                if let Some(pane) = this.pane(pane_id)
-                    && let Some(tab) = pane.tabs.get(pane.active)
-                {
-                    tab.view.update(cx, |view, cx| view.drop_paths(paths, cx));
-                }
-            }))
-            // cached, so output or a redraw in one pane does not lay out the grids of the others
-            .children(pane.tabs.get(pane.active).map(|tab| {
-                // gpui only redraws a cached view on notify while the window tracks it, and a
-                // reused cache forgets views the workspace read earlier in the frame
-                tab.view.read(cx);
-                tab.view
-                    .clone()
-                    .cached(StyleRefinement::default().size_full())
-            }))
-            // a hidden tab bar has no tab to flash, the pane edges stay out of the way of text
-            .when_some(flash.filter(|_| !show_bar), |terminal, flash| {
-                terminal.child(div().absolute().inset_0().border_2().border_color(flash))
-            })
-            .when_some(zone, |terminal, side| {
-                terminal.child(drop_overlay(side, theme))
-            })
-            // joined panes say so loudly, typing here reaches the others too
-            .when(self.broadcasts(pane_id), |terminal| {
-                terminal.child(
-                    div()
-                        .debug_selector(move || format!("pane-broadcast-{pane_id}"))
-                        .absolute()
-                        .inset_0()
-                        .border_2()
-                        .border_color(theme.danger_button)
-                        .child(
-                            div()
-                                .absolute()
-                                .top_0()
-                                .right_0()
-                                .px_2()
-                                .rounded_bl_md()
-                                .bg(theme.danger_button)
-                                .text_color(theme.danger_button_text)
-                                .text_sm()
-                                .child("⇶ broadcast"),
-                        ),
-                )
-            })
-            .children(self.render_queue_list(pane, cx))
-            .children(self.render_pty_banner(pane, cx))
-            .children(self.render_profile_frame(pane, cx))
-            .when(self.scroll_synced(pane_id), |terminal| {
-                terminal.child(
-                    div()
-                        .debug_selector(move || format!("pane-scroll-sync-{pane_id}"))
-                        .absolute()
-                        .bottom_0()
-                        .right_0()
-                        .px_2()
-                        .rounded_tl_md()
-                        .bg(theme.tab_active_background)
-                        .text_color(theme.text_muted)
-                        .text_sm()
-                        .child("⇅ synced"),
-                )
-            })
-            .when(dim > 0., |terminal| {
-                // deferred, since the cached terminal view would otherwise paint over it
-                terminal.child(
-                    div()
-                        .debug_selector(move || format!("pane-dim-{pane_id}"))
-                        .absolute()
-                        .top_0()
-                        .left_0()
-                        .right_0()
-                        .bottom_0()
-                        .bg(gpui::black().opacity(dim)),
-                )
-            });
-        div()
-            .id(("pane", pane_id))
-            .relative()
-            .flex()
-            .flex_col()
-            .size_full()
-            .min_w_0()
-            .min_h_0()
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |this, _, window, cx| {
-                    this.focus_pane(pane_id, window, cx);
-                }),
-            )
-            .when(settings.focus_follows_mouse, |pane| {
-                pane.on_mouse_move(
-                    cx.listener(move |this, event: &MouseMoveEvent, window, cx| {
-                        if event.pressed_button.is_none() && !cx.has_active_drag() {
-                            this.hover_pane(pane_id, window, cx);
-                        }
-                    }),
-                )
-            })
-            .when(show_bar, |pane| pane.child(bar))
-            .child(terminal)
-            .into_any_element()
-    }
-
-    /// one split: two children side by side or stacked, with a draggable divider
-    fn render_split(
-        &self,
-        axis: SplitAxis,
-        ratio: f32,
-        first: &LayoutNode,
-        second: &LayoutNode,
-        split_path: &[bool],
-        cx: &Context<Self>,
-    ) -> AnyElement {
-        let mut first_path = split_path.to_vec();
-        first_path.push(false);
-        let mut second_path = split_path.to_vec();
-        second_path.push(true);
-        let theme = Theme::get(cx);
-        let width = Settings::get(cx).panes.divider_width;
-        let grab = width.max(DIVIDER_GRAB);
-        // centered on the divider, so it reaches into both panes
-        let handle = div()
-            .id(format!("divider-{split_path:?}"))
-            .debug_selector(|| "divider".into())
-            .absolute()
-            .map(|handle| match axis {
-                SplitAxis::Horizontal => handle
-                    .top_0()
-                    .h_full()
-                    .w(px(grab))
-                    .left(px((width - grab) / 2.))
-                    .cursor(CursorStyle::ResizeLeftRight),
-                SplitAxis::Vertical => handle
-                    .left_0()
-                    .w_full()
-                    .h(px(grab))
-                    .top(px((width - grab) / 2.))
-                    .cursor(CursorStyle::ResizeUpDown),
-            })
-            .on_drag(SplitDrag, |_, _, _, cx| cx.new(|_| SplitDrag));
-        let divider = div()
-            .flex_none()
-            .relative()
-            .bg(theme.border)
-            .map(|divider| match axis {
-                SplitAxis::Horizontal => divider.w(px(width)).h_full(),
-                SplitAxis::Vertical => divider.h(px(width)).w_full(),
-            })
-            .child(handle);
-        let path = split_path.to_vec();
-        div()
-            .flex()
-            .map(|split| match axis {
-                SplitAxis::Horizontal => split.flex_row(),
-                SplitAxis::Vertical => split.flex_col(),
-            })
-            .size_full()
-            .min_w_0()
-            .min_h_0()
-            // fires for the whole split while its divider is dragged
-            .on_drag_move::<SplitDrag>(cx.listener(
-                move |this, event: &DragMoveEvent<SplitDrag>, _, cx| {
-                    let bounds = event.bounds;
-                    let position = event.event.position;
-                    let ratio = match axis {
-                        SplitAxis::Horizontal => (position.x - bounds.left()) / bounds.size.width,
-                        SplitAxis::Vertical => (position.y - bounds.top()) / bounds.size.height,
-                    };
-                    this.resize_split(&path, ratio, cx);
-                },
-            ))
-            .child(
-                div()
-                    .flex_grow(ratio)
-                    .flex_shrink(1.)
-                    .flex_basis(relative(0.))
-                    .min_w_0()
-                    .min_h_0()
-                    .child(self.render_layout(first, &first_path, cx)),
-            )
-            .child(divider)
-            .child(
-                div()
-                    .flex_grow(1. - ratio)
-                    .flex_shrink(1.)
-                    .flex_basis(relative(0.))
-                    .min_w_0()
-                    .min_h_0()
-                    .child(self.render_layout(second, &second_path, cx)),
-            )
-            .into_any_element()
-    }
-
-    /// draw the pane tree, `path` points at `node` so a split can be found again when resized
-    fn render_layout(&self, node: &LayoutNode, path: &[bool], cx: &Context<Self>) -> AnyElement {
-        match node {
-            LayoutNode::Leaf(pane) => self.render_pane(pane, cx),
-            LayoutNode::Split {
-                axis,
-                ratio,
-                first,
-                second,
-            } => self.render_split(*axis, *ratio, first, second, path, cx),
-            LayoutNode::Empty => div().into_any_element(),
-        }
-    }
-
-    /// profile list opened with a right click on "+", picking one opens a tab with it
-    /// bar under the panes with the status pieces of the active tab on both sides
-    fn render_status_bar(&self, cx: &Context<Self>) -> Stateful<Div> {
-        let theme = Theme::get(cx);
-        let side = |name: &'static str, pieces: &[Piece]| {
-            let items = pieces
-                .iter()
-                .enumerate()
-                // a space between two ports is a gap here
-                .filter(|(_, piece)| !piece.text.trim().is_empty())
-                .map(|(ix, piece)| {
-                    let item = div().id((name, ix)).flex_none().whitespace_nowrap();
-                    let item = match &piece.graph {
-                        Some(graph) => item.child(graph_bars(graph, theme)),
-                        None => item.child(tab_title::spin(&piece.text, self.spinner_frame)),
-                    };
-                    match piece.click {
-                        Some(click) => item
-                            .debug_selector(move || format!("status-{click:?}"))
-                            .cursor_pointer()
-                            .hover(|item| item.underline())
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.status_clicked(click, window, cx)
-                            })),
-                        None => item,
-                    }
-                });
-            div()
-                .flex()
-                .items_center()
-                .gap_3()
-                .min_w_0()
-                .overflow_hidden()
-                .children(items)
-        };
-        div()
-            .id("status-bar")
-            .debug_selector(|| "status-bar".into())
-            .flex()
-            .flex_none()
-            .items_center()
-            .justify_between()
-            .gap_6()
-            .w_full()
-            .h(rems(STATUS_BAR_HEIGHT))
-            .px_3()
-            .bg(theme.tab_bar_background)
-            .border_t_1()
-            .border_color(theme.border)
-            .text_size(rems(STATUS_TEXT_SIZE))
-            .text_color(theme.text_muted)
-            .hover(|bar| bar.text_color(theme.text))
-            .child(side("status-left", &self.status[0]))
-            .child(side("status-right", &self.status[1]))
-    }
-
-    fn render_profile_menu(&self, cx: &Context<Self>) -> Option<AnyElement> {
+    pub(super) fn render_profile_menu(&self, cx: &Context<Self>) -> Option<AnyElement> {
         let (pane, position) = self.profile_menu?;
         let theme = Theme::get(cx);
         let items = Settings::get(cx)
@@ -1021,201 +642,39 @@ impl Workspace {
             deferred(anchored().position(position).snap_to_window().child(menu)).into_any_element(),
         )
     }
-
-    /// command palette, about page, close tab or paste dialog, centered near the top like in zed
-    fn render_overlay(&self, cx: &App) -> Option<AnyElement> {
-        // the tab overview covers the whole window
-        if let Some(overview) = &self.overview {
-            return Some(deferred(overview.clone()).into_any_element());
-        }
-        if let Some(topology) = &self.topology {
-            return Some(deferred(topology.clone()).into_any_element());
-        }
-        let view = match (
-            &self.palette,
-            &self.about,
-            &self.confirm_close,
-            &self.confirm_paste,
-            &self.command_input,
-        ) {
-            (Some(palette), _, _, _, _) => palette.clone().into_any_element(),
-            (_, Some(about), _, _, _) => about.clone().into_any_element(),
-            (_, _, Some(confirm), _, _) => confirm.clone().into_any_element(),
-            (_, _, _, Some(paste), _) => paste.clone().into_any_element(),
-            (_, _, _, _, Some(input)) => input.clone().into_any_element(),
-            _ => return None,
-        };
-        Some(
-            deferred(
-                div()
-                    .absolute()
-                    .top_0()
-                    .left_0()
-                    .size_full()
-                    .flex()
-                    .justify_center()
-                    .items_start()
-                    // a gap below the bars, the menu bar and a tab bar together would
-                    // otherwise end right where it starts
-                    .pt(rems((self.top_bars_height(cx) + 2.).max(4.)))
-                    .child(view),
-            )
-            .into_any_element(),
-        )
-    }
-}
-
-impl Render for Workspace {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // size blocks follow resizes right away, not on the next timed refresh
-        let size = self.active_size(cx);
-        if size != self.titled_size {
-            self.titled_size = size;
-            self.refresh_titles();
-        }
-        let settings = Settings::get(cx);
-        let theme = Theme::get(cx);
-        // ui scales in rems of the ui font size
-        window.set_rem_size(px(settings.ui_font_size));
-        let layout = match self.zoomed.and_then(|id| self.pane(id)) {
-            Some(pane) => self.render_pane(pane, cx),
-            None => self.render_layout(&self.layout, &[], cx),
-        };
-        // a terminal view only animates its own flash, and not at all in a background tab
-        if settings.bell.visual.target == BellTarget::Tab
-            && self
-                .layout
-                .panes()
-                .into_iter()
-                .flat_map(|pane| &pane.tabs)
-                .any(|tab| tab.view.read(cx).bell_color(cx).is_some())
-        {
-            window.request_animation_frame();
-        }
-        // its own row above the panes, each pane has its own tab bar but the menus belong to
-        // the whole window
-        let menu_bar = settings.window.menu_bar.shown();
-        let workspace = div()
-            .key_context("Workspace")
-            // remembered while dragging, the drop outside the window has no drag value to read
-            .on_drag_move::<DraggedTab>(cx.listener(
-                |this, event: &DragMoveEvent<DraggedTab>, _, cx| {
-                    let dragged = event.drag(cx);
-                    this.tab_drag = Some((dragged.pane, dragged.ix));
-                },
-            ))
-            .on_mouse_up_out(
-                MouseButton::Left,
-                cx.listener(|this, event: &MouseUpEvent, window, cx| {
-                    let dragged = this.tab_drag.take();
-                    let outside = !Bounds::new(Point::default(), window.viewport_size())
-                        .contains(&event.position);
-                    if let Some((pane, ix)) = dragged
-                        && outside
-                        && cx.has_active_drag()
-                    {
-                        this.tab_dropped_outside(pane, ix, event.position, window, cx);
-                    }
-                }),
-            )
-            .on_mouse_up(
-                MouseButton::Left,
-                cx.listener(|this, _, _, _| this.tab_drag = None),
-            )
-            .on_action(cx.listener(Self::new_tab))
-            .on_action(cx.listener(Self::close_tab))
-            .on_action(cx.listener(Self::next_tab))
-            .on_action(cx.listener(Self::activate_tab_action))
-            .on_action(cx.listener(Self::toggle_command_palette))
-            .on_action(cx.listener(Self::toggle_fullscreen))
-            .on_action(cx.listener(Self::open_about))
-            .on_action(cx.listener(Self::quit_action))
-            .on_action(cx.listener(Self::minimize))
-            .on_action(cx.listener(Self::zoom))
-            .on_action(cx.listener(Self::run_action))
-            .on_action(cx.listener(Self::run_named_command))
-            .when(menu_bar, |workspace| {
-                workspace
-                    .capture_key_down(cx.listener(|this, _, _, cx| {
-                        this.menu_bar.update(cx, |bar, _| bar.key_pressed());
-                    }))
-                    .on_modifiers_changed(cx.listener(
-                        |this, event: &ModifiersChangedEvent, window, cx| {
-                            this.menu_bar.update(cx, |bar, cx| {
-                                bar.modifiers_changed(&event.modifiers, window, cx)
-                            });
-                        },
-                    ))
-            })
-            .relative()
-            .size_full()
-            .flex()
-            .flex_col()
-            .bg(theme.terminal_background.opacity(settings.window.opacity))
-            .font_family(settings.ui_font_family.clone())
-            .text_size(rems(TEXT_SIZE))
-            .when(self.shows_top_row(cx), |workspace| {
-                workspace.child(self.render_menu_row(cx))
-            })
-            .child(layout)
-            .when(settings.status_bar.enable, |workspace| {
-                workspace.child(self.render_status_bar(cx))
-            })
-            .children(self.render_profile_menu(cx))
-            .children(self.render_tab_menu(cx))
-            .children(self.render_group_menu(cx))
-            .children(self.render_notifications(cx))
-            .children(self.render_overlay(cx))
-            .child(canvas(
-                |_, _, _| {},
-                |_, _, window, _| track_file_drags(window),
-            ));
-        client_frame(workspace, window, cx)
-    }
-}
-
-// gpui leaves the window in keyboard mode when a file is dragged in after typing, so nothing
-// counts as hovered and the drop is ignored. a mouse move puts it back in mouse mode
-fn track_file_drags(window: &mut Window) {
-    window.on_mouse_event(|event: &MouseMoveEvent, phase, window, cx| {
-        if phase != DispatchPhase::Capture
-            || !window.last_input_was_keyboard()
-            || !cx.has_active_drag()
-        {
-            return;
-        }
-        let event = event.clone();
-        // events can't be dispatched while one is being handled
-        window.defer(cx, move |window, cx| {
-            window.dispatch_event(PlatformInput::MouseMove(event), cx);
-        });
-    });
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::ui::workspace::test_support::*;
     use gpui::{
         Bounds, Pixels, ScrollDelta, ScrollWheelEvent, TestAppContext, VisualTestContext, point,
         size,
     };
-
-    use super::*;
 
     /// tab row alone, so layout can be checked without spawning shells
     struct TabRow {
         titles: Vec<String>,
         icon: String,
         icon_at: Vec<usize>,
+        ports_at: Vec<(Range<usize>, u16)>,
         settings: Settings,
         scroll: ScrollHandle,
     }
 
     impl Render for TabRow {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-            let tabs =
-                self.titles.iter().enumerate().map(|(ix, title)| {
-                    tab(ix, title, &self.icon, &self.icon_at, &[], &self.settings)
-                });
+            let tabs = self.titles.iter().enumerate().map(|(ix, title)| {
+                tab(
+                    ix,
+                    title,
+                    &self.icon,
+                    &self.icon_at,
+                    &self.ports_at,
+                    &self.settings,
+                )
+            });
             div().size_full().flex().text_size(rems(TEXT_SIZE)).child(
                 div()
                     .flex()
@@ -1237,6 +696,7 @@ mod tests {
             titles: (1..=count).map(|n| format!("tab {n}")).collect(),
             icon: "I".into(),
             icon_at: vec![0],
+            ports_at: Vec::new(),
             settings,
             scroll: ScrollHandle::new(),
         });
@@ -1467,5 +927,146 @@ mod tests {
         let drop = px(icon_drop("\u{e795}") * TEXT_SIZE * 16.);
         assert!(drop > px(0.));
         assert_close(icon_bounds(cx).top(), text_bounds(cx).top() + drop);
+    }
+
+    #[gpui::test]
+    fn tab_icon_follows_running_program(cx: &mut TestAppContext) {
+        let (before, during) =
+            icon_while_sleeping(cx, r#"{"icons": {"dynamic": true, "default": "D"}}"#);
+        assert_eq!(before, "D");
+        assert_eq!(during, "S");
+    }
+
+    #[gpui::test]
+    fn disabled_dynamic_icon_stays_default(cx: &mut TestAppContext) {
+        let (before, during) =
+            icon_while_sleeping(cx, r#"{"icons": {"dynamic": false, "default": "D"}}"#);
+        assert_eq!(before, "D");
+        assert_eq!(during, "D");
+    }
+
+    #[gpui::test]
+    fn icon_sits_where_its_block_is(cx: &mut TestAppContext) {
+        let settings =
+            Settings::parse(r#"{"tab_title": [{"text": "a"}, "icon", {"text": "bc"}]}"#).unwrap();
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        let tab = |cx: &mut VisualTestContext| {
+            ws.update(cx, |ws, _| {
+                let tab = &ws.focused_pane().tabs[0];
+                (tab.title.clone(), tab.icon_at.clone())
+            })
+        };
+        wait_until(cx, "title never built", |cx| tab(cx).0 == "abc");
+        assert_eq!(tab(cx).1, [1]);
+    }
+
+    #[gpui::test]
+    fn profile_icon_never_changes(cx: &mut TestAppContext) {
+        let (before, during) = icon_while_sleeping(
+            cx,
+            r#"{"icons": {"dynamic": true, "default": "D"},
+                "profiles": [{"name": "p", "command": "system", "icon": "P"}]}"#,
+        );
+        assert_eq!(before, "P");
+        assert_eq!(during, "P");
+    }
+
+    #[gpui::test]
+    fn middle_click_closes_tab(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 3);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        cx.run_until_parked();
+        let old = views(&ws, cx);
+        let title = cx.debug_bounds("tab-title-1").unwrap().center();
+        cx.simulate_event(MouseDownEvent {
+            position: title,
+            modifiers: Modifiers::default(),
+            button: MouseButton::Middle,
+            click_count: 1,
+            first_mouse: false,
+        });
+        cx.run_until_parked();
+        assert_eq!(views(&ws, cx), vec![old[0], old[2]]);
+    }
+
+    #[gpui::test]
+    fn single_profile_has_no_menu(cx: &mut TestAppContext) {
+        let (ws, cx) = open_profiles(cx, r#"{"name": "only", "command": "system"}"#);
+        assert!(cx.debug_bounds("profile-hint").is_none());
+        let plus = cx.debug_bounds("new-tab").unwrap().center();
+        right_click(cx, plus);
+        assert!(!menu_open(&ws, cx));
+        assert!(cx.debug_bounds("profile-0").is_none());
+        assert_eq!(views(&ws, cx).len(), 1);
+    }
+
+    #[gpui::test]
+    fn right_click_on_plus_opens_picked_profile(cx: &mut TestAppContext) {
+        let (ws, cx) = open_profiles(
+            cx,
+            r#"{"name": "main", "default": true, "command": "system"},
+               {"name": "other", "command": {"with_arguments": {
+                   "program": "/bin/sh", "args": ["-c", "echo \"from_$PICKED\"; sleep 5"]}},
+                "env": {"PICKED": "other"}}"#,
+        );
+        assert!(cx.debug_bounds("profile-hint").is_some());
+        let plus = cx.debug_bounds("new-tab").unwrap().center();
+
+        // a click outside closes the menu without a new tab
+        right_click(cx, plus);
+        assert!(menu_open(&ws, cx));
+        assert!(cx.debug_bounds("profile-1").is_some());
+        let outside = point(gpui::px(450.), gpui::px(400.));
+        click(cx, outside, 1);
+        release(cx, outside);
+        cx.run_until_parked();
+        assert!(!menu_open(&ws, cx));
+        assert_eq!(views(&ws, cx).len(), 1);
+
+        right_click(cx, plus);
+        let item = cx.debug_bounds("profile-1").unwrap().center();
+        click(cx, item, 1);
+        release(cx, item);
+        cx.run_until_parked();
+        assert!(!menu_open(&ws, cx));
+        assert_eq!(views(&ws, cx).len(), 2);
+        assert_eq!(current(&ws, cx), 1);
+        let terminal = terminal(&ws, cx, 1);
+        wait_until(cx, "picked profile never ran", |cx| {
+            terminal.read_with(cx, |t, _| line_starting_with(t, "from_other").is_some())
+        });
+
+        // a left click still opens the default profile, "+" moved after the new tab
+        let plus = cx.debug_bounds("new-tab").unwrap().center();
+        click(cx, plus, 1);
+        release(cx, plus);
+        cx.run_until_parked();
+        assert_eq!(views(&ws, cx).len(), 3);
+    }
+
+    #[gpui::test]
+    fn close_button_follows_setting(cx: &mut TestAppContext) {
+        for show in [true, false] {
+            let json = format!(r#"{{"show_tab_close_button": {show}}}"#);
+            let settings = Settings::parse(&json).unwrap();
+            let (_, cx) = open_with_settings(cx, 2, "{}", settings);
+            assert_eq!(cx.debug_bounds("close-tab-1").is_some(), show);
+        }
+    }
+
+    #[gpui::test]
+    fn port_after_plain_text_follows_that_text(cx: &mut TestAppContext) {
+        let (row, cx) = layout(&align_json("left"), 1, cx);
+        row.update(cx, |row, cx| {
+            row.titles = vec!["web 3000".into()];
+            row.icon_at = Vec::new();
+            row.ports_at = vec![(4..8, 3000)];
+            cx.notify();
+        });
+        cx.run_until_parked();
+        let text = text_bounds(cx);
+        let port = cx.debug_bounds("tab-port-3000").expect("port not drawn");
+        assert!(text.right() <= port.left(), "{text:?} overlaps {port:?}");
+        assert!(cx.debug_bounds("tab-icon-0").is_none());
     }
 }

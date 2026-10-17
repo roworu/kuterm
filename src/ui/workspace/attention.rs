@@ -2,13 +2,10 @@
 
 use std::time::Instant;
 
-use gpui::{AppContext, Context, Entity, Window};
+use gpui::{Context, Entity, Window};
 
-use super::{Workspace, notifications::system_notification};
-use crate::{
-    settings::{Command, Inputs, Settings},
-    ui::{command_palette::CommandPalette, terminal_view::TerminalView},
-};
+use super::{Workspace, system_notifications::system_notification};
+use crate::{settings::Settings, ui::terminal_view::TerminalView};
 
 /// whether the agent of a tab waits for the user, kept per tab
 #[derive(Clone, Copy, Debug, Default)]
@@ -25,8 +22,7 @@ impl Attention {
         if !agent || self.waiting(inputs).is_some() {
             return false;
         }
-        self.since = Some(now);
-        self.inputs = inputs;
+        self.wait(inputs, now);
         true
     }
 
@@ -119,9 +115,8 @@ impl Workspace {
     /// switches to it
     pub(super) fn open_agent_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let now = Instant::now();
-        let several_panes = self.layout.panes().len() > 1;
         let mut rows = Vec::new();
-        for (pane_number, pane) in self.layout.panes().into_iter().enumerate() {
+        for pane in self.layout.panes() {
             for (ix, tab) in pane.tabs.iter().enumerate() {
                 let terminal = tab.view.read(cx).terminal().read(cx);
                 let since = tab.attention.waiting(terminal.inputs());
@@ -133,38 +128,15 @@ impl Workspace {
                     None if terminal.progress().is_some() => "working".into(),
                     None => "idle".into(),
                 };
-                // the number tells the rows apart, so a pick finds its tab again
-                let number = if several_panes {
-                    format!("{}.{}", pane_number + 1, ix + 1)
-                } else {
-                    (ix + 1).to_string()
-                };
-                let command = Command {
-                    name: format!("{state}  {}", self.tab_title(pane.id, ix, cx)),
-                    category: Some(number),
-                    pinned: false,
-                    inputs: Inputs::new(),
-                    actions: Vec::new(),
-                };
                 // waiting tabs first, the longest waiting on top
-                rows.push((since.unwrap_or(now), command, tab.view.entity_id()));
+                rows.push((since.unwrap_or(now), state, pane.id, ix));
             }
         }
-        rows.sort_by_key(|(since, _, _)| *since);
-        let commands = rows.iter().map(|(_, command, _)| command.clone()).collect();
-        let palette = cx.new(|cx| CommandPalette::tab_picker(commands, cx));
-        self.open_overlay(&palette, window, cx);
-        self._overlay_subscriptions.push(cx.subscribe_in(
-            &palette,
-            window,
-            move |this, _, command: &Command, window, cx| {
-                this.close_overlay(window, cx);
-                if let Some((_, _, id)) = rows.iter().find(|(_, row, _)| row == command) {
-                    this.activate_id(*id, window, cx);
-                }
-            },
-        ));
-        self.palette = Some(palette);
+        rows.sort_by_key(|(since, ..)| *since);
+        let rows = rows
+            .into_iter()
+            .map(|(_, state, pane, ix)| (state, pane, ix));
+        self.open_tab_rows(rows.collect(), window, cx);
     }
 }
 

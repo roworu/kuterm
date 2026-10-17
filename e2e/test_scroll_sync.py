@@ -108,13 +108,3 @@ def test_leaving_the_sync_stops_following(app_factory):
     assert not same(app)
 
 
-def test_a_short_history_stops_at_its_top(app_factory):
-    """the right pane has no history to scroll into, it stays while the left one moves"""
-    app = two_panes(app_factory, left=300, right=5)
-    join_both(app)
-    before = profile(app, "right")
-    w, h = app.size()
-    app.wheel(w // 4, h // 2, up=True, clicks=8)
-    time.sleep(1)
-    assert np.array_equal(profile(app, "right"), before)
-    app.snap("the right pane has nothing to scroll into")

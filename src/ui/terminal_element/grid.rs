@@ -425,12 +425,7 @@ fn cell_style(
 
 #[cfg(test)]
 mod tests {
-    use alacritty_terminal::{
-        Term,
-        event::VoidListener,
-        term::{Config, test::TermSize},
-        vte::ansi::Processor,
-    };
+
     use gpui::{Rgba, font, rgb};
 
     use super::*;
@@ -496,9 +491,7 @@ mod tests {
         style: &GridStyle,
         theme: &Theme,
     ) -> (Vec<LayoutRect>, Vec<BatchedTextRun>, Vec<BoxGlyph>) {
-        let mut term = Term::new(Config::default(), &TermSize::new(40, 3), VoidListener);
-        let mut parser: Processor = Processor::new();
-        parser.advance(&mut term, bytes.as_bytes());
+        let term = crate::terminal::parsed_term(40, 3, bytes);
         let cells: Vec<IndexedCell> = term
             .renderable_content()
             .display_iter
@@ -794,9 +787,7 @@ mod tests {
         };
         let style = plain_style(&ligatures);
         let theme = Theme::bundled(true);
-        let mut term = Term::new(Config::default(), &TermSize::new(40, 3), VoidListener);
-        let mut parser: Processor = Processor::new();
-        parser.advance(&mut term, b"a->b != ===");
+        let term = crate::terminal::parsed_term(40, 3, b"a->b != ===");
         let cells: Vec<IndexedCell> = term
             .renderable_content()
             .display_iter
@@ -837,9 +828,7 @@ mod tests {
 
         let theme = Theme::default();
         let fonts = fonts();
-        let mut term = Term::new(Config::default(), &TermSize::new(40, 3), VoidListener);
-        let mut parser: Processor = Processor::new();
-        parser.advance(&mut term, b"aa bb aa cc");
+        let term = crate::terminal::parsed_term(40, 3, b"aa bb aa cc");
         let cells: Vec<IndexedCell> = term
             .renderable_content()
             .display_iter
@@ -885,5 +874,40 @@ mod tests {
         );
         assert_eq!(rects[0].color, theme.selection);
         assert_eq!((rects[1].column, rects[1].color), (1, theme.search_match));
+    }
+
+    #[test]
+    fn underline_curl_and_strikeout_get_lines_in_the_text_color() {
+        let theme = Theme::bundled(true);
+        let runs = layout("\x1b[31;4mA\x1b[24;4:3mB\x1b[24;9mC\x1b[0mD", &theme);
+        let red = theme.ansi[1];
+        let line_color = |style: &TextRun| Hsla {
+            a: style.color.a.sqrt(),
+            ..style.color
+        };
+        let a = &run_at(&runs, 0).style;
+        let underline = a.underline.expect("sgr 4 draws no underline");
+        assert_color(a.color, red, "underlined text");
+        assert_eq!(underline.color, Some(line_color(a)));
+        assert!(!underline.wavy);
+        assert!(a.strikethrough.is_none());
+        let b = &run_at(&runs, 1).style;
+        assert!(b.underline.expect("sgr 4:3 draws no underline").wavy);
+        let c = &run_at(&runs, 2).style;
+        assert!(c.underline.is_none());
+        let strike = c.strikethrough.expect("sgr 9 draws no strikethrough");
+        assert_eq!(strike.color, Some(line_color(c)));
+        let d = &run_at(&runs, 3).style;
+        assert!(d.underline.is_none() && d.strikethrough.is_none());
+    }
+
+    #[test]
+    fn text_with_enough_contrast_keeps_its_color() {
+        let gray: Hsla = rgb(0x808080).into();
+        assert_eq!(
+            with_contrast(gpui::white(), gpui::black(), 4.5),
+            gpui::white()
+        );
+        assert_eq!(with_contrast(gray, gpui::black(), 3.), gray);
     }
 }

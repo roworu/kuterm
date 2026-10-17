@@ -4,22 +4,21 @@
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
 
 use gpui::{
-    AnyElement, Context, EntityId, Focusable, FontWeight, KeyDownEvent, MouseButton,
-    MouseDownEvent, Pixels, Point, Window, anchored, deferred, div, prelude::*, px, rems,
+    AnyElement, Context, EntityId, FontWeight, MouseButton, MouseDownEvent, Pixels, Point, Window,
+    anchored, deferred, div, prelude::*, px, rems,
 };
 
 use super::{
     Workspace,
-    tab_bar::{DraggedTab, menu_item, popup_menu},
+    tab_bar::{DraggedTab, menu_item, popup_menu, rename_field, rename_input},
 };
 use crate::{
     settings::{CommandAction, Settings},
     theme::Theme,
-    ui::text_input::TextInput,
 };
 
 /// what a row of the group menu does to its group
@@ -126,13 +125,6 @@ pub(super) fn together(groups: &[Option<usize>]) -> Vec<usize> {
         }
     }
     order
-}
-
-/// the git repository `path` is in, found by walking up to a folder with `.git`
-pub(super) fn project_root(path: &Path) -> Option<PathBuf> {
-    path.ancestors()
-        .find(|dir| dir.join(".git").exists())
-        .map(Path::to_path_buf)
 }
 
 /// color of a group named `name`, the same name always gets the same one
@@ -350,7 +342,7 @@ impl Workspace {
         } else {
             self.open_confirm(
                 super::side_close_message(&names),
-                crate::ui::command_palette::CloseTarget::Tabs(ids),
+                crate::ui::dialogs::CloseTarget::Tabs(ids),
                 window,
                 cx,
             );
@@ -398,13 +390,7 @@ impl Workspace {
         let Some(name) = self.group(group).map(|group| group.name.clone()) else {
             return;
         };
-        let input = cx.new(|cx| {
-            let mut input = TextInput::new("group name", cx);
-            input.set_content(name, cx);
-            input
-        });
-        input.focus_handle(cx).focus(window, cx);
-        self.renaming_group = Some((group, input));
+        self.renaming_group = Some((group, rename_input("group name", name, window, cx)));
         cx.notify();
     }
 
@@ -519,22 +505,9 @@ impl Workspace {
         };
         let named = renaming.is_some() || !label.is_empty();
         let content = match renaming {
-            Some(input) => div()
-                .min_w(rems(6.))
-                .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-                    match event.keystroke.key.as_str() {
-                        "enter" => this.finish_group_rename(true, window, cx),
-                        "escape" => this.finish_group_rename(false, window, cx),
-                        _ => return,
-                    }
-                    cx.stop_propagation();
-                }))
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .on_mouse_down_out(
-                    cx.listener(|this, _, window, cx| this.finish_group_rename(true, window, cx)),
-                )
-                .child(input)
-                .into_any_element(),
+            Some(input) => {
+                rename_field(input, Workspace::finish_group_rename, cx).into_any_element()
+            }
             // an unnamed group shows a dot in its color, like chrome
             None if label.is_empty() => div()
                 .size(rems(0.625))
@@ -701,7 +674,9 @@ impl Workspace {
 
 #[cfg(test)]
 mod tests {
-    use super::{Join, TabDrop, color_for, plan_drop, project_root, together};
+    use super::*;
+    use super::{Join, TabDrop, color_for, plan_drop, together};
+    use crate::ui::workspace::test_support::*;
 
     #[test]
     fn tab_edges_reorder_and_its_middle_groups() {
@@ -766,19 +741,127 @@ mod tests {
     }
 
     #[test]
-    fn projects_are_found_by_their_git_folder() {
-        let root = std::env::temp_dir().join(format!("kuterm-groups-{}", std::process::id()));
-        let deep = root.join("src/a/b");
-        std::fs::create_dir_all(&deep).unwrap();
-        std::fs::create_dir_all(root.join(".git")).unwrap();
-        assert_eq!(project_root(&deep), Some(root.clone()));
-        assert_eq!(project_root(&root), Some(root.clone()));
-        std::fs::remove_dir_all(&root).ok();
-        // the temp folder itself is in no repository
-        assert_eq!(
-            project_root(&std::env::temp_dir().join("no-such-project")),
-            None
-        );
+    fn group_colors_are_stable() {
         assert_eq!(color_for("kuterm"), color_for("kuterm"));
+    }
+
+    #[gpui::test]
+    fn dragging_tabs_onto_each_other_groups_them_like_chrome(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 4);
+        let old = views(&ws, cx);
+        let groups = |ws: &Entity<Workspace>, cx: &mut VisualTestContext| {
+            ws.update(cx, |ws, _| {
+                ws.pane(0)
+                    .unwrap()
+                    .tabs
+                    .iter()
+                    .map(|tab| tab.group)
+                    .collect::<Vec<_>>()
+            })
+        };
+        // the fourth tab dropped onto the first: a new unnamed group of the two, at the front
+        ws.update_in(cx, |ws, window, cx| {
+            ws.drop_tab_on_tab((0, 3), (0, 0), groups::TabDrop::Onto, window, cx)
+        });
+        let group = groups(&ws, cx)[0].expect("a group");
+        assert_eq!(groups(&ws, cx), [Some(group), Some(group), None, None]);
+        assert_eq!(views(&ws, cx), [old[0], old[3], old[1], old[2]]);
+        assert_eq!(ws.update(cx, |ws, _| ws.groups[0].name.clone()), "");
+        // the third tab dropped on the left edge of the group's second tab joins the group there
+        ws.update_in(cx, |ws, window, cx| {
+            ws.drop_tab_on_tab((0, 3), (0, 1), groups::TabDrop::Before, window, cx)
+        });
+        assert_eq!(
+            groups(&ws, cx),
+            [Some(group), Some(group), Some(group), None]
+        );
+        assert_eq!(views(&ws, cx), [old[0], old[2], old[3], old[1]]);
+        // dropped past the group's last tab it leaves the group
+        ws.update_in(cx, |ws, window, cx| {
+            ws.drop_tab_on_tab((0, 0), (0, 2), groups::TabDrop::After, window, cx)
+        });
+        assert_eq!(groups(&ws, cx), [Some(group), Some(group), None, None]);
+        assert_eq!(views(&ws, cx), [old[2], old[3], old[0], old[1]]);
+    }
+
+    #[gpui::test]
+    fn a_tab_joining_from_afar_moves_next_to_its_group(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 4);
+        let old = views(&ws, cx);
+        let groups = |ws: &Entity<Workspace>, cx: &mut VisualTestContext| {
+            ws.update(cx, |ws, _| {
+                let tabs = &ws.pane(0).unwrap().tabs;
+                tabs.iter().map(|tab| tab.group).collect::<Vec<_>>()
+            })
+        };
+        // the first two tabs make a group
+        activate(&ws, cx, 0);
+        run_actions(&ws, cx, r#""new_group""#);
+        let group = groups(&ws, cx)[0].expect("a group");
+        activate(&ws, cx, 1);
+        run_actions(&ws, cx, r#""add_tab_to_group""#);
+        assert_eq!(groups(&ws, cx), [Some(group), Some(group), None, None]);
+        // the last tab dropped on the group's chip joins it right after its tabs, and the
+        // active tab stays active wherever it moved
+        activate(&ws, cx, 2);
+        ws.update(cx, |ws, cx| ws.join_group(0, 3, group, cx));
+        assert_eq!(views(&ws, cx), [old[0], old[1], old[3], old[2]]);
+        assert_eq!(
+            groups(&ws, cx),
+            [Some(group), Some(group), Some(group), None]
+        );
+        assert_eq!(ws.update(cx, |ws, _| ws.pane(0).unwrap().active), 3);
+
+        // the first tab of the group leaves it to the right of the group's run
+        activate(&ws, cx, 0);
+        run_actions(&ws, cx, r#""remove_tab_from_group""#);
+        assert_eq!(views(&ws, cx), [old[1], old[3], old[0], old[2]]);
+        assert_eq!(groups(&ws, cx), [Some(group), Some(group), None, None]);
+        assert_eq!(current(&ws, cx), 2);
+    }
+
+    #[gpui::test]
+    fn an_unnamed_chip_takes_dropped_tabs_and_counts_them_when_collapsed(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 4);
+        cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+        // the fourth tab onto the first makes an unnamed group of the two
+        ws.update_in(cx, |ws, window, cx| {
+            ws.drop_tab_on_tab((0, 3), (0, 0), groups::TabDrop::Onto, window, cx)
+        });
+        cx.run_until_parked();
+        let group = ws.update(cx, |ws, _| ws.groups[0].id);
+        let chip: &'static str = format!("group-chip-{group}").leak();
+        let dot = cx.debug_bounds(chip).expect("no chip");
+        // an ungrouped tab dragged onto the chip joins the group
+        let last = cx.debug_bounds("tab-title-2").unwrap().center();
+        drag_to(cx, last, dot.center());
+        let count = |ws: &Entity<Workspace>, cx: &mut VisualTestContext| {
+            ws.update(cx, |ws, _| {
+                let tabs = &ws.pane(0).unwrap().tabs;
+                tabs.iter().filter(|tab| tab.group == Some(group)).count()
+            })
+        };
+        assert_eq!(count(&ws, cx), 3);
+        // collapsed, the dot gives way to the number of its tabs
+        let at = cx.debug_bounds(chip).unwrap().center();
+        click(cx, at, 1);
+        release(cx, at);
+        cx.run_until_parked();
+        assert!(ws.update(cx, |ws, _| ws.groups[0].collapsed));
+        let collapsed = cx.debug_bounds(chip).unwrap();
+        assert!(
+            collapsed.size.width > dot.size.width * 2.,
+            "{dot:?} {collapsed:?}"
+        );
+
+        // its menu goes away with a click anywhere else
+        right_click(cx, collapsed.center());
+        assert!(ws.update(cx, |ws, _| ws.group_menu.is_some()));
+        let terminal = cx.debug_bounds("pane-terminal-0").unwrap().center();
+        click(cx, terminal, 1);
+        release(cx, terminal);
+        cx.run_until_parked();
+        assert!(ws.update(cx, |ws, _| ws.group_menu.is_none()));
+        assert!(ws.update(cx, |ws, _| ws.groups[0].collapsed));
     }
 }

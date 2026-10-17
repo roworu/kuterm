@@ -5,8 +5,6 @@ marked "synced"; the source gutter says which pane had the command typed by hand
 
 import time
 
-import pytest
-
 from harness import App, as_rgb, count, set_clipboard, unique_theme
 from kit import (blocks, integrated, listening, msg, nothing_for, ready, send, tabs, text,
                  wait_block, wait_text)
@@ -93,10 +91,6 @@ def pane_tabs(app: App) -> list[str]:
 
 def tab_ids(app: App, pane: int) -> list[str]:
     return [str(t["id"]) for t in sorted(tabs(app), key=lambda t: t["number"]) if t["pane"] == pane]
-
-
-def asleep(app: App, tab: str) -> bool:
-    return next(t["asleep"] for t in tabs(app) if str(t["id"]) == tab)
 
 
 def click_pane(app: App, side: str) -> str:
@@ -690,31 +684,6 @@ def test_a_failure_pauses_only_the_queue_of_its_own_pane(app_factory):
              timeout=15)
     app.palette("resume queue")
     app.wait(app.file("after_failure").exists, msg="the resumed entry ran")
-
-
-def test_broadcast_leaves_a_sleeping_tab_of_a_joined_pane_alone(app_factory):
-    """typing follows each pane's active tab: a tab packed away beside it stays asleep and its
-    history gets nothing"""
-    app = two_panes(app_factory, sleep_tabs_after_minutes=0.02)
-    left, right = pane_tabs(app)
-    pane = panes(app)[1]
-    click_pane(app, "right")
-    app.key("ctrl+shift+t")
-    app.wait(lambda: len(tab_ids(app, pane)) == 2, msg="a second tab in the right pane")
-    hidden = next(str(t["id"]) for t in tabs(app) if t["pane"] == pane and t["active"])
-    send(app, "seq 1 500; echo packed_away", hidden)
-    wait_block(app, "seq 1 500", hidden)
-    assert msg(app, "focus-tab", "--pane", right).returncode == 0
-    app.wait(lambda: asleep(app, hidden), msg="the hidden tab packed its history away", timeout=20)
-    click_pane(app, "left")
-    app.key("ctrl+shift+b")
-    app.wait(lambda: framed(app, "left", "right"), msg="joined")
-    app.run("echo awake_only")
-    app.wait(lambda: "awake_only" in text(app, left) and "awake_only" in text(app, right),
-             msg="the active tabs of both panes ran it", timeout=15)
-    app.snap("the sleeping tab beside the two joined panes")
-    assert asleep(app, hidden), "the broadcast did not wake it"
-    assert "awake_only" not in text(app, hidden), "reading it wakes it, its history stayed clean"
 
 
 def test_mark_sources_none_draws_no_gutter_for_a_broadcast(app_factory):

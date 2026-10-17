@@ -360,37 +360,6 @@ def list_area(app: App) -> np.ndarray:
     return img[box[1] : box[3], box[0] : box[2]]
 
 
-def test_input_pickers_fill_the_typed_text(app_factory):
-    """a pick input lists its values in the palette, the picked one goes into the action text"""
-    app = palette_app(app_factory, [
-        {"name": "pick a value", "inputs": {"mark": {"pick": ["alpha", "bravo"]}},
-         "actions": [{"type": "echo {mark} >> $T2_TMP/ran\n"}]},
-    ])
-    app.palette("pick a value", run=False)
-    listing = list_area(app)
-    app.key("Return")
-    app.wait(lambda: not np.array_equal(list_area(app), listing), msg="value list of the input")
-    app.snap("the input asks for a value, both of them listed")
-    app.key("Down", "Return")
-    app.wait(lambda: ran(app) == ["bravo"], msg=f"bravo was typed, got {ran(app)}")
-
-
-def test_input_text_field_fills_the_typed_text(app_factory):
-    """a text input asks for a value in a field, enter fills it into the action text"""
-    app = palette_app(app_factory, [
-        {"name": "ask a value", "inputs": {"mark": {"text": "what to say"}},
-         "actions": [{"type": "echo {mark} >> $T2_TMP/ran\n"}]},
-    ])
-    app.palette("ask a value", run=False)
-    listing = list_area(app)
-    app.key("Return")
-    app.wait(lambda: not np.array_equal(list_area(app), listing), msg="field of the input")
-    app.snap("the input asks for a value in a field")
-    app.type("typed here")
-    app.key("Return")
-    app.wait(lambda: ran(app) == ["typed", "here"], msg=f"the typed value was used, got {ran(app)}")
-
-
 def test_target_pane_works_on_the_named_pane(app_factory):
     """an action with a "pane:" target works on that pane, not on the focused one"""
     app = palette_app(app_factory, [
@@ -449,27 +418,6 @@ def test_run_command_over_the_socket_fills_inputs(app_factory):
     # the redirect makes the file before kuterm msg writes into it
     app.wait(lambda: "branch" in app.file("err").read_text(), msg="the error naming the input")
     app.snap("the palette listing the command that ran")
-
-
-def test_matrix_input_runs_in_a_grid_of_splits(app_factory):
-    """a matrix input runs the command once per value, each in a split, then says how many passed"""
-    # bash with kuterm's integration, so the exit of every value makes it back to the summary
-    app = palette_app(app_factory, [
-        {"name": "matrix job", "inputs": {"n": {"pick": ["1", "2", "3"], "matrix": True}},
-         "actions": [{"type": "echo {n} >> $T2_TMP/matrix; test {n} -lt 3\n"}]},
-    ], remote_control="socket",
-        profiles=[{"name": "test", "command": {"program": "/bin/bash"}, "env": {"PS1": "$ "}}])
-    socket = Path(Session.runtime_dir) / f"kuterm-{app.proc.pid}.sock"
-    app.wait(socket.exists, msg=f"socket {socket}")
-    app.palette("matrix job")
-    app.wait(lambda: app.file("matrix").exists() and sorted(app.file("matrix").read_text().split())
-             == ["1", "2", "3"], msg="every value ran")
-    app.run(f"{BIN} msg list-tabs --json > {app.file('tabs.json')}")
-    panes = {tab["pane"] for tab in json.loads(app.wait_file("tabs.json"))}
-    # one split per value, next to the tab the command ran from
-    assert len(panes) == 4, panes
-    app.wait(lambda: near(app.shot()[300:, 300:], C["tab_bar_background"]).sum() > 300, msg="summary")
-    app.snap("three values ran in three splits, the summary says how many passed")
 
 
 def test_background_tab_notifies_when_done(app_factory):

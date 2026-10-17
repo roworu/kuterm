@@ -3,6 +3,8 @@
 use std::sync::atomic::Ordering;
 
 use alacritty_terminal::{
+    Term,
+    event::EventListener,
     grid::Dimensions,
     index::{Column, Line, Point as AlacPoint, Side},
     selection::{Selection, SelectionType},
@@ -11,6 +13,19 @@ use alacritty_terminal::{
 use gpui::{Pixels, Point};
 
 use super::{Terminal, TerminalBounds};
+
+/// select from `start` to `end` as `ty` and scroll so `start` shows
+pub(super) fn select_range<T: EventListener>(
+    term: &mut Term<T>,
+    ty: SelectionType,
+    start: AlacPoint,
+    end: AlacPoint,
+) {
+    let mut selection = Selection::new(ty, start, Side::Left);
+    selection.update(end, Side::Right);
+    term.selection = Some(selection);
+    term.scroll_to_point(start);
+}
 
 /// grid cell and its half under a window position, clamped into the visible grid
 fn grid_point(
@@ -236,7 +251,7 @@ mod tests {
         assert_eq!(range.start, AlacPoint::new(Line(0), Column(6)));
         assert_eq!(range.end, AlacPoint::new(Line(1), Column(5)));
 
-        terminal.input(crate::terminal::InputSource::Keyboard, b"x".to_vec());
+        terminal.type_text(b"x");
         assert_eq!(terminal.selection_text(), None);
         terminal.sync();
         assert_eq!(terminal.last_content.selection, None);
@@ -284,5 +299,37 @@ mod tests {
 
         terminal.start_selection(cell(1, 3, false), SelectionType::Lines);
         assert_eq!(terminal.selection_text().as_deref(), Some("second line\n"));
+    }
+
+    #[test]
+    fn a_drag_on_a_held_frame_selects_without_a_press() {
+        let mut builder = two_lines();
+        let terminal = &mut builder.terminal;
+        terminal.freeze();
+        // the press went elsewhere, the first move starts the selection where it is
+        terminal.extend_selection(cell(0, 4, true));
+        terminal.extend_selection(cell(0, 0, false));
+        assert_eq!(terminal.selection_text().as_deref(), Some("hello"));
+        terminal.unfreeze();
+        assert_eq!(terminal.selection_text().as_deref(), Some("hello"));
+    }
+
+    #[test]
+    fn select_all_in_a_full_screen_program_takes_the_whole_screen() {
+        let profile = profile(Shell::WithArguments {
+            program: "/bin/sh".into(),
+            args: vec![
+                "-c".into(),
+                "printf '\\033[?1049h\\033[1;1Htop\\033[20;1Hlow\\033[3;1H'; sleep 5".into(),
+            ],
+        });
+        let mut builder = spawn_with(&TerminalSettings::default(), &profile);
+        let terminal = &mut builder.terminal;
+        wait_for_text(terminal, "low");
+        terminal.select_all();
+        // the cursor sits on the third line, the text below it is still part of the screen
+        let text = terminal.selection_text().unwrap();
+        assert!(text.starts_with("top"), "{text:?}");
+        assert!(text.trim_end().ends_with("low"), "{text:?}");
     }
 }

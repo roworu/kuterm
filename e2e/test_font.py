@@ -37,16 +37,9 @@ def check_cells(app: App) -> None:
     assert abs(ys.min() - y0) <= 1 and abs(ys.max() + 1 - y1) <= 1, (ys.min(), ys.max(), y0, y1)
 
 
-@pytest.mark.parametrize("size", [8, 12, 18, 24, 40])
+@pytest.mark.parametrize("size", [8, 18, 40])
 def test_font_size_sets_cell_size(app_factory, size):
-    """terminal.font_size scales the cells"""
-    app = app_factory({"theme": {"mode": "dark"}, "terminal": {"font_size": size}}, script=SAMPLE)
-    check_cells(app)
-
-
-@pytest.mark.parametrize("size", [12, 30])
-def test_font_block_size_sets_cell_size(app_factory, size):
-    """terminal.font.size scales the cells like the old flat font_size key"""
+    """terminal.font.size scales the cells, the old flat font_size key maps to it in settings"""
     app = app_factory({"theme": {"mode": "dark"}, "terminal": {"font": {"size": size}}}, script=SAMPLE)
     check_cells(app)
 

@@ -30,14 +30,9 @@ impl Workspace {
     /// what tab `ix` of `pane_id` takes along to another window
     fn moving_tab(&self, pane_id: usize, ix: usize, cx: &App) -> Option<MovedTab> {
         let tab = self.pane(pane_id)?.tabs.get(ix)?;
-        let settings = Settings::get(cx);
         Some(MovedTab {
             terminal: tab.view.read(cx).terminal().clone(),
-            // a profile renamed or removed since falls back to the default one
-            profile: settings
-                .profile(&tab.profile)
-                .unwrap_or_else(|| settings.default_profile())
-                .clone(),
+            profile: Settings::get(cx).profile_or_default(&tab.profile).clone(),
             custom_title: tab.custom_title.clone(),
             name: tab.name.clone(),
             group: self.saved_group(tab),
@@ -267,5 +262,87 @@ mod x11 {
             }
         }
         Ok((x, y, hit))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use crate::ui::workspace::test_support::*;
+
+    #[gpui::test]
+    fn tabs_move_between_windows_with_their_shells(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 2);
+        let moved = terminal(&ws, cx, 1);
+        ws.update(cx, |ws, _| {
+            let tab = &mut ws.pane_mut(ws.focused).unwrap().tabs[1];
+            tab.custom_title = Some("server".into());
+        });
+        run_actions(&ws, cx, r#"{"activate_tab": 2}, "move_tab_to_new_window""#);
+        let windows = workspaces(cx);
+        assert_eq!(windows.len(), 2);
+        let first_id = cx.update(|window, _| window.window_handle().window_id());
+        let first = windows.iter().copied().find(|w| w.window_id() == first_id);
+        let first = first.expect("first window is gone");
+        let second = windows.into_iter().find(|w| *w != first).unwrap();
+        // the same terminal, so the shell and its history came along
+        assert_eq!(terminals_of(first, cx).len(), 1);
+        assert_eq!(terminals_of(second, cx), [moved.entity_id()]);
+        let title = cx.cx.update(|cx| {
+            second
+                .read_with(cx, |ws, _| ws.focused_pane().tabs[0].custom_title.clone())
+                .unwrap()
+        });
+        assert_eq!(title.as_deref(), Some("server"));
+        let pid = moved.read_with(cx, |t, _| t.shell_pid);
+        assert!(
+            crate::terminal::process_info(pid).is_some(),
+            "shell died on the move"
+        );
+
+        // moved back, the window left empty closes and nothing quits
+        cx.cx.update(|cx| {
+            second
+                .update(cx, |ws, window, cx| {
+                    ws.move_tab_to_window(ws.focused, 0, first, window, cx)
+                })
+                .unwrap()
+        });
+        cx.run_until_parked();
+        assert_eq!(workspaces(cx), [first]);
+        assert_eq!(terminals_of(first, cx)[1], moved.entity_id());
+        assert_eq!(current(&ws, cx), 1);
+        assert!(!ws.update(cx, |ws, _| ws.quitting));
+    }
+
+    #[gpui::test]
+    fn a_pinned_tab_joins_another_window_in_front_of_its_unpinned_tabs(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 3);
+        let pinned = terminal(&ws, cx, 0);
+        ws.update(cx, |ws, _| {
+            ws.pane_mut(ws.focused).unwrap().tabs[0].pinned = true
+        });
+        run_actions(&ws, cx, r#"{"activate_tab": 3}, "move_tab_to_new_window""#);
+        let first_id = cx.update(|window, _| window.window_handle().window_id());
+        let second = workspaces(cx)
+            .into_iter()
+            .find(|w| w.window_id() != first_id)
+            .expect("no second window");
+        let unpinned = terminals_of(second, cx)[0];
+        ws.update_in(cx, |ws, window, cx| {
+            ws.move_tab_to_window(ws.focused, 0, second, window, cx)
+        });
+        cx.run_until_parked();
+        assert_eq!(terminals_of(second, cx), [pinned.entity_id(), unpinned]);
+        let (active, still_pinned) = cx.cx.update(|cx| {
+            second
+                .read_with(cx, |ws, _| {
+                    let pane = ws.focused_pane();
+                    (pane.active, pane.tabs[0].pinned)
+                })
+                .unwrap()
+        });
+        assert_eq!(active, 0);
+        assert!(still_pinned);
     }
 }

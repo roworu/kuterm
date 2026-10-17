@@ -30,7 +30,8 @@ static NEXT_SOCKET: AtomicU64 = AtomicU64::new(0);
 
 /// folder of this process's sockets, only this user can enter it
 fn socket_dir() -> std::io::Result<PathBuf> {
-    let dir = crate::remote::runtime_dir().join(format!("kuterm-complete-{}", std::process::id()));
+    let dir = crate::automation::socket::runtime_dir()
+        .join(format!("kuterm-complete-{}", std::process::id()));
     std::fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)
@@ -209,8 +210,11 @@ mod tests {
             }
         );
 
-        // bad, oversized and unknown lines are skipped, the connection stays
+        // bad, not utf-8, oversized and unknown lines are skipped, the connection stays
         shell.write_all(b"garbage\n").unwrap();
+        shell
+            .write_all(b"{\"v\":1,\"type\":\"hello\",\"shell\":\"z\xffsh\"}\n")
+            .unwrap();
         shell.write_all(&vec![b'x'; MAX_LINE + 10]).unwrap();
         shell.write_all(b"\n{\"v\":9,\"type\":\"end\"}\n").unwrap();
         shell

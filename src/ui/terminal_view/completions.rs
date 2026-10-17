@@ -668,6 +668,179 @@ mod tests {
         assert!(shown(&view, cx).is_empty());
     }
 
+    /// window position of the middle of popup row `row`
+    fn row_center(
+        view: &Entity<TerminalView>,
+        cx: &mut VisualTestContext,
+        row: f32,
+    ) -> Point<Pixels> {
+        let popup = cx.debug_bounds("completions").expect("popup not drawn");
+        let line_height = view.read_with(cx, |view, cx| {
+            view.terminal
+                .read(cx)
+                .last_content
+                .terminal_bounds
+                .line_height
+        });
+        // under the border and the top padding
+        point(
+            popup.center().x,
+            popup.top() + px(4.) + line_height * (row + 0.5),
+        )
+    }
+
+    #[gpui::test]
+    fn clicking_a_candidate_accepts_it(cx: &mut TestAppContext) {
+        let (view, cx, mut shell) = with_shell("click", AUTO, cx);
+        type_line(&view, cx, &shell, 1, "cat al");
+        assert_eq!(shown(&view, cx), ["alpine/", "alpha.txt"]);
+        let second = row_center(&view, cx, 1.);
+        cx.simulate_event(gpui::MouseDownEvent {
+            position: second,
+            button: gpui::MouseButton::Left,
+            click_count: 1,
+            ..gpui::MouseDownEvent::default()
+        });
+        assert_eq!(shell.received(), "1 accept 1 4 6 alpha.txt \n");
+        assert!(shown(&view, cx).is_empty());
+    }
+
+    #[gpui::test]
+    fn wheel_and_arrows_scroll_a_list_longer_than_the_popup(cx: &mut TestAppContext) {
+        let json = r#"{"autocomplete": {"enable": true, "trigger": "auto", "max_items": 1}}"#;
+        let (view, cx, shell) = with_shell("wheel", json, cx);
+        type_line(&view, cx, &shell, 1, "cat al");
+        let top = |cx: &mut VisualTestContext| view.read_with(cx, |view, _| view.completions.top);
+        let wheel = |delta: ScrollDelta, cx: &mut VisualTestContext| {
+            let position = cx.debug_bounds("completions").unwrap().center();
+            cx.simulate_event(ScrollWheelEvent {
+                position,
+                delta,
+                ..ScrollWheelEvent::default()
+            });
+            cx.run_until_parked();
+        };
+        // a notch down shows the next row, the list ends there
+        wheel(ScrollDelta::Lines(point(0., -1.)), cx);
+        assert_eq!(top(cx), 1);
+        wheel(ScrollDelta::Lines(point(0., -3.)), cx);
+        assert_eq!(top(cx), 1);
+        // touchpad pixels move a row per event
+        wheel(ScrollDelta::Pixels(point(px(0.), px(5.))), cx);
+        assert_eq!(top(cx), 0);
+        // the terminal under the popup did not scroll
+        assert_eq!(
+            view.read_with(cx, |view, cx| view
+                .terminal
+                .read(cx)
+                .last_content
+                .display_offset),
+            0
+        );
+
+        // up from the first wraps to the last, scrolled into view, and back
+        let selected = |cx: &mut VisualTestContext| {
+            view.read_with(cx, |view, _| {
+                (view.completions.selected, view.completions.top)
+            })
+        };
+        cx.simulate_keystrokes("up");
+        assert_eq!(selected(cx), (1, 1));
+        cx.simulate_keystrokes("up");
+        assert_eq!(selected(cx), (0, 0));
+    }
+
+    #[gpui::test]
+    fn popup_with_nothing_found_says_so_and_keys_do_nothing(cx: &mut TestAppContext) {
+        let json = r#"{"autocomplete": {"enable": true, "trigger": "key"}}"#;
+        let (view, cx, mut shell) = with_shell("none", json, cx);
+        type_line(&view, cx, &shell, 1, "cat zzqx");
+        cx.simulate_keystrokes("ctrl-space");
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("completions").is_some(), "popup not drawn");
+        assert!(view.read_with(cx, |view, _| view.completions.candidates().is_empty()));
+        cx.simulate_keystrokes("down tab");
+        assert_eq!(view.read_with(cx, |view, _| view.completions.selected), 0);
+        // nothing went to the shell
+        shell
+            .reader
+            .get_ref()
+            .set_read_timeout(Some(Duration::from_millis(300)))
+            .unwrap();
+        let mut line = String::new();
+        assert!(shell.reader.read_line(&mut line).is_err(), "sent {line:?}");
+    }
+
+    #[gpui::test]
+    fn popup_goes_above_a_cursor_at_the_bottom(cx: &mut TestAppContext) {
+        let (view, cx, shell) = with_shell("above", AUTO, cx);
+        view.update(cx, |view, cx| {
+            view.terminal
+                .update(cx, |terminal, _| terminal.type_text(b"seq 1 500\r"))
+        });
+        let cursor_row = |cx: &mut VisualTestContext| {
+            view.update(cx, |view, cx| {
+                view.terminal.update(cx, |terminal, _| {
+                    terminal.sync();
+                    let content = &terminal.last_content;
+                    (
+                        content.cursor.point.line.0,
+                        content.terminal_bounds.num_lines() as i32,
+                    )
+                })
+            })
+        };
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
+        while {
+            let (row, lines) = cursor_row(cx);
+            row < lines - 1
+        } {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "output never filled the screen"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+            cx.run_until_parked();
+        }
+        type_line(&view, cx, &shell, 1, "cat al");
+        let popup = cx.debug_bounds("completions").expect("popup not drawn");
+        let cursor_top = view.read_with(cx, |view, cx| {
+            let content = &view.terminal.read(cx).last_content;
+            let bounds = content.terminal_bounds;
+            bounds.bounds.origin.y + bounds.line_height * content.cursor.point.line.0 as f32
+        });
+        assert!(
+            popup.bottom() <= cursor_top,
+            "{popup:?} covers the cursor at {cursor_top:?}"
+        );
+    }
+
+    #[gpui::test]
+    fn popup_keys_reach_the_shell_while_it_is_hidden(cx: &mut TestAppContext) {
+        use std::{cell::RefCell, rc::Rc};
+        let (view, cx, shell) = with_shell("hidden", AUTO, cx);
+        let keys = Rc::new(RefCell::new(Vec::new()));
+        let seen = keys.clone();
+        let _subscription = cx.update(|_, cx| {
+            cx.subscribe(
+                &view,
+                move |_, input: &crate::ui::terminal_view::TypedInput, _| {
+                    if let crate::ui::terminal_view::TypedInput::Key(keystroke, _) = input {
+                        seen.borrow_mut().push(keystroke.key.clone());
+                    }
+                },
+            )
+        });
+        // a blank line shows nothing, so down is the shell's
+        type_line(&view, cx, &shell, 1, " ");
+        cx.simulate_keystrokes("down");
+        assert_eq!(*keys.borrow(), ["down"]);
+        type_line(&view, cx, &shell, 2, "cat al");
+        assert!(!shown(&view, cx).is_empty());
+        cx.simulate_keystrokes("down");
+        assert_eq!(*keys.borrow(), ["down"], "the popup key reached the shell");
+    }
+
     #[test]
     fn kinds_have_colors_of_their_own() {
         let theme = Theme::default();

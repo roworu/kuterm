@@ -10,7 +10,7 @@ use alacritty_terminal::{
     Term,
     event::VoidListener,
     grid::Dimensions,
-    index::{Column, Line, Point as AlacPoint, Side},
+    index::{Line, Point as AlacPoint, Side},
     selection::{Selection, SelectionRange},
     term::Config,
 };
@@ -94,29 +94,6 @@ impl Terminal {
                 term.grid_mut()[Line(row)][indexed.point.column] = indexed.cell.clone();
             }
         }
-        // kept blocks are drawn cut at the edge, the frame takes their wrapped grid rows
-        // instead, so a selection there has the text the live grid has on release
-        let live = self.term.lock_unfair();
-        let moved = live.grid().history_size() as i32 - content.history_size as i32;
-        let columns = term.columns().min(live.columns());
-        for block in self.wide_blocks.values() {
-            let start = block.abs_start as i32 - content.history_size as i32;
-            for line in start..start + block.grid_rows(columns) as i32 {
-                let row = line + content.display_offset as i32;
-                let from = Line(line - moved);
-                if !(0..term.screen_lines() as i32).contains(&row)
-                    || from < live.topmost_line()
-                    || from > live.bottommost_line()
-                {
-                    continue;
-                }
-                for column in 0..columns {
-                    term.grid_mut()[Line(row)][Column(column)] =
-                        live.grid()[from][Column(column)].clone();
-                }
-            }
-        }
-        drop(live);
         self.frozen = Some(Frozen {
             term,
             since: Instant::now(),
@@ -221,5 +198,48 @@ mod tests {
             "{held:?}"
         );
         assert_eq!(terminal.selection_text(), held);
+    }
+
+    #[test]
+    fn selection_that_left_the_history_is_dropped() {
+        let profile = profile(Shell::WithArguments {
+            program: "/bin/sh".into(),
+            args: vec![
+                "-c".into(),
+                "printf 'one\\ntwo\\n'; sleep 0.5; seq 1 60; sleep 5".into(),
+            ],
+        });
+        let settings = TerminalSettings {
+            max_history_length: 5,
+            ..TerminalSettings::default()
+        };
+        let mut builder = spawn_with(&settings, &profile);
+        let terminal = &mut builder.terminal;
+        wait_for_text(terminal, "two");
+        terminal.freeze();
+        terminal.start_selection(cell(0, 0, false), SelectionType::Simple);
+        terminal.extend_selection(cell(0, 2, true));
+        assert_eq!(terminal.selection_text().as_deref(), Some("one"));
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while terminal.history_size() < 5 {
+            assert!(Instant::now() < deadline, "no output");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        std::thread::sleep(Duration::from_millis(300));
+        // "one" went past the short history, there is nothing left to select
+        terminal.unfreeze();
+        assert_eq!(terminal.selection_text(), None);
+    }
+
+    #[test]
+    fn a_frame_held_too_long_lets_go_by_itself() {
+        let mut builder = crate::terminal::tests::spawn(&TerminalSettings::default());
+        let terminal = &mut builder.terminal;
+        terminal.freeze();
+        assert!(terminal.holds_frame());
+        // as if the button release was never seen
+        terminal.frozen.as_mut().unwrap().since -= super::MAX_HOLD + Duration::from_secs(1);
+        assert!(!terminal.holds_frame());
+        assert!(terminal.frozen.is_none());
     }
 }

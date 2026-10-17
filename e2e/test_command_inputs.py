@@ -1,7 +1,6 @@
 """commands that ask for values before they run: a field to type into, a list to pick from, the
 lines a command prints, or one of the built in values ({selection}, {last_output}, {cwd},
-{clipboard}, {hint}); every value fills {name} in the steps, quoted unless asked raw; the matrix
-runs the command once per picked value in a split each and says how many passed; a step can name
+{clipboard}, {hint}); every value fills {name} in the steps, quoted unless asked raw; a step can name
 the pane, split or window it works on; and such a command can be run from the palette, a keymap
 entry or kuterm msg run-command"""
 
@@ -13,7 +12,7 @@ import pytest
 from harness import (App, as_rgb, bundled_theme, close_to, dominant, mask_bbox, median, near,
                      set_clipboard, unique_theme)
 from kit import (integrated, msg, nothing_for, notification_box, ready, send, tabs, text,
-                 wait_block, wait_buttons, wait_text)
+                 wait_block, wait_text)
 
 FEATURE = "command inputs"
 
@@ -452,49 +451,17 @@ def test_an_input_named_like_a_built_in_is_a_config_error(app_factory):
     app.snap("a broken commands list: the error, and the app running defaults")
 
 
-def test_a_matrix_input_runs_every_value_in_a_split_of_its_own(app_factory):
-    """{"pick": [...], "matrix": true} runs the command once per value in a split each, then a
-    notification says how many passed and its button closes the splits again"""
-    app = app_with(app_factory, [{"name": "test two",
-                                  "inputs": {"v": {"pick": ["good", "bad"], "matrix": True}},
-                                  "actions": [{"type": "printf '%s %s %s\\n' {v} \"$(stty size)\" "
-                                                       "\"$PWD\" > $T2_TMP/matrix-{v:raw}; test {v} = good\n"}]}])
-    send(app, "mkdir -p $T2_TMP/deep && cd $T2_TMP/deep")
-    wait_block(app, "mkdir -p")
-    rows, cols = app.layout_pty()
-    app.palette("test two")
-    app.wait(lambda: app.file("matrix-good").exists() and app.file("matrix-bad").exists(),
-             msg="both values ran")
-    app.snap("one split per value ran the command, the summary says how many passed")
-    # a split of its own for every value, next to the tab the command ran from
-    app.wait(lambda: len(tabs(app)) == 3, msg="two splits next to the original tab")
-    assert len({tab["pane"] for tab in tabs(app)}) == 3
-    for value in ("good", "bad"):
-        picked, size_rows, size_cols, where = app.file(f"matrix-{value}").read_text().split()
-        assert picked == value
-        assert int(size_cols) < cols and int(size_rows) == rows, (value, size_cols, size_rows)
-    # "1 of 2 passed" with the button that closes the splits again
-    (button,) = wait_buttons(app, C, 1)
-    app.click(*button)
-    app.wait(lambda: len(tabs(app)) == 1, msg="close all closed the splits")
-
-
 def test_a_split_step_runs_in_the_folder_of_the_tab(app_factory):
     """a pane opened by a step runs the value in the folder the command was run from, like
     pick_from runs in that folder too"""
     app = app_with(app_factory, [{"name": "split here", "inputs": {"v": {"text": "value"}},
                                   "actions": [{"target": "new_split_right",
-                                               "action": {"type": "echo $PWD > $T2_TMP/where\n"}}]},
-                                 {"name": "matrix here", "inputs": {"v": {"pick": ["one"], "matrix": True}},
-                                  "actions": [{"type": "echo $PWD > $T2_TMP/matrix-{v}\n"}]}])
+                                               "action": {"type": "echo $PWD > $T2_TMP/where\n"}}]}])
     send(app, "mkdir -p $T2_TMP/deep && cd $T2_TMP/deep")
     wait_block(app, "mkdir -p")
     run(app, "split here", "x")
     app.wait_file("where")
-    app.palette("matrix here")
-    app.wait_file("matrix-one")
-    assert (app.file("where").read_text().strip(), app.file("matrix-one").read_text().strip()) == \
-        (str(app.tmp / "deep"), str(app.tmp / "deep"))
+    assert app.file("where").read_text().strip() == str(app.tmp / "deep")
 
 
 def test_inputs_with_a_queued_command(app_factory):
@@ -549,32 +516,6 @@ def test_a_pinned_command_with_inputs_comes_first_in_the_palette(app_factory):
     app.key("Return")
     app.wait(lambda: app.file("chosen").exists(), msg="the pinned command ran with the value")
     assert not app.file("unpinned").exists()
-
-
-def test_a_command_with_inputs_can_run_at_a_sleeping_tab(app_factory):
-    """a step targeting a sleeping tab runs there, and reading it back wakes the tab again"""
-    app = app_with(app_factory, [{"name": "wake and work", "inputs": {"v": {"text": "value"}},
-                                  "actions": [{"target": "pane:sleeper",
-                                               "action": {"type": "touch $T2_TMP/{v}\n"}}]}],
-                   sleep_tabs_after_minutes=0.02)
-    first = next(tab for tab in tabs(app) if tab["number"] == 1)
-    assert msg(app, "new-tab", "--name", "sleeper").returncode == 0
-    sleeper = tab_named(app, "sleeper")
-    # a tab is only put to sleep once it has scrolled something off, so give it a history
-    send(app, "seq 1 200", pane=str(sleeper["id"]))
-    wait_block(app, "seq 1 200", pane=str(sleeper["id"]))
-    assert msg(app, "focus-tab", "--pane", str(first["id"])).returncode == 0
-
-    def asleep() -> bool:
-        return bool(next((tab["asleep"] for tab in tabs(app) if tab["name"] == "sleeper"), False))
-
-    app.wait(asleep, msg="the hidden tab went to sleep", timeout=20)
-    app.snap("the tab the command targets is asleep")
-    run(app, "wake and work", "still_there")
-    app.wait(lambda: app.file("still_there").exists(), msg="the command ran")
-    # the value went into the tab the step names, not into the tab that happens to be active
-    wait_text(app, "touch $T2_TMP/still_there", pane=str(sleeper["id"]), timeout=5)
-    assert app.alive()
 
 
 def test_a_command_can_answer_a_program_waiting_for_input(app_factory):

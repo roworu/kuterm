@@ -7,9 +7,9 @@ use gpui::{AnyWindowHandle, AppContext, Context, Entity, EntityId, Window};
 
 use super::Workspace;
 use crate::{
-    settings::{Command, CommandAction, Inputs, SearchCase},
+    settings::{Command, CommandAction, SearchCase},
     terminal::{FoundLine, SearchQuery, SearchScope, Terminal, search_pattern},
-    ui::command_palette::{CommandPalette, FinderQuery},
+    ui::dialogs::{CommandPalette, FinderQuery},
 };
 
 // typing waits this long for the next key before searching
@@ -82,9 +82,9 @@ impl Workspace {
             return;
         };
         // this window first, then the others in the order the app keeps them
-        let mut tabs = self.tabs_with_titles(cx);
-        let mut sources: Vec<(AnyWindowHandle, EntityId, String, Entity<Terminal>)> = tabs
-            .drain(..)
+        let mut sources: Vec<(AnyWindowHandle, EntityId, String, Entity<Terminal>)> = self
+            .tabs_with_titles(cx)
+            .into_iter()
             .map(|(id, title, terminal)| (own, id, title, terminal))
             .collect();
         for handle in cx.windows() {
@@ -131,13 +131,11 @@ impl Workspace {
                     .iter()
                     .enumerate()
                     .map(|(ix, (_, _, title, line))| {
-                        let command = Command {
-                            name: line.text.clone(),
-                            category: Some(title.clone()),
-                            pinned: false,
-                            inputs: Inputs::new(),
-                            actions: vec![CommandAction::ActivateTab(ix).into()],
-                        };
+                        let command = Command::new(
+                            line.text.clone(),
+                            Some(title.clone()),
+                            vec![CommandAction::ActivateTab(ix).into()],
+                        );
                         (command, Some(line.highlight.clone()))
                     })
                     .collect();
@@ -202,5 +200,46 @@ impl Workspace {
         self.terminal_at(pane, ix, cx)
             .update(cx, |terminal, _| terminal.select_found(line));
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ui::workspace::test_support::*;
+
+    #[gpui::test]
+    fn a_match_in_another_window_is_selected_there(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 2);
+        let far = terminal(&ws, cx, 1);
+        send_to(&ws, cx, 1, "echo farx$((6*7))\r");
+        wait_until(cx, "the echo never ran", |cx| {
+            far.update(cx, |t, _| {
+                t.sync();
+                line_starting_with(t, "farx42").is_some()
+            })
+        });
+        run_actions(&ws, cx, r#"{"activate_tab": 2}, "move_tab_to_new_window""#);
+        let own = cx.update(|window, _| window.window_handle().window_id());
+        let other = workspaces(cx)
+            .into_iter()
+            .find(|w| w.window_id() != own)
+            .expect("no second window");
+        assert_eq!(terminals_of(other, cx), [far.entity_id()]);
+
+        run_actions(&ws, cx, r#""find_in_all_tabs""#);
+        type_keys(cx, "f a r x 4 2");
+        wait_until(cx, "the match in the other window was never listed", |cx| {
+            palette_open(&ws, cx) && palette_names(&ws, cx).iter().any(|n| n.contains("farx42"))
+        });
+        assert_eq!(
+            palette_names(&ws, cx).len(),
+            1,
+            "{:?}",
+            palette_names(&ws, cx)
+        );
+        type_keys(cx, "enter");
+        assert!(!palette_open(&ws, cx));
+        let selected = far.read_with(cx, |t, _| t.selection_text());
+        assert_eq!(selected.as_deref(), Some("farx42"));
     }
 }

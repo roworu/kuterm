@@ -320,28 +320,3 @@ def test_paste_with_hidden_characters_asks_and_marks_them(app_factory):
     app.snap("paste dialog pointing out a hidden character")
     app.key("Escape")
 
-
-def test_fill_password_types_the_secret_without_showing_it(app_factory):
-    """fill_password lists the entries of pass, the picked one's password reaches a program reading a secret"""
-    app = app_factory({"theme": {"mode": "dark"}, "password_manager": {"preset": "pass", "enter": True}},
-                      start=False)
-    store = app.home / ".password-store" / "web"
-    store.mkdir(parents=True)
-    (store / "example.gpg").write_text("not really encrypted")
-    bin_dir = app.tmp / "bin"
-    bin_dir.mkdir()
-    # a fake pass printing a password and a second line that must not be typed
-    fake = bin_dir / "pass"
-    fake.write_text('#!/bin/sh\n[ "$1 $2" = "show web/example" ] && printf "s3cret!x\\nuser: me\\n"\n')
-    fake.chmod(0o755)
-    app.env_extra["PATH"] = f"{bin_dir}:/usr/local/bin:/usr/bin:/bin"
-    app.start()
-    app.run('read -s x; echo "len ${#x}" > $T2_TMP/len')
-    app.palette("fill password")
-    # the list of entries opens once pass answered, keys before that would go to read
-    app.wait(lambda: near(app.shot()[60:200, 250:650], DARK["tab_bar_background"]).sum() > 5000, msg="entries listed")
-    app.type("example")
-    app.snap("entries of pass in the palette")
-    app.key("Return")
-    app.wait_file("len", "len 8")
-    assert "s3cret" not in app.output()

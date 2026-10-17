@@ -272,7 +272,123 @@ fn scope_label(scope: SearchScope) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{SearchScope, next_scope};
+    use std::time::{Duration, Instant};
+
+    use gpui::{Entity, TestAppContext};
+
+    use super::*;
+    use crate::terminal::{TerminalBounds, TerminalBuilder};
+
+    /// a bar over a real shell that printed "word words sword", with an empty query
+    fn bar_over_words(cx: &mut TestAppContext) -> (Entity<SearchBar>, Entity<Terminal>) {
+        let settings = Settings::default();
+        cx.update(|cx| cx.set_global(settings.clone()));
+        let builder = TerminalBuilder::new(
+            &settings.terminal,
+            settings.default_profile(),
+            TerminalBounds::default(),
+            0,
+        )
+        .expect("failed to spawn shell");
+        let terminal = cx.new(|_| builder.into_terminal());
+        // split by quotes, so the typed command never matches, only the printed line
+        terminal.update(cx, |terminal, _| {
+            terminal.type_text(b"printf '%s\\n' 'wo''rd wo''rds swo''rd'\r")
+        });
+        let bar = cx.new(|cx| SearchBar::new(terminal.clone(), None, cx));
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while count_of(&bar, "word", cx) != Ok(3) {
+            assert!(Instant::now() < deadline, "shell never printed");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        (bar, terminal)
+    }
+
+    /// matches of `text` with the bar's current options
+    fn count_of(
+        bar: &Entity<SearchBar>,
+        text: &str,
+        cx: &mut TestAppContext,
+    ) -> Result<usize, String> {
+        bar.update(cx, |bar, cx| {
+            bar.input
+                .update(cx, |input, cx| input.set_content(text.to_string(), cx));
+            bar.search(cx);
+            bar.status.clone().map(|status| status.count)
+        })
+    }
+
+    #[gpui::test]
+    fn whole_word_skips_matches_inside_words(cx: &mut TestAppContext) {
+        let (bar, _) = bar_over_words(cx);
+        bar.update(cx, |bar, cx| bar.toggle_whole_word(cx));
+        assert_eq!(count_of(&bar, "word", cx), Ok(1));
+        bar.update(cx, |bar, cx| bar.toggle_whole_word(cx));
+        assert_eq!(count_of(&bar, "word", cx), Ok(3));
+    }
+
+    #[gpui::test]
+    fn case_flips_between_sensitive_and_insensitive(cx: &mut TestAppContext) {
+        let (bar, _) = bar_over_words(cx);
+        bar.update(cx, |bar, _| bar.case = SearchCase::Sensitive);
+        assert_eq!(count_of(&bar, "word", cx), Ok(3));
+        assert_eq!(count_of(&bar, "WORD", cx), Ok(0));
+        bar.update(cx, |bar, cx| bar.toggle_case(cx));
+        assert_eq!(
+            bar.read_with(cx, |bar, _| bar.case),
+            SearchCase::Insensitive
+        );
+        assert_eq!(count_of(&bar, "WORD", cx), Ok(3));
+    }
+
+    #[gpui::test]
+    fn emptied_query_ends_the_search(cx: &mut TestAppContext) {
+        let (bar, terminal) = bar_over_words(cx);
+        assert!(terminal.read_with(cx, |terminal, _| terminal.searching()));
+        assert_eq!(count_of(&bar, "", cx), Ok(0));
+        assert!(!terminal.read_with(cx, |terminal, _| terminal.searching()));
+        assert_eq!(
+            bar.read_with(cx, |bar, _| bar.status.clone()),
+            Ok(SearchStatus::default())
+        );
+    }
+
+    #[gpui::test]
+    fn arrows_do_nothing_on_a_broken_regex(cx: &mut TestAppContext) {
+        let (bar, _) = bar_over_words(cx);
+        bar.update(cx, |bar, cx| bar.toggle_regex(cx));
+        assert!(count_of(&bar, "wo(", cx).is_err());
+        bar.update(cx, |bar, cx| bar.step(true, cx));
+        let status = bar.read_with(cx, |bar, _| bar.status.clone());
+        assert!(status.is_err(), "the error went away: {status:?}");
+    }
+
+    #[gpui::test]
+    fn status_text_tells_count_place_and_cap(cx: &mut TestAppContext) {
+        let (bar, _) = bar_over_words(cx);
+        let text = |status: Result<SearchStatus, String>, regex: bool, cx: &mut TestAppContext| {
+            bar.update(cx, |bar, _| {
+                bar.status = status;
+                bar.regex = regex;
+                bar.status_text().to_string()
+            })
+        };
+        let found = |active, count, capped| {
+            Ok(SearchStatus {
+                active,
+                count,
+                capped,
+            })
+        };
+        assert_eq!(text(found(Some(1), 3, false), false, cx), "2 of 3");
+        assert_eq!(text(found(None, 3, false), false, cx), "3");
+        assert_eq!(text(found(None, 10_000, true), false, cx), "10000+");
+        assert_eq!(text(found(Some(0), 10_000, true), false, cx), "1 of 10000+");
+        assert_eq!(text(found(None, 0, false), false, cx), "no matches");
+        assert_eq!(text(Err("oops".into()), true, cx), "bad regex: oops");
+        // only a regex has an error worth showing
+        assert_eq!(text(Err("oops".into()), false, cx), "");
+    }
 
     #[test]
     fn scope_cycles_and_skips_missing_block() {

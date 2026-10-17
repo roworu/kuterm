@@ -2,15 +2,14 @@
 that make, fill, empty and close one, project groups that follow the shell into git folders, and
 a group through pinning, renaming, closing, moving between panes, sleeping and session restore"""
 
-import json
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from harness import (App, as_rgb, bundled_theme, close_to, count, dominant, ink, mask_bbox, near,
+from harness import (App, as_rgb, bundled_theme, close_to, dominant, ink, mask_bbox, near,
                      unique_theme)
-from kit import listening, nothing_for, tabs as tab_list, text as pane_text, wait_text
+from kit import listening, nothing_for, tabs as tab_list
 
 FEATURE = "tab groups"
 
@@ -20,8 +19,7 @@ BUNDLED = bundled_theme(True)
 
 # one key per group command, so a test does not have to open the palette every time
 KEYS = {"new_group": "ctrl-shift-g", "add_tab_to_group": "ctrl-shift-d",
-        "remove_tab_from_group": "ctrl-shift-r", "close_group": "ctrl-shift-l",
-        "tab_overview": "ctrl-shift-o"}
+        "remove_tab_from_group": "ctrl-shift-r", "close_group": "ctrl-shift-l"}
 
 
 def group_app(app_factory, custom=THEME, **settings) -> App:
@@ -178,17 +176,6 @@ def two_grouped(app: App) -> None:
     app.wait(lambda: underlines(app) and span(underlines(app)[0]) > 350, msg="both tabs under one line")
     app.key("alt+2")
     app.wait_title(lambda title: title.endswith(" two"))
-
-
-def slept(app: App, number: int) -> bool:
-    """whether the tab numbered `number` has its history packed away"""
-    return bool(next(tab["asleep"] for tab in tab_list(app) if tab["number"] == number))
-
-
-def overview_open(app: App) -> int:
-    """pixels the overview draws of the frame around its picked preview; the terminal cursor is
-    the only other thing in that color and is far smaller"""
-    return count(app.shot(), C["cursor"], 2)
 
 
 def ink_width(app: App, x0: int, x1: int) -> int:
@@ -775,35 +762,4 @@ def test_group_with_a_hidden_bar_and_narrow_tabs(app_factory):
     assert abs(edges(app)[0] - (box[2] + 4 + 119)) <= 2, (edges(app), box)
     assert chip_colour(app, box) == 1
     app.snap("a chip wider than the tabs beside it")
-
-
-def test_sleeping_tab_of_a_group_is_woken_from_the_overview(app_factory):
-    """a tab hidden behind a collapsed group sleeps after sleep_tabs_after_minutes; the tab
-    overview lists it and picking it there switches to it and wakes it with its output"""
-    app = group_app(app_factory, sleep_tabs_after_minutes=0.02)
-    listening(app)
-    two_grouped(app)
-    app.key("alt+1")
-    # enough output to scroll, so the tab has a history to pack away
-    app.run("seq 1 200; echo marker_one")
-    first = str(next(tab["id"] for tab in tab_list(app) if tab["number"] == 1))
-    wait_text(app, "marker_one", first)
-    app.key("alt+2")
-    app.wait_title(lambda title: title.endswith(" two"))
-    app.wait(lambda: slept(app, 1), msg="the hidden tab asleep")
-    # collapse the group: the sleeping tab is only reachable through the chip now
-    box = chips(app)[0]
-    app.click((box[0] + box[2]) // 2, app.bar_height() // 2)
-    app.wait(lambda: len(edges(app)) == 1, msg="the sleeping tab behind the chip")
-    app.snap("the sleeping tab hidden behind the collapsed group")
-    # the overview lists it anyway, and picking it switches over and wakes it
-    app.key("ctrl+shift+o")
-    app.wait(lambda: overview_open(app) > 1500, msg="the overview with its picked tab")
-    app.snap("the overview of both tabs of the group")
-    app.click(120, 150)
-    app.wait_title(lambda title: title.endswith(" one"))
-    app.wait(lambda: not slept(app, 1), msg="the picked tab woke up")
-    assert "marker_one" in pane_text(app, first)
-    app.snap("the sleeping tab picked, awake and on screen")
-    assert chip_colour(app, chips(app)[0]) == 1
 

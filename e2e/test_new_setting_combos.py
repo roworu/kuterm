@@ -1,6 +1,6 @@
-"""the new settings used together, not one at a time: sleeping tabs next to search, the command
-queue, broadcast, a stopped job and incognito tabs, every way a command can be typed next to the
-source gutter, keep print width with search, a selection and a held frame, the completion popup
+"""the new settings used together, not one at a time: the command queue, broadcast, a stopped
+job and incognito tabs, every way a command can be typed next to the source gutter, a held
+frame, the completion popup
 with its keys, its keymap and the shell, a question and an agent notifying together, and one app
 started with every new setting away from its default"""
 
@@ -11,9 +11,8 @@ import time
 from pathlib import Path
 
 import numpy as np
-import pytest
 
-from harness import (BACKEND, BIN, App, Notifications, as_rgb, close_to, count, dominant,
+from harness import (BIN, App, Notifications, as_rgb, close_to, count, dominant,
                      get_clipboard, ink, ink_bbox, mask_bbox, near, set_clipboard, unique_theme)
 from kit import (blocks, executable, integrated, listening, msg, nothing_for, notification_buttons,
                  ready, send, socket_of, tabs, text, wait_block, wait_buttons, wait_text)
@@ -24,8 +23,7 @@ THEME = {**unique_theme(0xc1), "search_match": "#ffd400", "search_match_active":
 C = as_rgb(THEME)
 
 # keys for the features in this file, a test passes the ones it uses
-KEYS = {"split_right": "ctrl-shift-r", "toggle_broadcast_all": "ctrl-shift-b",
-        "tab_overview": "ctrl-shift-o"}
+KEYS = {"split_right": "ctrl-shift-r", "toggle_broadcast_all": "ctrl-shift-b"}
 
 # a shell command that asks and waits, and a program printing lines forever
 QUESTION = "printf 'continue? '; IFS= read -r x; echo \"$x\" > $T2_TMP/answer"
@@ -45,12 +43,6 @@ def combo_app(app_factory, *, keybindings=None, commands=None, env=None, tab_ico
     return app_factory(base, themes={"dark": THEME}, keybindings=keybindings,
                        commands={"commands": commands} if commands else None, env=env,
                        tab_icons=tab_icons)
-
-
-def sleeping_app(app_factory, minutes: float, **settings) -> App:
-    """the same with hidden tabs sleeping after `minutes`, keeping all their history"""
-    terminal = {"max_history_length": 0, **settings.pop("terminal", {})}
-    return combo_app(app_factory, sleep_tabs_after_minutes=minutes, terminal=terminal, **settings)
 
 
 def first_tab(app: App) -> str:
@@ -74,14 +66,6 @@ def pane_front(app: App, pane: int) -> str:
 
 def pane_ids(app: App) -> list:
     return sorted({t["pane"] for t in tabs(app)})
-
-
-def asleep(app: App, pane: str) -> bool:
-    return next(t["asleep"] for t in tabs(app) if str(t["id"]) == pane)
-
-
-def wait_asleep(app: App, pane: str) -> None:
-    app.wait(lambda: asleep(app, pane), msg="the hidden tab asleep", timeout=15)
 
 
 def fill_and_hide(app: App, lines: int = 1200, marker: str = "printed_all") -> str:
@@ -330,230 +314,6 @@ def zsh_app(app_factory, tmp_path, **settings) -> App:
     return app
 
 
-# ---- sleeping tabs beside the other features --------------------------------
-
-
-def test_a_scoped_search_and_find_in_all_tabs_over_a_sleeping_tab(app_factory):
-    """a search of this tab scoped down to its failed output, then find in all tabs with the same
-    "failed:" prefix picking a match out of a sleeping tab: the pick switches over and wakes it"""
-    app = sleeping_app(app_factory, 0.02, tab_title=["number", {"text": " "}, "icon"])
-    send(app, "seq 1 1200 | sed 's/^/needle_/'; echo needle_printed; false")
-    pane = first_tab(app)
-    wait_block(app, "seq 1 1200", pane)
-    app.key("ctrl+shift+t")
-    app.wait_title("2 D")
-    wait_asleep(app, pane)
-    send(app, "echo needle_here; false")
-    wait_block(app, "echo needle_here")
-    app.key("ctrl+shift+f")
-    app.type("needle_here")
-    app.wait(lambda: near(app.shot(), C["search_match_active"], 2).sum() > 20, msg="the match lit")
-    app.key("alt+s", "alt+s")
-    app.wait(lambda: near(app.shot(), C["search_match_active"], 2).sum() > 20,
-             msg="the failed output alone")
-    app.snap("this tab's search, scoped down to what its failed command printed")
-    app.key("Escape")
-    app.palette("find in all tabs")
-    app.type("failed:needle_printed")
-    app.wait(lambda: near(app.shot(), C["search_match_active"], 2).sum() > 20,
-             msg="the failed output of the sleeping tab listed")
-    app.snap("find in all tabs reached a failed output of a tab whose history is packed away")
-    app.key("Return")
-    app.wait_title("1 D")
-    app.wait(lambda: not asleep(app, pane), msg="the picked tab woken")
-    assert "needle_printed" in text(app, pane)
-    app.snap("switched to the picked tab, its history back")
-
-
-def test_a_sleeping_tab_keeps_its_print_width_across_a_hidden_resize(app_factory):
-    """keep_block_width with sleep_tabs_after_minutes: a wide line printed before the tab fell
-    asleep stays on one row when the window is narrowed while it is hidden, and takes a second
-    row without the setting. each app is measured before the next opens: on wayland both
-    windows land on the same rect and the newer one would cover the older"""
-    apps = {}
-    for keep in (True, False):
-        app = sleeping_app(app_factory, 0.02, shell_integration={"mark_sources": "none"},
-                           terminal={"keep_block_width": keep})
-        ready(app)
-        send(app, "seq 1 3000; printf 'A%.0s' $(seq 70); echo B")
-        pane = first_tab(app)
-        wait_text(app, "A" * 40, pane)
-        app.wait_still()
-        before = wide_rows(app)
-        app.key("ctrl+shift+t")
-        app.wait_title("2 D")
-        wait_asleep(app, pane)
-        app.resize(450, 600)
-        time.sleep(1)
-        app.key("ctrl+Tab")
-        app.wait_title("1 D")
-        app.wait(lambda: not asleep(app, pane), msg="woken")
-        app.wait_still()
-        apps[keep] = (before, wide_rows(app), text(app, pane))
-        app.snap("woken from sleep after a hidden resize: the wide line printed at 900px, one row"
-                 if keep else "without keep_block_width the same line is rewrapped over two rows")
-    (kept_before, kept_after, kept_text), (plain_before, plain_after, _) = apps[True], apps[False]
-    assert kept_before == 1 and plain_before == 1, ("the line at 900px", kept_before, plain_before)
-    assert kept_after == 1, "the woken line took more than its one row back"
-    assert plain_after == 2, "without keep_block_width the line is not rewrapped"
-    assert "A" * 70 + "B" in kept_text.replace("\n", "")
-
-
-def test_a_sleeping_tab_pauses_its_queue_on_a_failure(app_factory):
-    """queue_stop_on_failure with a sleeping tab: the queue keeps running while the tab is
-    hidden, a failure pauses it there, the tab title says one entry waits, and resume queue
-    from the palette runs the rest"""
-    app = sleeping_app(app_factory, 0.02, tab_title=["number", {"text": " "}, "queue"],
-                       terminal={"queue_stop_on_failure": True})
-    pane = first_tab(app)
-    ready(app, pane)
-    send(app, "seq 1 3000; echo filled", pane)
-    wait_block(app, "seq 1 3000", pane)
-    send(app, "sleep 4", pane)
-    wait_block(app, "sleep 4", pane, finished=False)
-    queue(app, "false", pane)
-    queue(app, "touch $T2_TMP/after", pane)
-    app.key("ctrl+shift+t")
-    app.wait_title("2 D")
-    wait_asleep(app, pane)
-    app.wait(lambda: "⧗" in tab_title(app, 1), msg="the paused entry in the tab title", timeout=20)
-    nothing_for(3, app.file("after").exists)
-    assert asleep(app, pane), "the failure woke the sleeping tab"
-    app.snap("the hidden sleeping tab paused its queue, its title says one entry waits")
-    app.key("ctrl+Tab")
-    app.wait_title("1 D")
-    app.palette("resume queue")
-    app.wait(app.file("after").exists, msg="the resumed entry ran")
-
-
-def test_a_sleeping_tab_runs_its_queue_through_a_failure(app_factory):
-    """with queue_stop_on_failure off the queue goes on inside the sleeping tab: its commands
-    run and write their files while the tab stays hidden and asleep"""
-    app = sleeping_app(app_factory, 0.02, terminal={"queue_stop_on_failure": False})
-    pane = first_tab(app)
-    ready(app, pane)
-    send(app, "seq 1 3000; echo filled", pane)
-    wait_block(app, "seq 1 3000", pane)
-    send(app, "sleep 4", pane)
-    wait_block(app, "sleep 4", pane, finished=False)
-    queue(app, "false", pane)
-    queue(app, "touch $T2_TMP/went_on", pane)
-    app.key("ctrl+shift+t")
-    app.wait_title("2 D")
-    wait_asleep(app, pane)
-    app.wait(app.file("went_on").exists, msg="the queue went on in the sleeping tab", timeout=25)
-    assert asleep(app, pane), "the queue ran without waking the tab"
-    app.snap("the queue ran through its failure inside the sleeping tab")
-
-
-def test_a_stopped_job_is_still_there_after_a_sleep(app_factory):
-    """a job stopped with ctrl+z survives the tab sleeping: its tab title block shows it while
-    the tab is hidden, and the banner brings it back in front"""
-    app = sleeping_app(app_factory, 0.02, window_title=["number", {"text": " "}, "command"],
-                       tab_title=["number", {"text": " "}, "stopped_jobs"])
-    pane = first_tab(app)
-    send(app, "seq 1 3000; echo filled", pane)
-    wait_text(app, "filled", pane)
-    send(app, "sleep 100")
-    app.wait_title("1 sleep")
-    app.key("ctrl+z")
-    app.wait_title("1 bash")
-    app.wait(lambda: "stopped" in tab_title(app, 1), msg="the stopped job in the tab title")
-    assert "sleep" in tab_title(app, 1)
-    app.key("ctrl+shift+t")
-    app.wait_title("2 bash")
-    wait_asleep(app, pane)
-    assert "stopped" in tab_title(app, 1), "the stopped job fell out of the sleeping tab"
-    app.snap("the sleeping tab still has its stopped sleep in the tab title")
-    app.key("ctrl+Tab")
-    app.wait_title("1 bash")
-    box = app.wait(lambda: bottom_banner(app), msg="the stopped job banner", timeout=15)
-    app.snap("woken with the stopped job still waiting under the prompt")
-    w, h = app.size()
-    app.click(w // 2 + (box[0] + box[2]) // 2, h * 3 // 4 + (box[1] + box[3]) // 2)
-    app.wait_title("1 sleep", timeout=15)
-    app.wait(lambda: bottom_banner(app) is None, msg="the banner gone once it runs again")
-
-
-def test_broadcast_never_reaches_a_sleeping_tab(app_factory):
-    """broadcast in a window of two panes where a tab sleeps behind another one: the typed keys
-    reach the front tab of each pane, the sleeping tab gets nothing, keeps its history and stays
-    asleep"""
-    app = sleeping_app(app_factory, 0.02, keybindings=KEYS,
-                       shell_integration={"mark_sources": "none"})
-    ready(app)
-    # the split moves the front tab into the pane on the right and leaves a fresh shell on the
-    # left, so the tab that sleeps later has a front tab of its own still watching it
-    app.key("ctrl+shift+r")
-    app.wait(lambda: len(pane_ids(app)) == 2, msg="the second pane")
-    sleeper = first_tab(app)
-    send(app, "seq 1 1200; echo boot_only", sleeper)
-    wait_text(app, "boot_only", sleeper)
-    # a new tab goes into the focused pane, so the sleeper's pane is focused first: a sleeping
-    # tab is the active tab of no pane, or the broadcast would type into it. the split moved the
-    # sleeper into the pane on the left
-    app.click(225, 300)
-    app.key("ctrl+shift+t")
-    app.wait(lambda: len(tabs(app)) == 3, msg="the tab in front of the sleeper")
-    wait_asleep(app, sleeper)
-    app.snap("the tab asleep behind the front one of its pane, the other pane beside it")
-    app.key("ctrl+shift+b")
-    app.type("echo bcast_marker")
-    app.key("Return")
-    front = pane_front(app, pane_ids(app)[0])
-    wait_text(app, "bcast_marker", front)
-    assert asleep(app, sleeper), "the broadcast woke the sleeping tab"
-    # reading a sleeping tab unpacks its history, this one may show its own commands only
-    assert "bcast_marker" not in text(app, sleeper)
-    app.snap("the keys reached both panes, the sleeping tab untouched and asleep")
-
-
-def test_an_incognito_tab_sleeps_and_wakes_by_being_shown(app_factory):
-    """an incognito tab sleeps like any other, a read that is refused is refused, and showing it
-    again wakes it with its history back"""
-    app = sleeping_app(app_factory, 0.02, window_title=["number", {"text": " "}, "icon"])
-    app.palette("new incognito tab")
-    app.wait_title(lambda title: title.startswith("2 "))
-    pane = active_pane(app)
-    # nothing but the keyboard and the pasted text can type into an incognito tab
-    app.type("seq 1 1200; echo secret_printed; echo ran > $T2_TMP/incognito_ran")
-    app.key("Return")
-    app.wait_file("incognito_ran", timeout=20)
-    app.key("ctrl+Tab")
-    app.wait_title("1 D")
-    wait_asleep(app, pane)
-    done = msg(app, "get-text", "--pane", pane)
-    assert done.returncode != 0 and "incognito" in done.stderr + done.stdout, done
-    app.snap("the sleeping incognito tab cannot be read over remote control")
-    app.key("ctrl+Tab")
-    app.wait(lambda: not asleep(app, pane), msg="shown, so awake again")
-    # its own output cannot be read back either, the filled screen is the sign it was kept
-    app.wait(lambda: text_rows(app) > 12, msg="the history of the woken incognito tab on screen")
-    app.snap("the incognito tab shown again, its history back on screen")
-
-
-def test_a_refused_read_does_not_wake_a_sleeping_incognito_tab(app_factory):
-    """an incognito tab asleep behind another one: the read the app refuses may not unpack the
-    history it was asked to keep out of reach"""
-    app = sleeping_app(app_factory, 0.02, window_title=["number", {"text": " "}, "icon"])
-    app.palette("new incognito tab")
-    app.wait_title(lambda title: title.startswith("2 "))
-    pane = active_pane(app)
-    app.type("seq 1 1200; echo secret_printed; echo ran > $T2_TMP/incognito_ran")
-    app.key("Return")
-    app.wait_file("incognito_ran", timeout=20)
-    app.key("ctrl+Tab")
-    app.wait_title("1 D")
-    wait_asleep(app, pane)
-    done = msg(app, "get-text", "--pane", pane)
-    assert done.returncode != 0, done
-    time.sleep(0.5)
-    assert asleep(app, pane), "the refused read woke the incognito tab"
-
-
-# ---- the source gutter next to the other inputs -----------------------------
-
-
 def test_mark_sources_all_marks_every_source_with_one_gutter(app_factory):
     """mark_sources all with commands typed by the keyboard, by remote control, by a palette
     command, by the queue and pasted: every one is marked, the blocks say who did it, and the
@@ -625,28 +385,6 @@ def test_marks_none_without_injection_holds_the_queue_until_a_reload(app_factory
     app.snap("after the reload a new tab runs its queue, the uninjected shell still waits")
 
 
-def test_a_run_link_lands_beside_a_sleeping_tab(app_factory):
-    """a kuterm://run link while another tab sleeps: the command is typed into a tab of its own,
-    the sleeping tab is not woken, and running the line is marked as automation"""
-    app = sleeping_app(app_factory, 0.02, shell_integration={"mark_sources": "none"})
-    pane = fill_and_hide(app, marker="boot_only")
-    wait_asleep(app, pane)
-    run_link(app, "echo%20from_link")
-    app.wait(lambda: len(tabs(app)) == 3, msg="the tab of the link")
-    assert asleep(app, pane), "the link woke the sleeping tab"
-    wait_text(app, "echo from_link")
-    app.snap("the link typed into a tab of its own, the sleeper left alone")
-    app.key("Return")
-    link_tab = active_pane(app)
-    block = wait_block(app, "echo from_link", link_tab, timeout=20)
-    assert block["source"] == ["keyboard", "automation"], block
-    assert asleep(app, pane), "reading the block woke the sleeping tab"
-    wait_text(app, "boot_only", pane, scrollback=True)
-
-
-# ---- keep print width with a search and a selection -------------------------
-
-
 def lit_matches(app: App) -> int:
     """pixels of lit search matches, whichever of the two colors they are drawn in"""
     img = app.shot()
@@ -666,131 +404,6 @@ def clipboard_wait(app: App, marker: str, msg: str) -> str:
         return copied if marker in copied else None
 
     return app.wait(check, msg=msg)
-
-
-def test_a_kept_line_lights_up_and_copies_whole(app_factory):
-    """keep_block_width with the search and a triple click, the held frame off: after the
-    window narrowed, what is drawn of the kept line still lights up when searched, and the
-    copy of the line is the whole line on one row, the way it was printed"""
-    app = combo_app(app_factory, terminal={"keep_block_width": True},
-                    selection={"hold_frame": False},
-                    shell_integration={"mark_sources": "none"})
-    ready(app)
-    # six short lines above the long one, so it is not hidden under the search bar
-    send(app, "clear; seq 1 6; printf 'KEEP_ME %s\\n' \"$(printf 'A%.0s' $(seq 70))\"")
-    wait_text(app, "KEEP_ME")
-    # the block has to end before the resize, else there is nothing to copy aside
-    wait_prompt(app)
-    app.resize(450, 600)
-    wait_narrowed(app)
-    app.key("ctrl+shift+f")
-    app.type("AAAA")
-    app.wait(lambda: lit_matches(app) > 20, msg="the match in the drawn part of the kept line lit")
-    app.snap("a match inside the kept line is highlighted after the window narrowed")
-    app.key("Escape")
-    app.wait_still()
-    # a triple click takes the whole line, wrapped rows and all; the row comes from the pixels
-    # because opening the search bar scrolls the grid up by a line, under the window coordinates
-    x0, y0, _, y1 = app.cell_rect(0, kept_row(app), top=app.top())
-    app.click(60, (y0 + y1) // 2, repeat=3)
-    app.key("ctrl+shift+c")
-    copied = clipboard_wait(app, "KEEP_ME", "the copied kept line")
-    line = copied.strip()
-    assert line.startswith("KEEP_ME ") and "\n" not in line, repr(copied[:120])
-    assert line.count("A") == 70, repr(copied[:120])
-
-
-def test_a_held_frame_keeps_a_line_selection_on_a_kept_row(app_factory):
-    """selection.hold_frame on with keep_block_width: a triple click on a kept row takes the
-    whole line, so the release hands the selection back on the same text and the copy is the
-    line as it was printed, one row without a newline"""
-    app = combo_app(app_factory, terminal={"keep_block_width": True},
-                    shell_integration={"mark_sources": "none"})
-    ready(app)
-    send(app, "clear; seq 1 6; printf 'KEEP_ME %s\\n' \"$(printf 'A%.0s' $(seq 70))\"")
-    wait_text(app, "KEEP_ME")
-    wait_prompt(app)
-    app.resize(450, 600)
-    wait_narrowed(app)
-    x0, y0, x1, y1 = app.cell_rect(0, kept_row(app), top=app.top())
-    app.click((x0 + x1) // 2, (y0 + y1) // 2, repeat=3)
-    app.snap("the held frame let go of a triple clicked kept line")
-    set_clipboard("nothing copied yet")
-
-    def copied_line() -> str | None:
-        copied = get_clipboard()
-        return copied if copied != "nothing copied yet" and copied.strip() else None
-
-    app.key("ctrl+shift+c")
-    copied = app.wait(copied_line, timeout=5, msg="the copied kept line")
-    line = copied.strip()
-    assert line.startswith("KEEP_ME ") and "\n" not in line, repr(copied[:120])
-    assert line.count("A") == 70, repr(copied[:120])
-
-
-# ---- a held frame with a program printing lines -----------------------------
-
-
-@pytest.mark.parametrize("hold", [True, False], ids=["held", "live"])
-def test_a_drag_holds_the_frame_while_lines_keep_coming(app_factory, hold):
-    """selection.hold_frame with a program printing lines and keep_block_width on: with it on the
-    frame under the drag stands still and catches up on release, with it off the new lines move
-    it while the button is down"""
-    app = combo_app(app_factory, selection={"hold_frame": hold},
-                    terminal={"keep_block_width": True}, shell_integration={"mark_sources": "none"})
-    ready(app)
-    send(app, LOOP)
-    wait_text(app, "tick_20", timeout=25)
-    rows = app.layout_pty()[0]
-    x0, y0 = app.cell_rect(1, 1, top=app.top())[:2]
-    x1, y1 = app.cell_rect(30, rows - 3, top=app.top())[:2]
-    app.mouse(x0, y0)
-    app.button(1, True)
-    app.mouse(x1, y1)
-    time.sleep(0.4)
-    first = grid_above_cursor(app)
-    time.sleep(1.5)
-    second = grid_above_cursor(app)
-    if hold:
-        assert np.array_equal(first, second), "the frame moved under the drag"
-        app.snap("held: the ticks printed since the drag started are not shown yet")
-        app.button(1, False)
-        app.wait(lambda: not np.array_equal(grid_above_cursor(app), second),
-                 msg="the frame caught up on release")
-    else:
-        assert not np.array_equal(first, second), "the output did not move the frame"
-        app.snap("not held: the lines moved the frame under the drag")
-        app.button(1, False)
-
-
-def test_the_copied_selection_is_the_frame_that_was_shown(app_factory):
-    """hold_frame with keep_block_width and a right click for the copy: the text that lands in
-    the clipboard is the frame the drag started on, not the lines that kept arriving under it"""
-    app = combo_app(app_factory, selection={"hold_frame": True},
-                    terminal={"keep_block_width": True}, shell_integration={"mark_sources": "none"})
-    ready(app)
-    send(app, "i=0; while :; do i=$((i+1)); echo tick_$i; sleep 0.2; done")
-    wait_text(app, "tick_15", timeout=25)
-    rows = app.layout_pty()[0]
-    x0, y0 = app.cell_rect(1, 1, top=app.top())[:2]
-    x1, y1 = app.cell_rect(30, rows - 3, top=app.top())[:2]
-    app.mouse(x0, y0)
-    app.button(1, True)
-    app.mouse(x1, y1)
-    time.sleep(2.5)  # a dozen lines arrive while the frame is held
-    app.button(3, True)
-    app.button(3, False)
-    copied = clipboard_wait(app, "tick_", "the clipboard")
-    app.snap("the held frame copied by a right click, the drag still on")
-    live = ticks_in(text(app))
-    app.button(1, False)
-    ticks = ticks_in(copied)
-    assert len(ticks) >= 5, repr(copied)
-    assert ticks == list(range(ticks[0], ticks[0] + len(ticks))), ticks
-    assert live and max(live) >= max(ticks) + 5, (max(live), max(ticks))
-
-
-# ---- a link on a kept line that scrolled away -------------------------------
 
 
 def link_opener(tmp_path: Path) -> tuple[Path, Path]:
@@ -815,66 +428,6 @@ def editor_line(app: App) -> str:
     app.type(f":.w! {out}")
     app.key("Return")
     return app.wait_file("cur").strip()
-
-
-def test_a_link_on_a_kept_line_that_scrolled_away_peeks_and_opens(app_factory, tmp_path):
-    """links.open_in_running_editor and links.peek with keep_block_width: a file:line on a wide
-    line that scrolled away before the window narrowed is still drawn on one row, cut at the
-    pane edge, and both the peek and the ctrl click find it there and open the editor at line 3"""
-    script, opened = link_opener(tmp_path)
-    app = combo_app(app_factory, terminal={"keep_block_width": True},
-                    shell_integration={"mark_sources": "none"},
-                    links={"patterns": [{"regex": r"[\w./-]+\.txt:\d+(:\d+)?", "action": "open"}],
-                           "open_with": str(script), "open_in_running_editor": True, "peek": True})
-    ready(app)
-    (app.home / "f.txt").write_text("".join(f"line {n}\n" for n in range(1, 21)))
-    os.makedirs(app.file("bin"), exist_ok=True)
-    # vim.tiny under the name vim, the name kuterm knows it by
-    os.symlink("/usr/bin/vim.tiny", app.file("bin/vim"))
-    # the editor in tab 1, where the link is not; vim brings its own tab icon
-    send(app, "cd ~ && $T2_TMP/bin/vim -u NONE -N")
-    app.wait(lambda: app.title() != "1 D", msg="vim running in tab 1")
-    app.key("ctrl+shift+t")
-    app.wait_title("2 D")
-    # the link printed at 900px, then pushed off the screen before the window narrows
-    send(app, "clear; printf 'f.txt:3 %s\\n' \"$(printf 'W%.0s' $(seq 70))\"; seq 1 40; echo done_40")
-    wait_text(app, "done_40")
-    # the block has to end before the resize, else there is nothing to copy aside
-    wait_prompt(app)
-    app.wait_still()
-    app.resize(450, 600)
-    app.wait_still()
-    # scrolled back: the kept line is back on the screen, one drawn row, the rows its reflow
-    # would have taken left empty
-    app.wheel(225, 300, up=True, clicks=30)
-    app.wait(lambda: any(run >= 6 * app.cell_width() for run in row_runs(app)),
-             msg="the kept line scrolled back into view")
-    app.wait_still()
-    row = kept_row(app)
-    runs = row_runs(app)
-    assert row + 1 >= len(runs) or runs[row + 1] < 6 * app.cell_width(), \
-        "the line reflowed under the kept row"
-    app.snap("the wide line with f.txt:3 scrolled back, kept on one row after the window narrowed")
-    # resting on the link shows the file around line 3
-    x0, y0, x1, y1 = app.cell_rect(1, row, top=app.top())
-    app.mouse((x0 + x1) // 2, (y0 + y1) // 2)
-    app.wait(lambda: peek_pixels(app) > 1000, msg="the peek of the kept link")
-    app.snap("the peek of f.txt at line 3 from the kept line")
-    # the ctrl click opens it in the vim running in the other tab, at that line
-    with app.hold("ctrl"):
-        app.mouse((x0 + x1) // 2, (y0 + y1) // 2)
-        time.sleep(0.2)
-        app.button(1, True)
-        app.button(1, False)
-    # vim brings its own tab icon, so only the tab number says where the focus went
-    app.wait_title(lambda title: title.startswith("1 "))
-    app.wait(lambda: "line 3" in text(app), msg="the file opened in the editor at line 3")
-    assert editor_line(app) == "line 3"
-    assert not opened.exists(), "the link fell back to links.open_with"
-    app.snap("the kept line's link opened f.txt at line 3 in the editor of the other tab")
-
-
-# ---- every notification source at once --------------------------------------
 
 
 def notification_bands(app: App, img=None) -> list:
@@ -967,101 +520,6 @@ def test_a_waiting_agent_is_told_on_the_desktop(app_factory):
         assert shown["app"] == "kuterm", shown
     finally:
         server.stop()
-
-
-# ---- the password manager next to the queue and incognito tabs --------------
-
-
-@pytest.mark.parametrize("enter", [True, False], ids=["enter", "no-enter"])
-def test_fill_password_with_a_custom_get_and_a_queued_command(app_factory, enter):
-    """password_manager with a list and a get command of its own, enter on or off, while a
-    command waits in the queue: the queue only runs once the secret is in and the prompt is
-    back, and with enter off that takes the return key"""
-    app = combo_app(app_factory,
-                    password_manager={"list": ["printf", "one\ntwo\n"],
-                                      "get": ["printf", "s3cret!x\nuser: me\n"], "enter": enter},
-                    terminal={"queue_stop_on_failure": True})
-    ready(app)
-    send(app, "printf 'READY\\n'; read -s x; echo \"len ${#x}\" > $T2_TMP/len")
-    app.wait(lambda: "READY" in text(app), msg="the program asking for a secret")
-    queue(app, "touch $T2_TMP/queued")
-    app.palette("fill password")
-    app.wait(lambda: picker(app), msg="the entries listed")
-    app.type("one")
-    app.key("Return")
-    if not enter:
-        nothing_for(3, app.file("len").exists)
-        app.snap("the secret typed without enter, the program still waits and the queue with it")
-        app.key("Return")
-    app.wait_file("len", "len 8", timeout=15)
-    app.wait(app.file("queued").exists, msg="the queue ran once the prompt was back", timeout=20)
-    assert "user: me" not in text(app, scrollback=True), "only the first line of get is typed"
-
-
-def test_fill_password_in_an_incognito_tab(app_factory):
-    """a password prompt in an incognito tab: the lock the prompt puts on the tab shows the app
-    saw it, fill_password still answers it, and the tab reads nowhere over remote control"""
-    app = combo_app(app_factory, password_manager={"list": ["printf", "secret\n"],
-                                                   "get": ["printf", "hunter2\n"], "enter": True})
-    ready(app)
-    app.palette("new incognito tab")
-    app.wait_title(lambda title: title.startswith("2 "))
-    pane = active_pane(app)
-    # remote control cannot type into an incognito tab, the keyboard can
-    app.type(SECRET_PROMPT)
-    app.key("Return")
-    app.wait(lambda: "\uf023" in app.title(), msg="the lock of the secret prompt on the tab")
-    app.snap("the incognito tab asking for a secret, the lock on its tab")
-    app.palette("fill password")
-    app.wait(lambda: picker(app), msg="the entries listed")
-    app.type("secret")
-    app.key("Return")
-    app.wait_file("locked", "len 7")
-    done = msg(app, "get-text", "--pane", pane)
-    assert done.returncode != 0 and "incognito" in done.stderr + done.stdout, done
-    assert "hunter2" not in text(app, first_tab(app)), "the secret stayed in its own tab"
-    app.snap("the secret reached the incognito tab, which still reads nowhere")
-
-
-# ---- project groups with sleeping tabs and the session ----------------------
-
-
-def test_project_groups_sleep_and_come_back_with_the_session(app_factory):
-    """tab_groups.by_project with sleep_tabs_after_minutes and restore_session: a project tab
-    falls asleep hidden with its chip in place, and after a restart its shell is back in the
-    project folder under the same group color"""
-    app = combo_app(app_factory, tab_groups={"by_project": True}, sleep_tabs_after_minutes=0.02,
-                    restore_session="always", confirm_quit="never",
-                    window_title=["number", {"text": " "}, "folder"],
-                    terminal={"max_history_length": 0})
-    listening(app)
-    project(app, "proj-one")
-    app.wait_title("1 ~")
-    send(app, "cd $T2_TMP/proj-one")
-    app.wait_title("1 proj-one")
-    box = app.wait(lambda: chips(app) and chips(app)[0], msg="the chip of the project")
-    colour = chip_colour(app, box)
-    send(app, "seq 1 1200; echo slept_project")
-    pane = first_tab(app)
-    app.key("ctrl+shift+t")
-    app.wait_title("2 proj-one")
-    wait_asleep(app, pane)
-    assert len(chips(app)) == 1 and chip_colour(app, chips(app)[0]) == colour
-    app.snap("the project tab asleep behind the front one, its chip still in the bar")
-    app.palette("quit")
-    app.wait(lambda: not app.alive(), msg="the app quit")
-    app.start()
-    listening(app)
-    # the restored session comes back with the tab it left in front, its folder and its group
-    app.wait_title(lambda title: title.endswith("proj-one"))
-    back = app.wait(lambda: chips(app) and chips(app)[0], msg="the project group made again")
-    assert chip_colour(app, back) == colour
-    send(app, "pwd > $T2_TMP/where")
-    assert app.wait_file("where").strip().endswith("proj-one")
-    app.snap("restored in its project folder, the chip back")
-
-
-# ---- the status bar blocks next to the titles -------------------------------
 
 
 def test_status_bar_units_clock_and_titles_together(app_factory):
@@ -1165,10 +623,10 @@ def test_visual_bell_beside_an_attention_mark(app_factory):
     assert marked(app) > 4, "the mark went away with the flash"
 
 
-def test_decorations_none_with_click_moves_cursor_and_the_overview(app_factory):
-    """window.decorations none with shell_integration.click_moves_cursor and the tab overview in
-    one app: the grid sits under the bar the frame-less window always shows, a click in the
-    command line moves the shell's cursor there and the overview opens over two tabs"""
+def test_decorations_none_with_click_moves_cursor(app_factory):
+    """window.decorations none with shell_integration.click_moves_cursor in one app: the grid
+    sits under the bar the frame-less window always shows, a click in the command line moves
+    the shell's cursor there, and a second tab keeps the grid under the bar"""
     app = combo_app(app_factory, window={"decorations": "none"}, hide_bar_for_one_tab=True,
                     shell_integration={"click_moves_cursor": True, "mark_sources": "none"},
                     keybindings=KEYS)
@@ -1194,13 +652,6 @@ def test_decorations_none_with_click_moves_cursor_and_the_overview(app_factory):
     assert app.wait_file("out").strip() == "Xhello world"
     app.key("ctrl+shift+t")
     app.wait_title("2 D")
-    app.key("ctrl+shift+o")
-    app.wait(lambda: near(app.shot()[6:46, 300:840], C["tab_active_background"], 3).mean() > 0.5,
-             msg="the overview over both tabs")
-    app.snap("the overview of a frame-less window, the tab bar still above the grid")
-    app.key("Escape")
-    app.wait(lambda: near(app.shot()[6:46, 300:840], C["tab_active_background"], 3).mean() <= 0.5,
-             msg="the overview closed")
     assert app.pty_size() == app.layout_pty(900, 600, tabs=2)
 
 
@@ -1351,11 +802,9 @@ def test_the_keymap_key_is_the_shells_own_without_the_popup(app_factory, tmp_pat
 
 def test_one_app_with_every_new_setting_away_from_its_default(app_factory):
     """every new setting at a non default value in one app: it starts, the grid is where the bars
-    leave it, a typed command runs and is marked, a queued one waits in the tab title, the
-    overview opens, and a reload that takes both bars away grows the grid without breaking the
+    leave it, a typed command runs and is marked, a queued one waits in the tab title, and a reload that takes both bars away grows the grid without breaking the
     typing"""
     app = combo_app(app_factory,
-                    sleep_tabs_after_minutes=1,
                     status_bar={"enable": True, "memory_unit": "gb", "clock_format": "%Y",
                                 "left": ["git", "cpu_graph", "cpu", "memory", "network", "ports",
                                          "xoff", "stopped_jobs"],
@@ -1370,15 +819,13 @@ def test_one_app_with_every_new_setting_away_from_its_default(app_factory):
                     autocomplete={"enable": False, "trigger": "key", "max_items": 3,
                                   "show_descriptions": False},
                     tab_groups={"by_project": True},
-                    password_manager={"list": ["printf", "one\n"], "get": ["printf", "s3cret\n"],
-                                      "enter": True},
                     selection={"hold_frame": False},
                     links={"open_in_running_editor": False, "peek": False},
                     shell_integration={"inject": True, "click_moves_cursor": False,
                                        "mark_sources": "all", "notify_after": 0},
                     terminal={"paste_protection": False, "paste_check_invisible": False,
                               "queue_stop_on_failure": False, "send_xoff": False,
-                              "keep_block_width": True, "max_history_length": 500},
+                              "max_history_length": 500},
                     bell={"visual": {"enable": True, "color": "#ff00ff", "duration": 300,
                                      "target": "tab"}},
                     keymap=[{"keys": "ctrl-shift-j", "when": "completion",
@@ -1399,10 +846,6 @@ def test_one_app_with_every_new_setting_away_from_its_default(app_factory):
     app.wait(lambda: "⧗" in tab_title(app, 1), msg="the queue block in the tab title", timeout=10)
     app.snap("a queued command in the tab title of the all-settings app")
     app.wait(app.file("queued").exists, msg="the queue ran", timeout=25)
-    app.key("ctrl+shift+o")
-    app.wait(lambda: near(app.shot()[6:46, 300:840], C["tab_active_background"], 3).mean() > 0.5,
-             msg="the overview")
-    app.key("Escape")
     # the reload takes both bars away: the grid grows by the bar heights, the marks still take
     # their two cells, and typing and the titles still work
     app.write("settings.jsonc", {**app.settings,
@@ -1415,6 +858,5 @@ def test_one_app_with_every_new_setting_away_from_its_default(app_factory):
     assert app.wait_file("typed2").strip() == "again"
     assert app.title().startswith("1 "), app.title()
     app.snap("after the reload: both bars gone, the grid grown, typing and titles fine")
-
 
 

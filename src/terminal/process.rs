@@ -75,12 +75,6 @@ pub fn pty_modes(_pid: u32) -> Option<PtyModes> {
     None
 }
 
-/// true when the terminal of process `pid` shows what is typed, false while a program reads
-/// a secret with echo off. none when that can't be read
-pub fn tty_echoes(pid: u32) -> Option<bool> {
-    pty_modes(pid).map(|modes| modes.echo)
-}
-
 /// a program of the shell stopped with ctrl+z, waiting for `fg`
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoppedJob {

@@ -249,4 +249,25 @@ mod tests {
         assert_eq!(escape("a \"$x\"", Some('"'), true), "\"a \\\"\\$x\\\"\"");
         assert_eq!(escape("plain-name.txt", None, true), "plain-name.txt");
     }
+
+    #[test]
+    fn untypable_names_and_unknown_home_give_nothing() {
+        let dir = temp_dir("untypable");
+        std::fs::write(dir.join("plain"), "").unwrap();
+        std::fs::write(dir.join("new\nline"), "").unwrap();
+        // a name that is no utf-8 can't be shown or typed back either
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            std::fs::write(dir.join(std::ffi::OsStr::from_bytes(b"bad\xff")), "").unwrap();
+        }
+        let names: Vec<_> = entries("", &dir, None)
+            .into_iter()
+            .map(|e| e.name)
+            .collect();
+        assert_eq!(names, ["plain"]);
+        // without a home folder "~/" points nowhere
+        assert!(entries("~/", &dir, None).is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }

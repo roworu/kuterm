@@ -1,12 +1,11 @@
-//! commands that ask for values before they run, and the matrix that runs one command once per
-//! value, each in a split of a grid
+//! commands that ask for values before they run
 
 use gpui::{AppContext, Context, Entity, WeakEntity, Window};
 
-use super::{TerminalView, Workspace, notifications::NotificationButton, tab_cwd, tab_title};
+use super::{TerminalView, Workspace, tab_cwd};
 use crate::{
-    settings::{Command, Inputs, Side, Values},
-    ui::command_palette::{CommandPalette, InputFilled, InputPrompt},
+    settings::{Command, Input, Values},
+    ui::dialogs::{CommandPalette, InputFilled, InputPrompt},
 };
 
 /// name the picked hint is filled in under, it comes from the tab rather than from an input
@@ -21,19 +20,14 @@ pub(super) struct PendingCommand {
     pub(super) hint: Option<(usize, usize)>,
 }
 
-/// one value of a running matrix command and what its split ran
-pub(super) struct MatrixRun {
-    /// pane the value runs in
-    pub(super) pane: usize,
-    pub(super) value: String,
-    /// true once the command in that pane ended
-    pub(super) done: bool,
-    pub(super) exit: Option<i32>,
-}
-
-/// the splits of a running matrix command
-pub(super) struct Matrix {
-    pub(super) runs: Vec<MatrixRun>,
+impl PendingCommand {
+    /// name of the first input still to ask for
+    fn next_input(&self) -> Option<(&String, &Input)> {
+        self.command
+            .inputs
+            .iter()
+            .find(|(name, _)| !self.values.contains_key(*name))
+    }
 }
 
 impl Workspace {
@@ -54,13 +48,7 @@ impl Workspace {
 
     /// ask for the first input still empty, or run the command once all are filled
     fn ask_input(&mut self, pending: PendingCommand, window: &mut Window, cx: &mut Context<Self>) {
-        // matrix inputs are not asked for, every one of their values runs
-        let next = pending
-            .command
-            .inputs
-            .iter()
-            .find(|(name, input)| !input.matrix && !pending.values.contains_key(*name));
-        let Some((name, input)) = next else {
+        let Some((name, input)) = pending.next_input() else {
             let PendingCommand {
                 command, values, ..
             } = pending;
@@ -95,13 +83,7 @@ impl Workspace {
         let Some(mut pending) = self.pending.take() else {
             return;
         };
-        let next = pending
-            .command
-            .inputs
-            .iter()
-            .find(|(name, input)| !input.matrix && !pending.values.contains_key(*name))
-            .map(|(name, _)| name.clone());
-        if let Some(name) = next {
+        if let Some(name) = pending.next_input().map(|(name, _)| name.clone()) {
             pending.values.insert(name, value);
         }
         self.ask_input(pending, window, cx);
@@ -117,13 +99,7 @@ impl Workspace {
     ) {
         let items = values
             .into_iter()
-            .map(|value| Command {
-                name: value,
-                category: None,
-                pinned: false,
-                inputs: Inputs::new(),
-                actions: Vec::new(),
-            })
+            .map(|value| Command::new(value, None, Vec::new()))
             .collect();
         let palette = cx.new(|cx| CommandPalette::picker(items, format!("pick {name}..."), cx));
         self.open_overlay(&palette, window, cx);
@@ -148,7 +124,7 @@ impl Workspace {
         let ran = command.clone();
         cx.spawn(async move |this: WeakEntity<Workspace>, cx| {
             let output = cx
-                .background_spawn(async move { tab_title::run(&ran, cwd.as_deref()) })
+                .background_spawn(async move { super::title_sources::run(&ran, cwd.as_deref()) })
                 .await;
             this.update_in(cx, |this, window, cx| {
                 let values: Option<Vec<String>> = output.map(|output| {
@@ -159,27 +135,15 @@ impl Workspace {
                         .map(str::to_string)
                         .collect()
                 });
-                match values {
+                let why = match values {
                     Some(values) if !values.is_empty() => {
-                        this.open_value_picker(&name, values, window, cx)
+                        return this.open_value_picker(&name, values, window, cx);
                     }
-                    Some(_) => {
-                        this.pending = None;
-                        this.show_notification(
-                            format!("{command:?} printed nothing to pick"),
-                            None,
-                            cx,
-                        );
-                    }
-                    None => {
-                        this.pending = None;
-                        this.show_notification(
-                            format!("{command:?} took too long to pick from"),
-                            None,
-                            cx,
-                        );
-                    }
-                }
+                    Some(_) => "printed nothing to pick",
+                    None => "took too long to pick from",
+                };
+                this.pending = None;
+                this.show_notification(format!("{command:?} {why}"), None, cx);
             })
             .ok();
         })
@@ -210,15 +174,14 @@ impl Workspace {
         self.start_command(command, values, window, cx);
     }
 
-    /// run a command with its inputs filled, once per value when an input is a matrix
+    /// run a command with its inputs filled
     pub(super) fn start_command(
         &mut self,
         command: Command,
-        values: Values,
+        mut values: Values,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let mut values = values;
         // a `{hint}` with nothing picked starts hints mode, the pick runs the command
         if command.uses_hint() && !values.contains_key(HINT) {
             let (pane, ix) = (self.focused, self.focused_pane().active);
@@ -238,99 +201,68 @@ impl Workspace {
                 }
             }
         }
-        let matrix = command
-            .matrix()
-            .map(|(name, values)| (name.to_string(), values.to_vec()));
-        let Some((name, matrix_values)) = matrix else {
-            self.run_command_at(&command, &values, None, window, cx);
-            return;
-        };
-        // the values land in a grid of splits, filled row by row
-        let columns = (matrix_values.len() as f64).sqrt().ceil().max(1.) as usize;
-        let mut panes = Vec::new();
-        for (ix, value) in matrix_values.iter().enumerate() {
-            let (of, side) = match ix {
-                0 => (self.focused, Side::Right),
-                // a new row starts by splitting the pane above it
-                ix if ix % columns == 0 => (panes[ix - columns], Side::Down),
-                ix => (panes[ix - 1], Side::Right),
-            };
-            let (pane, _) = self.split_new_tab(of, side, window, cx);
-            panes.push(pane);
-            let mut values = values.clone();
-            values.insert(name.clone(), value.clone());
-            self.run_command_at(&command, &values, Some((pane, 0)), window, cx);
-        }
-        self.matrix = Some(Matrix {
-            runs: panes
-                .into_iter()
-                .zip(matrix_values)
-                .map(|(pane, value)| MatrixRun {
-                    pane,
-                    value,
-                    done: false,
-                    exit: None,
-                })
-                .collect(),
-        });
+        self.run_command_at(&command, &values, None, window, cx);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ui::workspace::test_support::*;
+
+    /// a workspace whose active tab shows the one hint match "zz5", labelled "a"
+    fn open_with_match(
+        cx: &mut TestAppContext,
+        tabs: usize,
+    ) -> (Entity<Workspace>, &mut VisualTestContext) {
+        let json = r#"{"notifications": {"timeout": 0, "copy": false}, "hints": {"alphabet": "ab",
+            "patterns": [{"name": "tag", "regex": "zz[0-9]", "action": "copy"}]}}"#;
+        let (ws, cx) = open_with_settings(cx, tabs, "{}", Settings::parse(json).unwrap());
+        print_line(&ws, cx, "zz5");
+        (ws, cx)
     }
 
-    /// a command of the running matrix ended, the last one tells how the run went
-    pub(super) fn matrix_finished(
-        &mut self,
-        view: &Entity<TerminalView>,
-        exit: Option<i32>,
-        cx: &mut Context<Self>,
-    ) {
-        let Some((pane, _)) = self.find_view(view) else {
-            return;
-        };
-        let Some(matrix) = self.matrix.as_mut() else {
-            return;
-        };
-        let Some(run) = matrix
-            .runs
-            .iter_mut()
-            .find(|run| run.pane == pane && !run.done)
-        else {
-            return;
-        };
-        run.done = true;
-        run.exit = exit;
-        if self
-            .matrix
-            .as_ref()
-            .is_some_and(|matrix| matrix.runs.iter().any(|run| !run.done))
-        {
-            return;
-        }
-        let matrix = self.matrix.take().expect("matrix is running");
-        let passed = matrix.runs.iter().filter(|run| run.exit == Some(0)).count();
-        let detail = matrix
-            .runs
-            .iter()
-            .map(|run| {
-                let result = match run.exit {
-                    Some(0) => "ok".to_string(),
-                    Some(exit) => format!("exit {exit}"),
-                    None => "no shell integration".to_string(),
-                };
-                format!("{} {result}", run.value)
-            })
-            .collect::<Vec<_>>()
-            .join(", ");
-        let panes: Vec<usize> = matrix.runs.iter().map(|run| run.pane).collect();
-        let close_all = NotificationButton::new("close all", move |this, window, cx| {
-            for pane in &panes {
-                this.close_tab_at(*pane, 0, window, cx);
-            }
+    fn hint_command() -> Command {
+        let json = r#"{"commands": [{"name": "x", "actions": [{"notify": "got {hint:raw}"}]}]}"#;
+        Commands::parse(json).unwrap().commands.remove(0)
+    }
+
+    fn pick(ws: &Entity<Workspace>, cx: &mut VisualTestContext) {
+        ws.update_in(cx, |ws, window, cx| {
+            ws.pick_command(hint_command(), window, cx)
         });
-        self.ask(
-            format!("{} of {} passed", passed, matrix.runs.len()),
-            Some(detail),
-            None,
-            vec![close_all],
-            cx,
+        cx.run_until_parked();
+    }
+
+    #[gpui::test]
+    fn a_hint_picked_before_fills_the_command_at_once(cx: &mut TestAppContext) {
+        let (ws, cx) = open_with_match(cx, 1);
+        let view = active_view(&ws, cx);
+        view.update(cx, |view, cx| view.show_hints(cx));
+        type_keys(cx, "a");
+        assert_eq!(
+            view.read_with(cx, |view, _| view.picked_hint().map(str::to_string)),
+            Some("zz5".into())
         );
+        pick(&ws, cx);
+        assert_eq!(notifications(&ws, cx), ["got zz5"]);
+        assert!(view.read_with(cx, |view, _| view.hints().is_none()));
+        assert!(ws.update(cx, |ws, _| ws.pending.is_none()));
+    }
+
+    #[gpui::test]
+    fn a_hint_picked_in_another_tab_does_not_fill_the_command(cx: &mut TestAppContext) {
+        let (ws, cx) = open_with_match(cx, 2);
+        pick(&ws, cx);
+        // hints mode started in the active tab, the command waits for its pick
+        assert!(active_view(&ws, cx).read_with(cx, |view, _| view.hints().is_some()));
+        let other = ws.update(cx, |ws, _| ws.focused_pane().tabs[0].view.clone());
+        ws.update_in(cx, |ws, window, cx| {
+            ws.hint_picked(&other, "zz0".into(), window, cx)
+        });
+        cx.run_until_parked();
+        assert!(notifications(&ws, cx).is_empty());
+        assert!(ws.update(cx, |ws, _| ws.pending.is_some()));
+        type_keys(cx, "a");
+        assert_eq!(notifications(&ws, cx), ["got zz5"]);
     }
 }

@@ -8,7 +8,7 @@ use gpui::{App, Context, EntityId, Window};
 
 use super::{RunAction, Workspace, notifications::NotificationButton};
 use crate::{
-    remote::{BlockInfo, Reply, Request},
+    automation::{BlockInfo, Reply, Request},
     settings::{CommandAction, Commands, Values},
     terminal::{InputSource, Terminal},
     ui::terminal_view::TerminalView,
@@ -29,24 +29,18 @@ pub(super) fn query_blocks(
     number: Option<i64>,
     all: bool,
 ) -> Vec<BlockInfo> {
-    let blocks: Vec<_> = terminal.blocks().iter().cloned().enumerate().collect();
-    let picked: Vec<_> = if all {
-        blocks
-    } else {
-        let finished: Vec<_> = blocks
-            .iter()
-            .filter(|(_, block)| block.ended.is_some())
-            .cloned()
-            .collect();
-        let found = match number.unwrap_or(-1) {
-            0 => None,
-            n if n < 0 => finished
-                .len()
-                .checked_sub(n.unsigned_abs() as usize)
-                .map(|ix| finished[ix].clone()),
-            n => blocks.get(n as usize - 1).cloned(),
-        };
-        found.into_iter().collect()
+    let blocks = terminal.blocks().iter().cloned().enumerate();
+    let picked: Vec<_> = match number.unwrap_or(-1) {
+        _ if all => blocks.collect(),
+        0 => Vec::new(),
+        n if n < 0 => {
+            let mut finished = blocks.filter(|(_, block)| block.ended.is_some()).rev();
+            finished
+                .nth(n.unsigned_abs() as usize - 1)
+                .into_iter()
+                .collect()
+        }
+        n => blocks.skip(n as usize - 1).take(1).collect(),
     };
     picked
         .into_iter()
@@ -145,18 +139,13 @@ impl Workspace {
             return;
         };
         let terminal = self.terminal_at(pane, ix, cx);
+        let reads = matches!(request, Request::GetText { .. } | Request::Query { .. });
         // nothing outside may read what an incognito tab shows
-        if terminal.read(cx).incognito
-            && matches!(request, Request::GetText { .. } | Request::Query { .. })
-        {
+        if reads && terminal.read(cx).incognito {
             reply
                 .send(Reply::failed("the pane is incognito, it can't be read"))
                 .ok();
             return;
-        }
-        // a sleeping tab's history is read too
-        if matches!(request, Request::GetText { .. } | Request::Query { .. }) {
-            terminal.update(cx, |terminal, _| terminal.wake());
         }
         let answer = match request {
             Request::SendText { text, .. } => {
@@ -240,7 +229,7 @@ impl Workspace {
                     Some("mcp") => InputSource::Mcp,
                     _ => InputSource::Remote,
                 };
-                self.ask_to_run(pane, ix, command, source, reply, window, cx);
+                self.ask_to_run(pane, ix, command, source, reply, cx);
                 return;
             }
             Request::Queue { command, .. } => {
@@ -277,7 +266,7 @@ impl Workspace {
         let missing: Vec<String> = command
             .inputs
             .iter()
-            .filter(|(name, input)| !input.matrix && !inputs.contains_key(*name))
+            .filter(|(name, _)| !inputs.contains_key(*name))
             .map(|(name, _)| format!("--input {name}=<value>"))
             .collect();
         if !missing.is_empty() {
@@ -296,7 +285,6 @@ impl Workspace {
 
     /// type `command` and enter into tab `ix` of `pane` once the user allows it here, or
     /// right away when they allowed every run in this tab before
-    #[allow(clippy::too_many_arguments)]
     fn ask_to_run(
         &mut self,
         pane: usize,
@@ -304,7 +292,6 @@ impl Workspace {
         command: String,
         source: InputSource,
         reply: oneshot::Sender<Reply>,
-        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let tab = &self.pane(pane).expect("pane of found tab").tabs[ix];
@@ -348,7 +335,6 @@ impl Workspace {
             buttons,
             cx,
         );
-        let _ = window;
     }
 }
 
@@ -366,5 +352,239 @@ fn run_in(
             Reply::done()
         }
         None => Reply::failed("the pane is gone"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use crate::ui::workspace::test_support::*;
+
+    #[gpui::test]
+    fn remote_requests_open_tabs_type_and_list(cx: &mut TestAppContext) {
+        use crate::automation::{Reply, Request};
+        use crate::ui::windows::handle_request;
+
+        // replies that need no answer from the user come right away
+        fn ask(cx: &mut VisualTestContext, request: Request) -> Reply {
+            let (tx, mut rx) = futures::channel::oneshot::channel();
+            cx.cx.update(|cx| handle_request(request, tx, cx));
+            rx.try_recv().unwrap().expect("no reply yet")
+        }
+
+        let (ws, cx) = open(cx, 1);
+        cx.update(|window, _| window.activate_window());
+        let reply = ask(
+            cx,
+            Request::NewTab {
+                cwd: Some(std::env::temp_dir()),
+                profile: None,
+                name: Some("build".into()),
+            },
+        );
+        assert!(reply.ok, "{reply:?}");
+        cx.run_until_parked();
+        assert_eq!(views(&ws, cx).len(), 2);
+        let reply = ask(
+            cx,
+            Request::NewTab {
+                cwd: None,
+                profile: Some("missing".into()),
+                name: None,
+            },
+        );
+        assert!(!reply.ok);
+
+        let reply = ask(cx, Request::ListTabs);
+        assert_eq!(reply.tabs.len(), 2);
+        assert!(reply.tabs[1].active && !reply.tabs[0].active);
+        assert_eq!(reply.tabs[1].number, 2);
+        assert_eq!(reply.tabs[1].name.as_deref(), Some("build"));
+        assert_ne!(reply.tabs[0].id, reply.tabs[1].id);
+        let first = reply.tabs[0].id.to_string();
+
+        // the named tab is found while another one is active
+        ws.update_in(cx, |ws, window, cx| {
+            ws.activate_tab(ws.focused, 0, window, cx)
+        });
+        let reply = ask(
+            cx,
+            Request::SendText {
+                text: "echo remote_$((2*21))\r".into(),
+                pane: Some("build".into()),
+            },
+        );
+        assert!(reply.ok);
+        let terminal = terminal(&ws, cx, 1);
+        // the tab is in the background, nothing paints it, so its screen is read here
+        wait_until(cx, "sent text never ran", |cx| {
+            terminal.update(cx, |t, _| {
+                t.sync();
+                line_starting_with(t, "remote_42").is_some()
+            })
+        });
+        let reply = ask(
+            cx,
+            Request::GetText {
+                pane: Some("build".into()),
+                scrollback: false,
+            },
+        );
+        assert!(reply.text.unwrap().contains("remote_42"));
+
+        // by id, and titles set from outside
+        let reply = ask(
+            cx,
+            Request::SetTabTitle {
+                pane: Some(first),
+                title: "from outside".into(),
+            },
+        );
+        assert!(reply.ok);
+        let reply = ask(
+            cx,
+            Request::FocusTab {
+                pane: Some("from outside".into()),
+            },
+        );
+        assert!(reply.ok);
+        assert_eq!(ws.read_with(cx, |ws, _| ws.focused_pane().active), 0);
+        let reply = ask(
+            cx,
+            Request::FocusTab {
+                pane: Some("nothing like it".into()),
+            },
+        );
+        assert!(!reply.ok);
+    }
+
+    /// answer `request` about tab `ix` of the focused pane, none while it waits for the user
+    fn ask_tab(
+        ws: &Entity<Workspace>,
+        cx: &mut VisualTestContext,
+        ix: usize,
+        request: crate::automation::Request,
+    ) -> (
+        Option<crate::automation::Reply>,
+        futures::channel::oneshot::Receiver<crate::automation::Reply>,
+    ) {
+        let (tx, mut rx) = futures::channel::oneshot::channel();
+        ws.update_in(cx, |ws, window, cx| {
+            let id = ws.focused_pane().tabs[ix].view.entity_id();
+            ws.remote(id, request, tx, window, cx)
+        });
+        cx.run_until_parked();
+        (rx.try_recv().unwrap(), rx)
+    }
+
+    fn press(cx: &mut VisualTestContext, button: &str) {
+        let at = cx
+            .debug_bounds(&*button.to_string().leak())
+            .unwrap()
+            .center();
+        click(cx, at, 1);
+        release(cx, at);
+        cx.run_until_parked();
+    }
+
+    #[gpui::test]
+    fn remote_tab_colors_take_css_colors_and_clear(cx: &mut TestAppContext) {
+        use crate::automation::Request;
+
+        let (ws, cx) = open(cx, 1);
+        let color = |ws: &Entity<Workspace>, cx: &mut VisualTestContext| {
+            ws.update(cx, |ws, _| ws.focused_pane().tabs[0].color)
+        };
+        let set = |color: Option<&str>| Request::SetTabColor {
+            pane: None,
+            color: color.map(str::to_string),
+        };
+        let (reply, _) = ask_tab(&ws, cx, 0, set(Some("#ff8800")));
+        assert!(reply.unwrap().ok);
+        let orange: gpui::Hsla = gpui::rgb(0xff8800).into();
+        assert_eq!(color(&ws, cx), Some(orange));
+        // a bad color keeps the one there
+        let (reply, _) = ask_tab(&ws, cx, 0, set(Some("orange-ish")));
+        let reply = reply.unwrap();
+        assert!(!reply.ok);
+        assert!(reply.error.unwrap().contains("is no color"));
+        assert_eq!(color(&ws, cx), Some(orange));
+        let (reply, _) = ask_tab(&ws, cx, 0, set(None));
+        assert!(reply.unwrap().ok);
+        assert_eq!(color(&ws, cx), None);
+    }
+
+    #[gpui::test]
+    fn remote_queries_pick_blocks_by_number(cx: &mut TestAppContext) {
+        with_own_state("remote_queries", || {
+            use crate::automation::Request;
+
+            let (ws, cx) = open(cx, 1);
+            finished_block(&ws, cx, 0, "echo first_block");
+            finished_block(&ws, cx, 0, "echo second_block");
+            let query = |block: i64| Request::Query {
+                pane: None,
+                block: Some(block),
+                all: false,
+            };
+            let commands = |ws: &Entity<Workspace>, cx: &mut VisualTestContext, block: i64| {
+                let (reply, _) = ask_tab(ws, cx, 0, query(block));
+                let reply = reply.unwrap();
+                assert!(reply.ok, "{reply:?}");
+                reply
+                    .blocks
+                    .into_iter()
+                    .map(|block| (block.number, block.command))
+                    .collect::<Vec<_>>()
+            };
+            // counted from the oldest block still in history
+            assert_eq!(commands(&ws, cx, 2), [(2, "echo second_block".to_string())]);
+            assert_eq!(commands(&ws, cx, 1), [(1, "echo first_block".to_string())]);
+            // 0 names no block
+            let (reply, _) = ask_tab(&ws, cx, 0, query(0));
+            assert!(!reply.unwrap().ok);
+        });
+    }
+
+    #[gpui::test]
+    fn remote_runs_wait_for_the_user_unless_allowed_for_the_tab(cx: &mut TestAppContext) {
+        use crate::automation::Request;
+
+        let (ws, cx) = open(cx, 1);
+        let run = |command: &str| Request::Run {
+            pane: None,
+            command: command.into(),
+            client: None,
+        };
+        let terminal = terminal(&ws, cx, 0);
+        let shows = |cx: &mut VisualTestContext, text: &str| {
+            terminal.update(cx, |t, _| {
+                t.sync();
+                line_starting_with(t, text).is_some()
+            })
+        };
+
+        // denied, nothing is typed
+        let (reply, mut rx) = ask_tab(&ws, cx, 0, run("echo denied_$((1+1))"));
+        assert!(reply.is_none(), "answered before the user did");
+        assert_eq!(
+            notifications(&ws, cx),
+            ["a program wants to run this in tab 1 echo denied_$((1+1))"]
+        );
+        press(cx, "notification-0-button-2");
+        let reply = rx.try_recv().unwrap().expect("no answer after deny");
+        assert_eq!(reply.error.as_deref(), Some("the user denied the run"));
+
+        // allowed for the tab: this run is typed, and the next one without asking
+        let (reply, mut rx) = ask_tab(&ws, cx, 0, run("echo allowed_$((2+2))"));
+        assert!(reply.is_none());
+        press(cx, "notification-1-button-1");
+        assert!(rx.try_recv().unwrap().expect("no answer after allow").ok);
+        wait_until(cx, "allowed run never ran", |cx| shows(cx, "allowed_4"));
+        let (reply, _) = ask_tab(&ws, cx, 0, run("echo again_$((3+3))"));
+        assert!(reply.expect("asked again").ok);
+        assert!(notifications(&ws, cx).is_empty());
+        wait_until(cx, "second run never ran", |cx| shows(cx, "again_6"));
+        assert!(!shows(cx, "denied_2"));
     }
 }

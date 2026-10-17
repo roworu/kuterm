@@ -43,18 +43,14 @@ pub fn parse_file_line(text: &str) -> Option<FileLine> {
     };
     let (path, line, column) = match (number(middle), parts.next()) {
         (Some(line), Some(path)) => (path, line, Some(number(last)?)),
-        _ => (middle_and_rest(text)?, number(last)?, None),
+        // the path is everything before the last ':'
+        _ => (text.rsplit_once(':')?.0, number(last)?, None),
     };
     (!path.is_empty() && line > 0).then(|| FileLine {
         path: path.to_string(),
         line,
         column,
     })
-}
-
-// the path before the last ':'
-fn middle_and_rest(text: &str) -> Option<&str> {
-    Some(text.rsplit_once(':')?.0)
 }
 
 /// chars a path in output is made of
@@ -151,7 +147,7 @@ impl Terminal {
     /// folder of the block whose output covers `line`, else the folder the shell reported
     pub fn folder_at(&self, line: Line) -> Option<PathBuf> {
         self.block_at(line)
-            .and_then(|id| self.blocks.list.iter().find(|block| block.id == id))
+            .and_then(|id| self.block(id))
             .and_then(|block| block.cwd.clone())
             .or_else(|| self.reported_cwd.clone())
     }

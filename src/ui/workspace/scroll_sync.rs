@@ -30,24 +30,7 @@ impl Workspace {
         // closed panes leave on their own
         let panes = self.layout.pane_ids();
         self.scroll_sync.retain(|pane| panes.contains(pane));
-        let Some((source, ix)) = self.find_view(view) else {
-            return;
-        };
-        if !self.scroll_sync.contains(&source)
-            || self.pane(source).is_none_or(|pane| pane.active != ix)
-        {
-            return;
-        }
-        let targets: Vec<_> = self
-            .scroll_sync
-            .iter()
-            .filter(|&&pane| pane != source)
-            .filter_map(|&pane| {
-                let pane = self.pane(pane)?;
-                Some(pane.tabs.get(pane.active)?.view.read(cx).terminal().clone())
-            })
-            .collect();
-        for terminal in targets {
+        for terminal in self.joined_terminals(&self.scroll_sync, view, cx) {
             // relative, so wheel events coming faster than frames add up, and each pane stops
             // at the ends of its own history
             terminal.update(cx, |terminal, cx| {
@@ -55,5 +38,58 @@ impl Workspace {
                 cx.notify();
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use crate::ui::workspace::test_support::*;
+
+    #[gpui::test]
+    fn synced_panes_follow_each_delta_clamped_to_their_history(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 2);
+        // a second pane with the second tab, both joined
+        run_actions(&ws, cx, r#""split_right""#);
+        let panes = ws.read_with(cx, |ws, _| ws.layout.pane_ids());
+        ws.update(cx, |ws, _| ws.scroll_sync = panes.iter().copied().collect());
+        let views: Vec<_> = ws.read_with(cx, |ws, _| {
+            ws.layout
+                .panes()
+                .iter()
+                .map(|pane| pane.tabs[pane.active].view.clone())
+                .collect()
+        });
+        let terminals: Vec<_> = views
+            .iter()
+            .map(|view| view.read_with(cx, |view, _| view.terminal().clone()))
+            .collect();
+        // the first pane has a long history, the second a short one
+        let (first, second) = (terminals[0].clone(), terminals[1].clone());
+        first.update(cx, |t, _| t.type_text(b"seq 1 300\r"));
+        wait_until(cx, "history of the first pane", |cx| {
+            first.read_with(cx, |t, _| t.history_size() > 200)
+        });
+        let short = second.read_with(cx, |t, _| t.history_size());
+        // wheel events faster than frames: three deltas before anything is drawn
+        ws.update(cx, |ws, cx| {
+            for _ in 0..3 {
+                ws.sync_scroll(&views[1], 10, cx);
+            }
+        });
+        for terminal in &terminals {
+            terminal.update(cx, |t, _| t.sync());
+        }
+        assert_eq!(
+            first.read_with(cx, |t, _| t.last_content.display_offset),
+            30
+        );
+        assert_eq!(
+            second.read_with(cx, |t, _| t.last_content.display_offset),
+            30.min(short)
+        );
+        ws.update(cx, |ws, cx| ws.sync_scroll(&views[1], -100, cx));
+        first.update(cx, |t, _| t.sync());
+        assert_eq!(first.read_with(cx, |t, _| t.last_content.display_offset), 0);
     }
 }

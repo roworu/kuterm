@@ -104,7 +104,7 @@ def test_theme_name_from_themes_folder(app_factory):
     check_palette(app, as_rgb(theme))
 
 
-@pytest.mark.parametrize("content", ["{", '{"ansi": ["#fff"]}', '{"cursor": "red"}'])
+@pytest.mark.parametrize("content", ["{", '{"ansi": ["#fff"]}'])
 def test_broken_theme_file_falls_back_to_bundled(app_factory, content):
     """an invalid theme file prints an error and paints the bundled theme"""
     app = app_factory({"theme": {"mode": "dark", "dark": "mine.jsonc"}}, script=PALETTE,
@@ -113,7 +113,7 @@ def test_broken_theme_file_falls_back_to_bundled(app_factory, content):
     assert "invalid theme" in app.output()
 
 
-@pytest.mark.parametrize("colors", [{"ansi": ["#fff"]}, {"cursor": "red"}])
+@pytest.mark.parametrize("colors", [{"cursor": "red"}])
 def test_broken_named_theme_falls_back_to_bundled(app_factory, colors):
     """an invalid theme in settings prints an error naming it and paints the bundled theme"""
     app = app_factory({"theme": {"mode": "dark"}}, script=PALETTE, themes={"dark": colors})

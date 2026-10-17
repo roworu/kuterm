@@ -68,22 +68,8 @@ impl Workspace {
         let Some(panes) = &self.broadcast else {
             return;
         };
-        let Some((source, ix)) = self.find_view(view) else {
-            return;
-        };
-        if !panes.contains(&source) || self.pane(source).is_none_or(|pane| pane.active != ix) {
-            return;
-        }
         let option_as_meta = Settings::get(cx).terminal.option_as_meta;
-        let targets: Vec<_> = panes
-            .iter()
-            .filter(|&&pane| pane != source)
-            .filter_map(|&pane| {
-                let pane = self.pane(pane)?;
-                Some(pane.tabs.get(pane.active)?.view.read(cx).terminal().clone())
-            })
-            .collect();
-        for terminal in targets {
+        for terminal in self.joined_terminals(panes, view, cx) {
             terminal.update(cx, |terminal, _| match input {
                 TypedInput::Key(keystroke, kind) => {
                     terminal.try_keystroke(keystroke, *kind, option_as_meta, Broadcast);

@@ -1,7 +1,7 @@
 // showcase: most of what kuterm can do turned on at once. tabs grouped by git project with
 // the branch, ports and progress in their titles, a full status bar, dimmed split panes,
 // marks next to commands, profiles for a server, a sandbox and incognito, extra
-// palette commands and keys for splits, groups and the tab overview
+// palette commands and keys for splits, groups and the queue
 {
   "ui_font_size": 16,
   "hide_bar_for_one_tab": false,
@@ -46,7 +46,6 @@
     "minimum_contrast": 3,
     "cursor_blink": "on",
     "scrollbar": { "enable": "on", "auto_hide": 0 },
-    "keep_block_width": true,
   },
   "profiles": [
     { "name": "shell", "default": true, "command": "system" },
@@ -73,7 +72,6 @@
     "focus_pane_up": "ctrl-alt-k",
     "focus_pane_down": "ctrl-alt-j",
     "zoom_pane": "ctrl-shift-z",
-    "tab_overview": "ctrl-shift-o",
     "new_group": "ctrl-shift-g",
     "queue_command": "ctrl-shift-q",
     "find_in_all_tabs": "ctrl-shift-a",
@@ -86,7 +84,6 @@
   ],
   "commands": [
     { "name": "go to tab", "category": "tabs", "actions": ["pick_tab"], "pinned": true },
-    { "name": "overview", "category": "tabs", "actions": ["tab_overview"] },
     { "name": "split right", "category": "panes", "actions": ["split_right"] },
     { "name": "split down", "category": "panes", "actions": ["split_down"] },
     { "name": "pick theme", "category": "config", "actions": ["pick_theme"] },

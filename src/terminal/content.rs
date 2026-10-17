@@ -125,3 +125,40 @@ impl Content {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use base64::Engine;
+
+    use crate::{
+        settings::{Shell, TerminalSettings},
+        terminal::tests::{profile, spawn_with, wait_for_text},
+    };
+
+    #[test]
+    fn only_marks_of_placed_images_are_shown() {
+        // 10 by 20 pixels is one cell of the test grid
+        let data = base64::engine::general_purpose::STANDARD.encode(vec![200u8; 10 * 20 * 4]);
+        let image = |id: u32| format!("\\033_Ga=T,q=2,f=32,s=10,v=20,i={id};{data}\\033\\\\");
+        // a link of the program's own is a hyperlink too, but no image mark. image 9 loses its
+        // placement, the mark it left in the grid then shows nothing
+        let script = format!(
+            "printf '{}a {}b \\033]8;;http://x\\033\\\\link\\033]8;;\\033\\\\ \\033_Ga=d,d=i,q=2,i=9\\033\\\\done\\n'; sleep 5",
+            image(9),
+            image(10),
+        );
+        let profile = profile(Shell::WithArguments {
+            program: "/bin/sh".into(),
+            args: vec!["-c".into(), script],
+        });
+        let mut builder = spawn_with(&TerminalSettings::default(), &profile);
+        let terminal = &mut builder.terminal;
+        wait_for_text(terminal, "done");
+        terminal.sync();
+        let images = &terminal.last_content.images;
+        assert_eq!(images.len(), 1);
+        // the second image, after "a "
+        let (point, _) = &images[0];
+        assert_eq!((point.line.0, point.column.0), (0, 3));
+    }
+}

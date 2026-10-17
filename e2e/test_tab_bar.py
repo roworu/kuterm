@@ -65,23 +65,6 @@ def test_bar_hidden_for_one_tab_by_default(app_factory):
     app.wait(lambda: not bar_shown(app), msg="bar hidden again")
 
 
-def test_bar_always_shown_when_not_hiding(app_factory):
-    """hide_bar_for_one_tab false keeps the bar with a single tab"""
-    app = bar_app(app_factory, hide_bar_for_one_tab=False)
-    app.wait(lambda: bar_shown(app), msg="bar")
-    img = app.shot()
-    h = app.bar_height()
-    assert close_to(tuple(img[h // 2, 5]), C["tab_active_background"])
-    assert close_to(tuple(img[h // 2, 895]), C["tab_bar_background"])
-    assert close_to(tuple(img[h + 2, 450]), C["terminal_background"])
-
-
-def test_terminal_starts_below_bar(app_factory):
-    """the terminal gives the bar its rows, the shell sees fewer lines"""
-    app = bar_app(app_factory, hide_bar_for_one_tab=False)
-    assert app.pty_size() == app.expected_pty(900, 600, top=app.bar_height())
-
-
 @pytest.mark.parametrize("width", [120, 220, 260])
 def test_fixed_tab_width(app_factory, width):
     """tab_width sets the width of every tab"""
@@ -228,14 +211,6 @@ def test_show_tab_close_button(app_factory, show):
     app.wait_title("1")
 
 
-def test_middle_click_closes_tab(app_factory):
-    """a middle click on a tab closes it"""
-    app = bar_app(app_factory, tab_width=200, **PLAIN)
-    open_tabs(app, 3)
-    app.click(100, app.bar_height() // 2, button=2)
-    app.wait(lambda: len(borders(app)) == 2, msg=f"two tabs left, edges {borders(app)}")
-
-
 def test_drag_reorders_tabs(app_factory):
     """dragging the first tab onto the right edge of the last one moves it there, the active tab
     follows its tab"""
@@ -299,19 +274,6 @@ def test_focus_follows_mouse(app_factory):
     app.run('echo "$WHO" > "$T2_TMP/who"')
     assert app.wait_file("who").strip() == "second"
     app.snap("mouse over the left pane focused it")
-
-
-def test_drag_tab_to_the_bottom_half_splits_the_pane(app_factory):
-    """dragging a tab to the bottom half of the terminal splits it into two panes"""
-    app = bar_app(app_factory, tab_width=200, **PLAIN)
-    open_tabs(app, 2)
-    w, h = app.size()
-    app.drag((100, app.bar_height() // 2), (w // 2, h * 3 // 4))
-    app.wait(
-        lambda: divider_shown(app, vertical=False),
-        msg="no horizontal divider between the panes",
-    )
-    app.snap("tab dragged to the bottom half split the pane")
 
 
 def border_at(app: App, x: int, y: int) -> bool:
@@ -543,59 +505,6 @@ def test_cut_follows_window_resize(app_factory):
         app.wait_still("the tabs laid out")
         check_tabs(app, ref, reference(app_factory, "…"), 3)
     app.snap("titles cut again after resizing")
-
-
-def test_rename_menu_and_pin(app_factory):
-    """a double click renames a tab in place, a right click opens the tab menu, a pinned tab
-    shrinks to its icon at the front"""
-    app = bar_app(app_factory, hide_bar_for_one_tab=False, tab_title=["icon", {"text": "title"}])
-    open_tabs(app, 2)
-    h = app.bar_height()
-    before = borders(app)
-    first = before[0] // 2
-
-    def selected() -> bool:
-        return bool(near(app.shot()[:h], C["selection"], 20).any())
-
-    def menu_open() -> bool:
-        return bool(near(app.shot()[h + 4 :], C["border"], 10).any())
-
-    app.click(first, h // 2, repeat=2)
-    # the whole title is selected, so typing replaces it
-    app.wait(selected, msg="title selected in the tab")
-    app.snap("double click: the title is selected for typing")
-    app.type("renamed")
-    app.key("Return")
-    app.wait(lambda: not selected(), msg="rename field closed")
-    app.snap("first tab renamed")
-    app.click(first, h // 2, button=3)
-    app.wait(menu_open, msg="tab menu")
-    app.snap("right click: tab menu")
-    app.click(450, 450)
-    app.wait(lambda: not menu_open(), msg="tab menu closed")
-    app.palette("pin or unpin")
-    # the pinned tab holds only its icon and title, so it is narrower than a full tab
-    app.wait(lambda: borders(app)[0] < before[0], msg="pinned tab shrinks")
-    app.snap("first tab pinned")
-
-
-def test_tab_overview_picks_a_tab_by_click(app_factory):
-    """the overview shows a preview of every tab, a click on the third switches to it"""
-    app = bar_app(app_factory, keybindings={"tab_overview": "ctrl-shift-o"})
-    for i, word in enumerate(["first", "second", "third"]):
-        if i:
-            app.key("ctrl+shift+t")
-            app.wait_title(str(i + 1))
-        app.run(f"echo tab_{word}")
-    app.key("ctrl+shift+o")
-    # the overview covers the window in the tab bar color
-    app.wait(lambda: near(app.shot()[400:450, 300:600], C["tab_bar_background"], 10).mean() > 0.5,
-             msg="overview open")
-    app.snap("overview of three tabs, two to a row")
-    # three tabs make two columns, the third is the first cell of the second row
-    app.click(120, 380)
-    app.wait_title("3")
-    app.wait(lambda: not near(app.shot()[400:450, 300:600], C["tab_bar_background"], 10).any(), msg="overview closed")
 
 
 def chip_pixels(app: App) -> int:

@@ -1,8 +1,8 @@
-//! block decorations: marks in a gutter left of the grid, chips at the end of a block's
-//! output, folds and popovers over cell ranges. render only, so copy and search still see
-//! every line, and nothing here is asked during prepaint but plain data
+//! block decorations: marks in a gutter left of the grid and popovers over cell ranges.
+//! render only, so copy and search still see every line, and nothing here is asked during
+//! prepaint but plain data
 
-use std::{collections::HashMap, ops::RangeInclusive, sync::atomic::Ordering};
+use std::{collections::HashMap, sync::atomic::Ordering};
 
 use alacritty_terminal::{
     grid::Dimensions,
@@ -21,21 +21,6 @@ pub struct GutterMark {
     pub tooltip: String,
 }
 
-/// small label at the end of a block's output, like "3 errors"
-#[derive(Clone, Debug, PartialEq)]
-pub struct Chip {
-    pub text: String,
-    /// name of the action its click runs, like "copy_last_output"
-    pub key: Option<String>,
-}
-
-/// lines drawn as one line with a label, counted from the top of the history
-#[derive(Clone, Debug, PartialEq)]
-pub struct Fold {
-    pub range: RangeInclusive<usize>,
-    pub label: String,
-}
-
 /// box of text shown over the grid next to a cell range while the mouse is over it
 #[derive(Clone, Debug, PartialEq)]
 pub struct Popover {
@@ -51,59 +36,12 @@ pub struct PopoverLine {
     pub highlight: bool,
 }
 
-/// what is drawn for one screen row when folds hide lines
-#[allow(dead_code)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ShownRow {
-    /// the history line of this number
-    Line(usize),
-    /// the label of fold `ix` in place of its lines
-    Fold(usize),
-}
-
 /// decorations of one terminal
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Decorations {
     /// by block id
     pub gutter: HashMap<u64, GutterMark>,
-    /// by block id
-    pub chips: HashMap<u64, Vec<Chip>>,
-    pub folds: Vec<Fold>,
     pub popover: Option<Popover>,
-}
-
-// folds are kept and mapped, the element does not draw them yet
-#[allow(dead_code)]
-/// rows shown for history lines `lines` with `folds` collapsed, each fold one row in place of
-/// its first line. folds are taken in order and must not overlap
-pub fn shown_rows(lines: RangeInclusive<usize>, folds: &[Fold]) -> Vec<ShownRow> {
-    let mut rows = Vec::new();
-    let mut line = *lines.start();
-    while line <= *lines.end() {
-        match folds.iter().position(|fold| fold.range.contains(&line)) {
-            Some(ix) => {
-                // only its first line stands for it, a fold cut at the top still shows once
-                if rows.last() != Some(&ShownRow::Fold(ix)) {
-                    rows.push(ShownRow::Fold(ix));
-                }
-                line = *folds[ix].range.end() + 1;
-            }
-            None => {
-                rows.push(ShownRow::Line(line));
-                line += 1;
-            }
-        }
-    }
-    rows
-}
-
-#[allow(dead_code)]
-/// history line drawn on screen row `row`, none past the end or on a fold label
-pub fn line_at_row(lines: RangeInclusive<usize>, folds: &[Fold], row: usize) -> Option<usize> {
-    match shown_rows(lines, folds).get(row)? {
-        ShownRow::Line(line) => Some(*line),
-        ShownRow::Fold(_) => None,
-    }
 }
 
 impl Terminal {
@@ -151,66 +89,10 @@ impl Terminal {
         }
         shown
     }
-
-    /// chips with the screen row of the last output line of their block, only visible ones
-    pub fn visible_chips(&self) -> Vec<(usize, Vec<Chip>)> {
-        let offset = self.last_content.display_offset as i32;
-        let lines = self.last_content.terminal_bounds.num_lines() as i32;
-        self.decorations
-            .chips
-            .iter()
-            .filter_map(|(id, chips)| {
-                let (_, end) = self.output_range(*id)?;
-                let row = end.line.0 + offset;
-                (0..lines)
-                    .contains(&row)
-                    .then(|| (row as usize, chips.clone()))
-            })
-            .collect()
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Fold, ShownRow, line_at_row, shown_rows};
-
-    fn fold(range: std::ops::RangeInclusive<usize>) -> Fold {
-        Fold {
-            range,
-            label: "folded".into(),
-        }
-    }
-
-    #[test]
-    fn folds_take_one_row_and_lines_after_move_up() {
-        let folds = [fold(2..=4), fold(7..=7)];
-        assert_eq!(
-            shown_rows(0..=9, &folds),
-            [
-                ShownRow::Line(0),
-                ShownRow::Line(1),
-                ShownRow::Fold(0),
-                ShownRow::Line(5),
-                ShownRow::Line(6),
-                ShownRow::Fold(1),
-                ShownRow::Line(8),
-                ShownRow::Line(9),
-            ]
-        );
-        assert_eq!(line_at_row(0..=9, &folds, 3), Some(5));
-        assert_eq!(line_at_row(0..=9, &folds, 2), None);
-        assert_eq!(line_at_row(0..=9, &folds, 99), None);
-        // a fold starting above the view still shows once
-        assert_eq!(
-            shown_rows(3..=6, &folds),
-            [ShownRow::Fold(0), ShownRow::Line(5), ShownRow::Line(6)]
-        );
-        assert_eq!(
-            shown_rows(0..=2, &[]),
-            [ShownRow::Line(0), ShownRow::Line(1), ShownRow::Line(2)]
-        );
-    }
-
     #[test]
     fn gutter_marks_follow_their_prompt() {
         use crate::{
@@ -240,18 +122,5 @@ mod tests {
         terminal.decorate(|decorations| decorations.gutter.insert(ids[1], mark.clone()));
         // the second prompt is the third screen row, after "$ " and "o"
         assert_eq!(terminal.visible_gutter(), [(2, mark)]);
-        terminal.decorate(|decorations| {
-            decorations.chips.insert(
-                ids[0],
-                vec![super::Chip {
-                    text: "chip".into(),
-                    key: None,
-                }],
-            )
-        });
-        terminal.sync();
-        let chips = terminal.visible_chips();
-        assert_eq!(chips.len(), 1);
-        assert_eq!(chips[0].0, 1);
     }
 }

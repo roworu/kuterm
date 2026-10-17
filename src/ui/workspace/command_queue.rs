@@ -3,14 +3,14 @@
 
 use std::time::SystemTime;
 
-use gpui::{AnyElement, AppContext, Context, Entity, Window, div, prelude::*};
+use gpui::{AnyElement, AppContext, Context, Window, div, prelude::*};
 
 use super::{Pane, Workspace};
 use crate::{
-    settings::{Command, CommandAction, Inputs},
-    terminal::{Terminal, parse_queue_entry},
+    settings::{Command, CommandAction},
+    terminal::parse_queue_entry,
     theme::Theme,
-    ui::command_palette::{CommandPalette, InputFilled, InputPrompt},
+    ui::dialogs::{CommandPalette, InputFilled, InputPrompt},
 };
 
 // waiting commands listed over a pane, the rest are counted
@@ -47,11 +47,6 @@ fn queue_rows(entries: &[(u64, String)], paused: bool) -> Vec<(String, &'static 
 }
 
 impl Workspace {
-    fn active_terminal(&self, cx: &gpui::App) -> Option<Entity<Terminal>> {
-        let pane = self.pane(self.focused)?;
-        Some(pane.tabs.get(pane.active)?.view.read(cx).terminal().clone())
-    }
-
     /// ask for a command to type into the active tab once its prompt is back
     pub(super) fn open_queue_input(
         &mut self,
@@ -60,7 +55,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(terminal) = self.active_terminal(cx) else {
+        let Some(terminal) = self.active_terminal_of(self.focused, cx) else {
             return;
         };
         let hint = "typed when the prompt is back, @18:00 <command> waits for 18:00";
@@ -99,7 +94,7 @@ impl Workspace {
 
     /// palette of the active tab's queue: pick one to edit it, move it first, or resume
     pub(super) fn open_queue_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(terminal) = self.active_terminal(cx) else {
+        let Some(terminal) = self.active_terminal_of(self.focused, cx) else {
             return;
         };
         let queue = terminal.read(cx).queue();
@@ -117,14 +112,8 @@ impl Workspace {
         let commands = rows
             .into_iter()
             .enumerate()
-            .map(|(ix, (name, category, _))| Command {
-                name,
-                category: Some(category.into()),
-                pinned: false,
-                inputs: Inputs::new(),
-                // rows carry their index as their only action
-                actions: vec![CommandAction::ActivateTab(ix).into()],
-            })
+            .map(|(ix, (name, category, _))| // rows carry their index as their only action
+                Command::new(name, Some(category.into()), vec![CommandAction::ActivateTab(ix).into()]))
             .collect();
         let palette = cx.new(|cx| CommandPalette::picker(commands, "queued commands...", cx));
         self.open_overlay(&palette, window, cx);
@@ -169,7 +158,7 @@ impl Workspace {
 
     /// go on with the active tab's queue after a failure paused it
     pub(super) fn resume_queue(&mut self, cx: &mut Context<Self>) {
-        if let Some(terminal) = self.active_terminal(cx) {
+        if let Some(terminal) = self.active_terminal_of(self.focused, cx) {
             terminal.update(cx, |terminal, _| terminal.update_queue(|q| q.resume()));
             cx.notify();
         }
@@ -244,7 +233,10 @@ impl Workspace {
 
 #[cfg(test)]
 mod tests {
+    use std::time::{Duration, SystemTime};
+
     use super::{QueueOp, queue_rows};
+    use crate::ui::workspace::test_support::*;
 
     #[test]
     fn rows_edit_every_entry_and_move_later_ones_first() {
@@ -264,5 +256,64 @@ mod tests {
             ]
         );
         assert!(queue_rows(&[], false).is_empty());
+    }
+
+    fn queued(ws: &Entity<Workspace>, cx: &mut VisualTestContext) -> Vec<String> {
+        terminal(ws, cx, 0).read_with(cx, |terminal, _| {
+            terminal
+                .queue()
+                .entries()
+                .iter()
+                .map(|entry| entry.command.clone())
+                .collect()
+        })
+    }
+
+    #[gpui::test]
+    fn queue_field_refuses_a_bad_time_and_takes_nothing_quietly(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 1);
+        run_actions(&ws, cx, r#""queue_command""#);
+        cx.simulate_input("@25:00 make");
+        type_keys(cx, "enter");
+        assert!(queued(&ws, cx).is_empty());
+        assert_eq!(
+            error_texts(&ws, cx),
+            ["queue takes a command, or @HH:MM and a command"]
+        );
+
+        // an empty field is just a change of mind
+        run_actions(&ws, cx, r#""queue_command""#);
+        cx.simulate_input("   ");
+        type_keys(cx, "enter");
+        assert!(queued(&ws, cx).is_empty());
+        assert_eq!(error_texts(&ws, cx).len(), 1);
+    }
+
+    #[gpui::test]
+    fn queue_editor_resumes_a_paused_queue(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 1);
+        // waits an hour, so it is never typed while the test runs
+        let later = SystemTime::now() + Duration::from_secs(3600);
+        terminal(&ws, cx, 0).update(cx, |terminal, _| {
+            terminal.update_queue(|queue| {
+                queue.push("make deploy".into(), Some(later));
+                queue.ended(Some(1), true)
+            })
+        });
+        let paused = |cx: &mut VisualTestContext| {
+            terminal(&ws, cx, 0).read_with(cx, |t, _| t.queue().paused())
+        };
+        assert!(paused(cx));
+        run_actions(&ws, cx, r#""edit_queue""#);
+        let names = palette_names(&ws, cx);
+        assert!(
+            names.iter().any(|name| name.contains("resume the queue")),
+            "{names:?}"
+        );
+        cx.simulate_input("resume the queue");
+        type_keys(cx, "enter");
+        assert!(!palette_open(&ws, cx));
+        assert!(!paused(cx));
+        assert_eq!(queued(&ws, cx), ["make deploy"]);
     }
 }

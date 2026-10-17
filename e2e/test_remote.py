@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from harness import (BIN, App, Session, as_rgb, dominant, ink_bbox, mask_bbox, near, session_env, unique_theme,
+from harness import (BIN, App, Session, as_rgb, dominant, ink_bbox, mask_bbox, near, unique_theme,
                      xdo)
 
 FEATURE = "remote control"

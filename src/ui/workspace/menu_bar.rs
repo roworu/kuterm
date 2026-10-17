@@ -343,6 +343,7 @@ impl Render for MenuBar {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::workspace::test_support::*;
     use crate::ui::workspace::{NewTab, Quit};
 
     fn names(menu: &BarMenu) -> Vec<&str> {
@@ -407,5 +408,123 @@ mod tests {
             MenuItem::action("show", ShowAll),
         ])];
         assert_eq!(names(&bar_menus(menus)[0]), ["a", "-", "b"]);
+    }
+
+    #[gpui::test]
+    fn menu_bar_is_shown_only_when_asked(cx: &mut TestAppContext) {
+        let (_, cx) = open_with_menu_bar(cx, "never");
+        assert!(cx.debug_bounds("menu-bar").is_none());
+        let (_, cx) = open_with_menu_bar(cx, "always");
+        let bar = cx.debug_bounds("menu-bar").unwrap();
+        // the panes start below it
+        assert!(cx.debug_bounds("pane-terminal-0").unwrap().top() >= bar.bottom());
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[gpui::test]
+    fn menu_bar_click_runs_the_item(cx: &mut TestAppContext) {
+        let (ws, cx) = open_with_menu_bar(cx, "always");
+        // "Shell" > "New Tab"
+        let shell = cx.debug_bounds("menu-1").unwrap().center();
+        click(cx, shell, 1);
+        release(cx, shell);
+        cx.run_until_parked();
+        assert!(menu_bar_open(&ws, cx));
+        let item = cx.debug_bounds("menu-item-0").unwrap().center();
+        click(cx, item, 1);
+        release(cx, item);
+        cx.run_until_parked();
+        assert!(!menu_bar_open(&ws, cx));
+        assert_eq!(views(&ws, cx).len(), 2);
+        // focus is back on the terminal
+        assert_eq!(current(&ws, cx), 1);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[gpui::test]
+    fn menu_bar_click_outside_closes_it(cx: &mut TestAppContext) {
+        let (ws, cx) = open_with_menu_bar(cx, "always");
+        let shell = cx.debug_bounds("menu-1").unwrap().center();
+        click(cx, shell, 1);
+        cx.run_until_parked();
+        assert!(menu_bar_open(&ws, cx));
+        // a click on the open title closes it too
+        click(cx, shell, 1);
+        cx.run_until_parked();
+        assert!(!menu_bar_open(&ws, cx));
+        click(cx, shell, 1);
+        cx.run_until_parked();
+        let terminal = cx.debug_bounds("pane-terminal-0").unwrap().center();
+        click(cx, terminal, 1);
+        release(cx, terminal);
+        cx.run_until_parked();
+        assert!(!menu_bar_open(&ws, cx));
+        assert_eq!(views(&ws, cx).len(), 1);
+        assert_eq!(current(&ws, cx), 0);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[gpui::test]
+    fn menu_bar_alt_and_arrows_run_an_item(cx: &mut TestAppContext) {
+        let (ws, cx) = open_with_menu_bar(cx, "always");
+        // alt alone opens the first menu, escape closes it again
+        cx.simulate_modifiers_change(Modifiers::alt());
+        cx.simulate_modifiers_change(Modifiers::none());
+        cx.run_until_parked();
+        assert!(menu_bar_open(&ws, cx));
+        type_keys(cx, "escape");
+        assert!(!menu_bar_open(&ws, cx));
+        assert_eq!(current(&ws, cx), 0);
+        // alt as part of a shortcut opens nothing
+        cx.simulate_modifiers_change(Modifiers::alt());
+        type_keys(cx, "alt-x");
+        cx.simulate_modifiers_change(Modifiers::none());
+        cx.run_until_parked();
+        assert!(!menu_bar_open(&ws, cx));
+        // "View" > "Command Palette"
+        cx.simulate_modifiers_change(Modifiers::alt());
+        cx.simulate_modifiers_change(Modifiers::none());
+        type_keys(cx, "right right right down up enter");
+        assert!(!menu_bar_open(&ws, cx));
+        assert!(palette_open(&ws, cx));
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[gpui::test]
+    fn a_menu_opened_by_mouse_steps_from_the_end_and_follows_the_pointer(cx: &mut TestAppContext) {
+        let (ws, cx) = open_with_menu_bar(cx, "always");
+        let state = |ws: &Entity<Workspace>, cx: &mut VisualTestContext| {
+            ws.update(cx, |ws, cx| {
+                let bar = ws.menu_bar.read(cx);
+                (bar.open, bar.selected)
+            })
+        };
+        let shell = cx.debug_bounds("menu-1").unwrap().center();
+        click(cx, shell, 1);
+        release(cx, shell);
+        cx.run_until_parked();
+        // opened by the mouse nothing is highlighted, up starts from the last item
+        assert_eq!(state(&ws, cx), (Some(1), None));
+        let last = ws.update(cx, |ws, cx| {
+            let items = &ws.menu_bar.read(cx).menus[1].items;
+            items
+                .iter()
+                .rposition(|item| matches!(item, BarItem::Action { .. }))
+        });
+        type_keys(cx, "up");
+        assert_eq!(state(&ws, cx), (Some(1), last));
+        // other keys leave the menu as it is
+        type_keys(cx, "x");
+        assert_eq!(state(&ws, cx), (Some(1), last));
+        // moving along the bar with a menu open opens the one under the pointer
+        let view = cx.debug_bounds("menu-3").unwrap().center();
+        cx.simulate_event(MouseMoveEvent {
+            position: view,
+            pressed_button: None,
+            modifiers: Modifiers::default(),
+        });
+        cx.run_until_parked();
+        assert_eq!(state(&ws, cx), (Some(3), None));
+        assert_eq!(views(&ws, cx).len(), 1);
     }
 }

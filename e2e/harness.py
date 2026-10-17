@@ -190,8 +190,10 @@ def session_env() -> dict:
         env.update({"DISPLAY": Session.display, "WAYLAND_DISPLAY": "", "GPUI_X11_SCALE_FACTOR": "1"})
     if Session.bus_address:
         env["DBUS_SESSION_BUS_ADDRESS"] = Session.bus_address
-    if "VK_ICD_FILENAMES" in os.environ:
-        env["VK_ICD_FILENAMES"] = os.environ["VK_ICD_FILENAMES"]
+    # LLVM_PROFILE_FILE lets a binary built for coverage write what the tests ran
+    for name in ("VK_ICD_FILENAMES", "LLVM_PROFILE_FILE"):
+        if name in os.environ:
+            env[name] = os.environ[name]
     return env
 
 

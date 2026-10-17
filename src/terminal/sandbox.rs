@@ -190,4 +190,36 @@ mod tests {
         assert!(!open.contains("network"));
         assert!(open.contains("/private/tmp"));
     }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn shells_are_named_for_bwrap() {
+        use crate::settings::Shell;
+
+        let cwd = Path::new("/work");
+        let rules = sandbox(false, &[], SandboxTmp::Shared);
+        let wrapped = |command: &Shell| super::sandboxed(command, &rules, cwd, &[]);
+        if !super::in_path("bwrap") {
+            let error = wrapped(&Shell::System).unwrap_err();
+            assert!(error.contains("bubblewrap"), "{error}");
+            return;
+        }
+        let args = |shell: Shell| match shell {
+            Shell::WithArguments { program, args } => {
+                assert_eq!(program, "bwrap");
+                args
+            }
+            other => panic!("not wrapped: {other:?}"),
+        };
+        // a program alone runs with no arguments after "--"
+        let line = args(wrapped(&Shell::Program("/bin/zsh".into())).unwrap());
+        assert!(
+            line.ends_with(&["--".to_string(), "/bin/zsh".to_string()]),
+            "{line:?}"
+        );
+        // the login shell is named, bwrap can't start "the system shell"
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
+        let line = args(wrapped(&Shell::System).unwrap());
+        assert!(line.ends_with(&["--".to_string(), shell]), "{line:?}");
+    }
 }

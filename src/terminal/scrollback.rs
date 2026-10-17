@@ -130,4 +130,39 @@ mod tests {
         assert!(text.contains("\x1b[0;1;31;49mred\x1b[0;39;49m \x1b[0;38;2;1;2;3;49mrgb\x1b[0m\n"));
         assert!(text.ends_with("dump_ready\x1b[0m\n"));
     }
+
+    #[test]
+    fn colors_become_sgr_parameters() {
+        use alacritty_terminal::vte::ansi::{Color, NamedColor};
+
+        use super::color_sgr;
+        assert_eq!(color_sgr(Color::Named(NamedColor::Red), 30), "31");
+        assert_eq!(color_sgr(Color::Named(NamedColor::BrightRed), 30), "91");
+        assert_eq!(color_sgr(Color::Named(NamedColor::BrightWhite), 40), "107");
+        // dim colors have no sgr, the plain one stands in
+        assert_eq!(color_sgr(Color::Named(NamedColor::DimGreen), 30), "32");
+        // other theme colors, like the cursor's, fall back to the default
+        assert_eq!(color_sgr(Color::Named(NamedColor::Cursor), 30), "39");
+        assert_eq!(color_sgr(Color::Named(NamedColor::DimForeground), 40), "49");
+        assert_eq!(color_sgr(Color::Indexed(208), 30), "38;5;208");
+        assert_eq!(color_sgr(Color::Indexed(17), 40), "48;5;17");
+    }
+
+    #[test]
+    fn wide_and_zero_width_chars_are_written_once() {
+        let profile = profile(Shell::WithArguments {
+            program: "/bin/sh".into(),
+            args: vec![
+                "-c".into(),
+                "printf '\\346\\227\\245x a\\342\\200\\213b\\n'; echo dump_ready; sleep 5".into(),
+            ],
+        });
+        let mut builder = spawn_with(&TerminalSettings::default(), &profile);
+        let terminal = &mut builder.terminal;
+        wait_for_text(terminal, "dump_ready");
+        let text = terminal.scrollback_ansi();
+        // the spacer cell after the wide char is no char of its own, the zero width one rides
+        // on the cell before it
+        assert!(text.contains("\u{65e5}x a\u{200b}b"), "{text:?}");
+    }
 }

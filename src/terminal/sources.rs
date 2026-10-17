@@ -146,6 +146,13 @@ mod tests {
         let bash = with_shell_integration(&profile(Shell::Program("/bin/bash".into())));
         let mut builder = spawn_with(&TerminalSettings::default(), &bash);
         let terminal = &mut builder.terminal;
+        // what is typed before the first prompt is typeahead, owned by no block
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while !terminal.at_prompt() {
+            assert!(Instant::now() < deadline, "bash never showed a prompt");
+            terminal.handle_scan_events();
+            std::thread::sleep(Duration::from_millis(50));
+        }
         let mut run = |source: InputSource, text: &str, until: &str| {
             terminal.input(source, format!("{text}\r").into_bytes());
             wait_for_text(terminal, until);

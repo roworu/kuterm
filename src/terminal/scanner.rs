@@ -671,4 +671,35 @@ mod tests {
             assert!(!scanner.passes_through(input), "{input:?}");
         }
     }
+
+    #[test]
+    fn a_new_osc_drops_the_unfinished_one_and_unknown_marks_tell_nothing() {
+        // the notification never ended, the escape starting the mark replaced it
+        let (out, events) = scan(&[b"\x1b]9;lost\x1b]133;D;1\x07\x1b]133;Z\x07"]);
+        assert_eq!(events, [ScanEvent::CommandEnd(Some(1))]);
+        // the bytes still go on to alacritty, with the close of the open mark
+        assert!(out.starts_with(b"\x1b]9;lost\x1b]133;D;1\x07"));
+        assert!(out.ends_with(b"\x1b]133;Z\x07"));
+    }
+
+    #[test]
+    fn reader_passes_scanned_output_without_events_on() {
+        use std::io::Read;
+
+        let path = std::env::temp_dir().join(format!("kuterm-scan-{}", std::process::id()));
+        // a title is scanned, being an osc, but it is alacritty's and makes no event
+        std::fs::write(&path, b"\x1b]0;title\x07text").unwrap();
+        let events = super::ScanEvents::default();
+        let mut reader = super::ScanReader {
+            file: std::fs::File::open(&path).unwrap(),
+            scanner: Scanner::default(),
+            pending: Vec::new(),
+            events: events.clone(),
+        };
+        let mut got = Vec::new();
+        reader.read_to_end(&mut got).unwrap();
+        std::fs::remove_file(&path).ok();
+        assert_eq!(got, b"\x1b]0;title\x07text");
+        assert!(events.lock().unwrap().is_empty());
+    }
 }

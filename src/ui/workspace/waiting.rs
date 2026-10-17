@@ -9,7 +9,7 @@ use regex::Regex;
 
 use super::{Pane, Workspace, notifications::NotificationButton};
 use crate::{
-    events_bus::{BusEvent, EventBus},
+    automation::events::{BusEvent, EventBus},
     settings::Settings,
     terminal::{InputSource, Question, StoppedJob},
     theme::Theme,
@@ -113,7 +113,7 @@ impl Workspace {
             }
             let text = question_text(&question, ix + 1);
             if !window.is_window_active() {
-                super::notifications::system_notification("kuterm", &text);
+                super::system_notifications::system_notification("kuterm", &text);
             }
             let buttons = self.question_buttons(&view, &question);
             // the typed answer never shows, only the question
@@ -141,18 +141,6 @@ impl Workspace {
                 this.attention_ended(&view, cx);
             })
         };
-        if question.secret {
-            let view = view.clone();
-            return vec![NotificationButton::new(
-                "fill password",
-                move |this, window, cx| {
-                    if let Some((pane, ix)) = this.find_view(&view) {
-                        this.activate_tab(pane, ix, window, cx);
-                        this.fill_password(window, cx);
-                    }
-                },
-            )];
-        }
         if question.yes_no {
             return vec![answer("y", "y\r"), answer("n", "n\r")];
         }

@@ -1,9 +1,6 @@
+mod automation;
 mod cli;
 mod completion;
-mod events_bus;
-mod mcp;
-mod plugins;
-mod remote;
 mod settings;
 mod terminal;
 mod theme;
@@ -17,8 +14,8 @@ use gpui::App;
 use gpui_platform::application;
 
 use crate::{
+    automation::{Request, mcp, msg, socket},
     cli::{Cli, USAGE},
-    remote::Request,
     settings::{Config, ConfigFiles, Pins, RemoteControl, Settings, StatusBarState},
     theme::{PortalAppearance, Theme},
     ui::{
@@ -87,7 +84,7 @@ fn init(portal: PortalAppearance, cx: &mut App) {
     cx.bind_keys(text_input::bindings());
     if Settings::get(cx).remote_control == RemoteControl::Socket {
         #[cfg(unix)]
-        if let Some(path) = remote::listen(cx, ui::windows::handle_request) {
+        if let Some(path) = socket::listen(cx, ui::windows::handle_request) {
             cx.set_global(ui::workspace::RemoteSocket(path));
         }
     }
@@ -100,10 +97,10 @@ fn init(portal: PortalAppearance, cx: &mut App) {
     cx.on_action(|_: &Quit, cx| {
         with_workspace(cx, |workspace, window, cx| {
             workspace.request_quit(window, cx)
-        })
+        });
     });
     cx.on_action(|_: &NewTab, cx| {
-        with_workspace(cx, |workspace, window, cx| workspace.add_tab(window, cx))
+        with_workspace(cx, |workspace, window, cx| workspace.add_tab(window, cx));
     });
     cx.set_menus(app_menus());
     cx.set_dock_menu(dock_menu());
@@ -112,7 +109,6 @@ fn init(portal: PortalAppearance, cx: &mut App) {
     if Settings::get(cx).window.global_menu {
         ui::workspace::start_global_menu(cx);
     }
-    plugins::start(cx);
 }
 
 fn main() {
@@ -126,15 +122,15 @@ fn main() {
             msg: Some(args), ..
         }) => {
             if args.iter().any(|arg| arg == "-h" || arg == "--help") {
-                println!("{}", remote::MSG_USAGE);
+                println!("{}", msg::MSG_USAGE);
                 return;
             }
-            std::process::exit(remote::run_msg(&args));
+            std::process::exit(msg::run_msg(&args));
         }
         Ok(cli) => {
             // a running kuterm takes over, this process has nothing left to do
             if let Some(url) = &cli.url
-                && remote::send(&Request::OpenUrl { url: url.clone() }).is_ok_and(|reply| reply.ok)
+                && socket::send(&Request::OpenUrl { url: url.clone() }).is_ok_and(|reply| reply.ok)
             {
                 return;
             }
@@ -142,7 +138,7 @@ fn main() {
                 let request = Request::NewWindow {
                     cwd: std::env::current_dir().ok(),
                 };
-                if remote::send(&request).is_ok_and(|reply| reply.ok) {
+                if socket::send(&request).is_ok_and(|reply| reply.ok) {
                     return;
                 }
             }

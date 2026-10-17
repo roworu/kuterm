@@ -9,8 +9,8 @@ use alacritty_terminal::{
     Term,
     event::EventListener,
     grid::{Dimensions, Scroll},
-    index::{Column, Line, Point as AlacPoint, Side},
-    selection::{Selection, SelectionType},
+    index::{Column, Line, Point as AlacPoint},
+    selection::SelectionType,
     term::{TermMode, cell::Flags},
 };
 use gpui::{Pixels, Point};
@@ -88,6 +88,14 @@ fn wraps<T: EventListener>(term: &Term<T>, line: Line) -> bool {
         .contains(Flags::WRAPLINE)
 }
 
+/// last line of the text starting on `line`, past the lines it wraps to
+fn wrapped_end<T: EventListener>(term: &Term<T>, mut line: Line) -> Line {
+    while line < term.bottommost_line() && wraps(term, line) {
+        line += 1;
+    }
+    line
+}
+
 /// first cell of the command line being typed, right after the newest prompt mark. none when
 /// output came after that prompt or the cursor is on another line than the command line,
 /// like after a continuation prompt
@@ -138,10 +146,7 @@ fn chars_between<T: EventListener>(term: &Term<T>, from: AlacPoint, to: AlacPoin
 fn arrows_to<T: EventListener>(term: &Term<T>, mut target: AlacPoint) -> Option<String> {
     let start = prompt_input_start(term)?;
     let cursor = term.grid().cursor.point;
-    let mut last_line = cursor.line;
-    while last_line < term.bottommost_line() && wraps(term, last_line) {
-        last_line += 1;
-    }
+    let last_line = wrapped_end(term, cursor.line);
     if target < start || target.line > last_line {
         return None;
     }
@@ -222,10 +227,7 @@ pub(super) fn command_after_prompt<T: EventListener>(
 ) -> Option<String> {
     let (_, end) = mark_cells(term, &format!("{PROMPT_MARK}{prompt}"))?;
     let start = next_cell(term, end);
-    let mut last = start.line;
-    while last < term.bottommost_line() && wraps(term, last) {
-        last += 1;
-    }
+    let last = wrapped_end(term, start.line);
     let text = term.bounds_to_string(start, AlacPoint::new(last, term.last_column()));
     let text = text.trim();
     (!text.is_empty()).then(|| text.to_string())
@@ -324,10 +326,7 @@ impl Terminal {
         let Some((start, end)) = last_output(&term) else {
             return false;
         };
-        let mut selection = Selection::new(SelectionType::Lines, start, Side::Left);
-        selection.update(end, Side::Right);
-        term.selection = Some(selection);
-        term.scroll_to_point(start);
+        super::selection::select_range(&mut term, SelectionType::Lines, start, end);
         drop(term);
         self.dirty.store(true, Ordering::Release);
         true
@@ -478,17 +477,8 @@ mod tests {
         columns: usize,
         typed: &str,
     ) -> alacritty_terminal::Term<alacritty_terminal::event::VoidListener> {
-        use alacritty_terminal::{
-            Term,
-            event::VoidListener,
-            term::{Config, test::TermSize},
-            vte::ansi::Processor,
-        };
-        let mut term = Term::new(Config::default(), &TermSize::new(columns, 5), VoidListener);
-        let mut parser: Processor = Processor::new();
         let prompt = "\x1b]8;id=kuterm-prompt-0;kuterm:\x1b\\$ \x1b]8;;\x1b\\";
-        parser.advance(&mut term, format!("{prompt}{typed}").as_bytes());
-        term
+        crate::terminal::parsed_term(columns, 5, format!("{prompt}{typed}"))
     }
 
     fn at(line: i32, column: usize) -> AlacPoint {
@@ -700,10 +690,7 @@ mod tests {
         assert_eq!(args[0], "--rcfile");
         let mut builder = spawn_with(&TerminalSettings::default(), &integrated);
         let terminal = &mut builder.terminal;
-        terminal.input(
-            crate::terminal::InputSource::Keyboard,
-            b"cd /tmp && echo integ_$((40+2))\r".to_vec(),
-        );
+        terminal.type_text(b"cd /tmp && echo integ_$((40+2))\r");
         wait_for_text(terminal, "integ_42");
         let deadline = Instant::now() + Duration::from_secs(15);
         let mut finished = false;
@@ -726,10 +713,7 @@ mod tests {
         let integrated = with_shell_integration(&bash);
         let mut builder = spawn_with(&TerminalSettings::default(), &integrated);
         let terminal = &mut builder.terminal;
-        terminal.input(
-            crate::terminal::InputSource::Keyboard,
-            b"echo hist=$HISTFILE=$KUTERM_INCOGNITO\r".to_vec(),
-        );
+        terminal.type_text(b"echo hist=$HISTFILE=$KUTERM_INCOGNITO\r");
         wait_for_text(terminal, "hist==1");
     }
 
@@ -788,10 +772,7 @@ mod tests {
         wait_shell(&mut events, "PATH", |m| {
             matches!(m, ShellMessage::Env { .. })
         });
-        terminal.input(
-            crate::terminal::InputSource::Keyboard,
-            b"echo comp_".to_vec(),
-        );
+        terminal.type_text(b"echo comp_");
         let typed = wait_shell(
             &mut events,
             "the typed line",
@@ -814,7 +795,7 @@ mod tests {
         );
 
         // the completed line runs as typed
-        terminal.input(crate::terminal::InputSource::Keyboard, b"\r".to_vec());
+        terminal.type_text(b"\r");
         wait_shell(&mut events, "the end of the line", |m| {
             *m == ShellMessage::End
         });
@@ -846,5 +827,26 @@ mod tests {
             args: vec!["-l".into()],
         });
         assert_eq!(with_shell_integration(&args), args);
+    }
+
+    #[test]
+    fn without_marks_there_is_no_prompt_or_output_to_go_to() {
+        let profile = profile(Shell::WithArguments {
+            program: "/bin/sh".into(),
+            args: vec![
+                "-c".into(),
+                "echo unmarked; printf '\\033[?1049hfull screen'; sleep 5".into(),
+            ],
+        });
+        let mut builder = spawn_with(&TerminalSettings::default(), &profile);
+        let terminal = &mut builder.terminal;
+        wait_for_text(terminal, "full screen");
+        assert!(!terminal.jump_to_prompt(true));
+        assert!(!terminal.jump_to_prompt(false));
+        assert!(!terminal.select_last_output());
+        assert_eq!(terminal.selection_text(), None);
+        // a full screen program moves its own cursor, clicks are no arrow keys for it
+        let click = gpui::point(gpui::px(5.), gpui::px(10.));
+        assert!(!terminal.click_moves_cursor(click));
     }
 }

@@ -118,11 +118,6 @@
   // ask before closing a tab while a program still runs in it, like vim or a long build,
   // so its work is not lost by accident
   "close_running_tab_warn": true,
-  // like browsers discarding background tabs: the history of a tab not shown for this many
-  // minutes is compressed in memory, and put back when the tab is shown, searched or read.
-  // its programs keep running and new output is kept as usual. lets many tabs stay open.
-  // 0 never sleeps
-  "sleep_tabs_after_minutes": 30,
   // ask before quitting or closing the window:
   //   "always"  - every time
   //   "running" - only while a program still runs in some tab
@@ -149,7 +144,7 @@
   // cpu, memory, traffic and ports are only measured while something shows them
   "status_bar": {
     "enable": false,
-    "left": ["git", "cpu_graph", "cpu", "memory", "network", "ports"],
+    "left": ["cpu_graph", "cpu", "memory", "network", "ports"],
     "right": [
       { "text": "all tabs" }, "total_cpu", "total_memory", "total_network", "all_ports",
       "size", "clock",
@@ -252,20 +247,6 @@
   // "kuterm --single-instance" opens a new window in the running kuterm instead of starting
   // another one, and needs "socket"
   "remote_control": "off",
-
-  // plugins: programs kuterm starts and talks to over stdin and stdout with json-rpc,
-  // framed like lsp, see docs/PLUGINS.md. a plugin adds palette commands, link patterns,
-  // tab title blocks ({ "plugin": "<plugin>/<block>" }), marks next to commands and panels
-  // (its own tui in a tab). a crash only ends the plugin, it is started again after a
-  // growing wait, and every plugin restarts when the config is reloaded. each one asks once
-  // before it first runs, and again when it or its permissions change. an entry is
-  //   { "name": "demo", "command": ["python3", "~/plugins/demo.py"],
-  //     "permissions": { "panes": true, "pty_write": false, "run": false } }
-  // where "panes" lets it see panes, their events and text, "pty_write" type into them and
-  // "run" start programs like its panel, all off unless named. or a git repository with a
-  // kuterm-plugin.json manifest holding those keys, cloned into the data folder:
-  //   "github:user/repo" or "github:user/repo@v1.2"
-  "plugins": [],
 
   // the "open_scrollback" action writes the history of the active tab, colors kept, to a
   // temp file and opens it with this command in a new tab, the file goes last. useful to
@@ -396,23 +377,6 @@
     // put each tab into a group of the git project its folder is in, named after the project,
     // made and changed as the shell moves around. groups made by hand stay as they are
     "by_project": false,
-  },
-
-  // the "fill_password" action lists the entries of a password manager in the palette and
-  // types the picked one's password into the active tab, without the clipboard. the password
-  // is never shown, logged or notified. the palette warns when the program shows what is
-  // typed, like a shell at its prompt, instead of asking for a secret
-  "password_manager": {
-    // "pass", "secret-tool" (the desktop keyring, entries by their service attribute),
-    // "bw" (bitwarden) or "op" (1password). "bw" and "op" need jq and an unlocked session
-    "preset": "pass",
-    // your own commands in place of the preset's, as program and arguments. "list" prints
-    // one entry name per line, "get" prints the password on its first line, "{name}" in it
-    // is the picked entry, like ["pass", "show", "{name}"]
-    "list": null,
-    "get": null,
-    // press enter after the password
-    "enter": false,
   },
 
   // selecting text with the mouse
@@ -807,12 +771,6 @@
     // pane. false never pauses: ctrl+s then only reaches programs while flow control is off,
     // like emacs or nano, which turn it off to use the key
     "send_xoff": true,
-    // experimental: narrowing a pane keeps the output of finished commands at the width it
-    // was printed at, so tables like `kubectl get` or `docker ps` don't rewrap into a mess.
-    // lines cut at the pane edge end in "→", shift+wheel over them scrolls sideways. only
-    // the drawing changes, copy and search see the whole lines; selections show where the
-    // rewrapped text is. needs the command marks of shell integration
-    "keep_block_width": false,
   },
 
   // ---------------------------------------------------------------------------------------
@@ -955,13 +913,6 @@
     // open the default profile incognito: no shell history, no session restore, no
     // remote reading, a purple frame
     "new_incognito_tab": null,
-    // a grid of live previews of every tab: typing filters them by title, arrows or a click
-    // pick one, escape closes it
-    "tab_overview": null,
-    // a map of the panes whose programs talk to each other: a server in one and the tests
-    // calling it in another, a database and its client. lines pulse while bytes move, a
-    // click on a pane goes there. linux only, from the sockets of each pane's programs
-    "show_topology": null,
     // put the active tab into a new group, see "tab_groups"
     "new_group": null,
     // put the active tab into the group of the tab next to it, or a new one
@@ -970,8 +921,6 @@
     "remove_tab_from_group": null,
     // close every tab of the active tab's group, like every tab of its project
     "close_group": null,
-    // pick an entry of "password_manager" and type its password into the active tab
-    "fill_password": null,
     // draw text programs concealed (sgr 8), again to hide it. remote control and agents
     // never get concealed text
     "show_hidden_text": null,
@@ -1127,7 +1076,6 @@
   //   "toggle_broadcast_all"             - type into every pane of the window at once, or stop
   //   "toggle_broadcast_pane"            - join the focused pane to the broadcast, or leave it
   //   "toggle_scroll_sync"               - scroll the focused pane with the other joined ones
-  //   "show_topology"                    - map of the panes whose programs talk to each other
   //   "queue_command"                    - type a command into the tab once its prompt is back
   //   "edit_queue"                       - edit, reorder or drop the queued commands
   //   "resume_queue"                     - go on with the queue after a failure paused it
@@ -1135,12 +1083,10 @@
   //   "prev_tab"                         - switch to the tab on the left
   //   { "activate_tab": 2 }              - switch to the tab at this 1 based position
   //   "pick_tab"                         - list the open tabs in the palette, pick one to switch to it
-  //   "tab_overview"                     - a grid of previews of every tab, pick one to switch
   //   "new_group"                        - put the active tab into a new group
   //   "add_tab_to_group"                 - put the active tab into the group next to it
   //   "remove_tab_from_group"            - take the active tab out of its group
   //   "close_group"                      - close every tab of the active tab's group
-  //   "fill_password"                    - type a password from "password_manager" into the tab
   //   "show_hidden_text"                 - draw concealed text, or hide it again
   //   "rename_pane"                      - name the active tab for "kuterm msg --pane"
   //   "next_attention_tab"               - switch to the tab whose ai agent has waited longest
@@ -1193,8 +1139,6 @@
   //   { "pick": ["a", "b"] }           - pick one of these in the palette
   //   { "pick_from": "git branch" }    - run this in the active tab's folder and pick one of
   //                                      the lines it prints
-  //   { "pick": [...], "matrix": true } - run the whole command once per picked value, each in
-  //                                      a split of a grid of its own, then say how many passed
   //
   // actions can be mixed freely to build bigger commands, see the examples below.
   "commands": [
@@ -1207,7 +1151,6 @@
 
     { "name": "copy selection", "category": "edit", "actions": ["copy"] },
     { "name": "paste", "category": "edit", "actions": ["paste"] },
-    { "name": "fill password", "category": "edit", "actions": ["fill_password"] },
     { "name": "show or hide concealed text", "category": "view", "actions": ["show_hidden_text"] },
     { "name": "select all", "category": "edit", "actions": ["select_all"] },
     { "name": "search", "category": "edit", "actions": ["search"] },
@@ -1241,14 +1184,12 @@
     { "name": "broadcast input to all panes", "category": "panes", "actions": ["toggle_broadcast_all"] },
     { "name": "broadcast input from this pane", "category": "panes", "actions": ["toggle_broadcast_pane"] },
     { "name": "sync scroll of this pane", "category": "panes", "actions": ["toggle_scroll_sync"] },
-    { "name": "show pane topology", "category": "panes", "actions": ["show_topology"] },
     { "name": "queue a command", "category": "queue", "actions": ["queue_command"] },
     { "name": "edit queued commands", "category": "queue", "actions": ["edit_queue"] },
     { "name": "resume queue", "category": "queue", "actions": ["resume_queue"] },
     { "name": "switch to left", "category": "tabs", "actions": ["prev_tab"] },
     { "name": "switch to right", "category": "tabs", "actions": ["next_tab"] },
     { "name": "go to tab", "category": "tabs", "actions": ["pick_tab"] },
-    { "name": "overview", "category": "tabs", "actions": ["tab_overview"] },
     { "name": "new group", "category": "tabs", "actions": ["new_group"] },
     { "name": "add to group", "category": "tabs", "actions": ["add_tab_to_group"] },
     { "name": "remove from group", "category": "tabs", "actions": ["remove_tab_from_group"] },
@@ -1293,13 +1234,6 @@
       "category": "examples",
       "inputs": { "branch": { "pick_from": "git branch --format=%(refname:short)" } },
       "actions": [{ "type": "git checkout {branch}\n" }],
-    },
-    // custom command example: run the tests on three python versions at once, one split each
-    {
-      "name": "test python versions",
-      "category": "examples",
-      "inputs": { "python": { "pick": ["3.11", "3.12", "3.13"], "matrix": true } },
-      "actions": [{ "type": "python{python} -m pytest\n" }],
     },
   ],
 

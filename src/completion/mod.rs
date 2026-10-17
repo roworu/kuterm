@@ -602,4 +602,45 @@ mod tests {
         assert_eq!(score("ab", "b"), None);
         assert_eq!(score("x", ""), Some(0));
     }
+
+    #[test]
+    fn options_with_several_arguments_and_unknown_options() {
+        let dir = fixture("option-args");
+        let mut specs = Specs::load(None);
+        specs.insert(
+            "pair",
+            r#"{
+                "name": "pair",
+                "options": [{ "name": "--size",
+                    "args": [{ "suggestions": ["wide"] }, { "suggestions": ["tall"] }] }],
+                "subcommands": [{ "name": "go" }],
+            }"#,
+        );
+        let at = |line: &str| {
+            let request = Request {
+                buffer: line.into(),
+                cursor: line.chars().count(),
+                cwd: dir.clone(),
+                path_var: dir.join("bin").to_string_lossy().into_owned(),
+                home: None,
+            };
+            let completions = complete(&request, &specs);
+            completions
+                .candidates
+                .iter()
+                .map(|c| c.label.clone())
+                .collect::<Vec<_>>()
+        };
+        // each argument of the option is asked for in turn, then the subcommands come back
+        assert_eq!(at("pair --size "), ["wide"]);
+        assert_eq!(at("pair --size wide "), ["tall"]);
+        assert_eq!(at("pair --size wide tall "), ["go"]);
+        // an option the spec doesn't know takes no argument, the next word is a subcommand
+        assert_eq!(
+            labels(&complete_in(&dir, "tool --nope ")),
+            ["run", "Rebuild", "remove"]
+        );
+        assert_eq!(labels(&complete_in(&dir, "tool --nope run ")), ["first"]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }

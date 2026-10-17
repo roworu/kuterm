@@ -174,8 +174,6 @@ pub enum TabTitleBlock {
     Xoff,
     /// programs stopped with ctrl+z
     StoppedJobs,
-    /// text a plugin keeps up to date, "<plugin>/<block>"
-    Plugin(String),
 }
 
 impl TabTitleBlock {
@@ -432,8 +430,6 @@ pub enum PatternAction {
     Paste,
     /// run a shell command with the text in $KUTERM_MATCH, in the folder of the tab
     Exec(String),
-    /// tell the plugin of this name, which added the pattern
-    Plugin(String),
 }
 
 /// when notifications programs send are shown
@@ -514,29 +510,51 @@ mod tests {
     }
 
     #[test]
-    fn line_height_values() {
-        assert_eq!(LineHeight::Comfortable.value(), 1.618);
-        assert_eq!(LineHeight::Standard.value(), 1.3);
-        assert_eq!(LineHeight::Custom(2.0).value(), 2.0);
+    fn font_slant_maps_to_the_gpui_style() {
+        for (slant, style) in [
+            (FontSlant::Normal, gpui::FontStyle::Normal),
+            (FontSlant::Italic, gpui::FontStyle::Italic),
+            (FontSlant::Oblique, gpui::FontStyle::Oblique),
+        ] {
+            assert_eq!(gpui::FontStyle::from(slant), style);
+        }
     }
 
     #[test]
-    fn cursor_shapes_map_to_alacritty() {
-        assert_eq!(
-            AlacCursorShape::from(CursorShape::Block),
-            AlacCursorShape::Block
-        );
-        assert_eq!(
-            AlacCursorShape::from(CursorShape::Bar),
-            AlacCursorShape::Beam
-        );
-        assert_eq!(
-            AlacCursorShape::from(CursorShape::Underline),
-            AlacCursorShape::Underline
-        );
-        assert_eq!(
-            AlacCursorShape::from(CursorShape::Hollow),
-            AlacCursorShape::HollowBlock
-        );
+    fn search_case_is_smart_or_a_bool() {
+        let case = |json: &str| serde_json_lenient::from_str::<SearchCase>(json);
+        assert_eq!(case(r#""smart""#).unwrap(), SearchCase::Smart);
+        assert_eq!(case("true").unwrap(), SearchCase::Sensitive);
+        assert_eq!(case("false").unwrap(), SearchCase::Insensitive);
+        let error = case(r#""loud""#).unwrap_err().to_string();
+        assert!(error.contains("unknown case_sensitive \"loud\""), "{error}");
+    }
+
+    #[test]
+    fn link_modifier_is_held_alone() {
+        let alt = gpui::Modifiers {
+            alt: true,
+            ..Default::default()
+        };
+        let shift = gpui::Modifiers {
+            shift: true,
+            ..Default::default()
+        };
+        let platform = gpui::Modifiers {
+            platform: true,
+            ..Default::default()
+        };
+        assert!(LinkModifier::Alt.held(&alt));
+        assert!(LinkModifier::Shift.held(&shift));
+        assert!(LinkModifier::Super.held(&platform));
+        assert!(!LinkModifier::Alt.held(&shift));
+        assert!(!LinkModifier::Ctrl.held(&platform));
+        // another modifier on top means a different shortcut, not a link click
+        let alt_shift = gpui::Modifiers {
+            alt: true,
+            shift: true,
+            ..Default::default()
+        };
+        assert!(!LinkModifier::Alt.held(&alt_shift));
     }
 }
