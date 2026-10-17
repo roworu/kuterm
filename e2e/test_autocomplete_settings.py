@@ -85,6 +85,13 @@ def popup_width(app: App, box: tuple) -> int:
     return round((box[2] - box[0]) / app.cell_width())
 
 
+def popup_of(app: App, rows: int):
+    """the popup once it shows `rows` rows. keys are typed one by one, so a popup for the line
+    before the last key can show first"""
+    box = popup(app)
+    return box if box and popup_rows(app, box) == rows else None
+
+
 def popup_rows(app: App, box: tuple) -> int:
     """rows the popup shows, it is that many line heights tall plus its padding"""
     return round((box[3] - box[1] - 6) / app.line_height())
@@ -169,9 +176,8 @@ def test_max_items_limits_the_rows_shown(app_factory, tmp_path, rows):
     """max_items rows are shown at once, picking past them scrolls the list, not the popup"""
     app = zsh_app(app_factory, tmp_path, {"max_items": rows})
     app.type("git ")
-    box = app.wait(lambda: popup(app), msg="completion popup")
+    box = app.wait(lambda: popup_of(app, rows), msg=f"completion popup of {rows} rows")
     app.snap(f"git completions, {rows} rows at once")
-    assert popup_rows(app, box) == rows, box
     # more candidates than rows: moving down scrolls the list, the popup keeps its height
     for _ in range(rows + 2):
         app.key("Down")
@@ -262,20 +268,18 @@ def test_spec_file_next_to_settings_adds_a_command(app_factory, tmp_path):
     """a spec file in the "completions" folder completes the command it names"""
     app = zsh_app(app_factory, tmp_path, files={"completions/mytool.json": MYTOOL})
     app.type("mytool ")
-    box = app.wait(lambda: popup(app), msg="completion popup")
-    app.snap("the subcommands of a spec file written next to settings.jsonc")
     # the two subcommands, nothing else
-    assert popup_rows(app, box) == 2, box
+    app.wait(lambda: popup_of(app, 2), msg="popup of the two subcommands")
+    app.snap("the subcommands of a spec file written next to settings.jsonc")
 
 
 def test_spec_file_replaces_a_bundled_one(app_factory, tmp_path):
     """a spec file named after a bundled command replaces the bundled spec"""
     app = zsh_app(app_factory, tmp_path, files={"completions/ls.json": MY_LS})
     app.type("ls -")
-    box = app.wait(lambda: popup(app), msg="completion popup")
-    app.snap("only the option of the replacing spec is listed, none of ls's own")
     # the bundled ls lists many options for "-", this one only its own
-    assert popup_rows(app, box) == 1, box
+    app.wait(lambda: popup_of(app, 1), msg="popup of the one option")
+    app.snap("only the option of the replacing spec is listed, none of ls's own")
 
 
 def test_broken_spec_file_keeps_other_completions(app_factory, tmp_path):
@@ -290,8 +294,7 @@ def test_broken_spec_file_keeps_other_completions(app_factory, tmp_path):
     app.wait(lambda: popup(app) is None, msg="popup hidden")
     app.key("Return")
     app.type("mytool ")
-    box = app.wait(lambda: popup(app), msg="popup for the good spec")
-    assert popup_rows(app, box) == 2, box
+    app.wait(lambda: popup_of(app, 2), msg="popup for the good spec")
     app.snap("the spec next to the broken one still works")
 
 
@@ -379,8 +382,7 @@ def test_reload_applies_autocomplete_settings_live(app_factory, tmp_path):
     """saving max_items and show_descriptions in settings.jsonc shrinks the open popup at once"""
     app = zsh_app(app_factory, tmp_path)
     app.type("git ")
-    box = app.wait(lambda: popup(app), msg="completion popup")
-    assert popup_rows(app, box) == 8, box
+    box = app.wait(lambda: popup_of(app, 8), msg="completion popup of eight rows")
     app.snap("git completions with the default settings, eight rows and descriptions")
     app.write("settings.jsonc", {**app.settings,
                                  "autocomplete": {"enable": True, "trigger": "auto",

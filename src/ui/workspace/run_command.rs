@@ -828,10 +828,11 @@ mod tests {
         left.update(cx, |t, _| {
             t.input(
                 InputSource::Keyboard,
-                b"python3 -c \"import getpass; getpass.getpass('Pw: ')\"\r".as_slice(),
+                b"python3 -c \"import getpass; getpass.getpass('P' 'w: ')\"\r".as_slice(),
             )
         });
-        // getpass turns echo off before it prints its prompt
+        // getpass turns echo off before it prints its prompt. the prompt is split in the
+        // command so its echo doesn't match
         wait_until(cx, "the password prompt never showed", |cx| {
             left.update(cx, |t, _| t.visible_screen_text(false).0.contains("Pw:"))
         });

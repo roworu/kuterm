@@ -638,8 +638,16 @@ mod tests {
         // it stays open while typing, then the list follows the line
         type_line(&view, cx, &shell, 2, "cat alpi");
         assert_eq!(shown(&view, cx), ["alpine/"]);
-        // on an empty line the key lists commands
+        // on an empty line the key lists commands. no PATH leaves the builtins, a long one
+        // pushes "cd" past the candidates kept
         cx.simulate_keystrokes("escape");
+        let env = ShellEvent {
+            conn: shell.conn,
+            message: ShellMessage::Env {
+                path: String::new(),
+            },
+        };
+        view.update(cx, |view, cx| view.shell_event(&env, cx));
         type_line(&view, cx, &shell, 3, "");
         cx.simulate_keystrokes("ctrl-space");
         assert!(shown(&view, cx).contains(&"cd".to_string()));
