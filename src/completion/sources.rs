@@ -44,7 +44,9 @@ pub fn programs(path_var: &str) -> Arc<Vec<String>> {
         let Ok(entries) = std::fs::read_dir(dir) else {
             continue;
         };
-        for entry in entries.flatten().take(MAX_ENTRIES) {
+        // no limit here: the list is read once per change of PATH, and a cut would drop
+        // random programs of a big /usr/bin
+        for entry in entries.flatten() {
             if is_executable(&entry.path())
                 && let Some(name) = entry.file_name().to_str()
             {
@@ -81,7 +83,8 @@ pub struct Entry {
 }
 
 /// entries of the folder `typed` points into whose names could complete it. relative paths
-/// start at `cwd`, `~` is the home folder. hidden files only when the name starts with a dot
+/// start at `cwd`, `~` is the home folder. hidden files only when the name starts with a dot.
+/// only names containing the typed one, in any case, are kept
 pub fn entries(typed: &str, cwd: &Path, home: Option<&Path>) -> Vec<Entry> {
     let (dir_part, name_part) = match typed.rfind('/') {
         Some(ix) => typed.split_at(ix + 1),
@@ -101,14 +104,23 @@ pub fn entries(typed: &str, cwd: &Path, home: Option<&Path>) -> Vec<Entry> {
         return Vec::new();
     };
     let hidden = name_part.starts_with('.');
+    let query = name_part.to_lowercase();
     let mut found = Vec::new();
-    for entry in read.flatten().take(MAX_ENTRIES) {
+    for entry in read.flatten() {
         let Some(name) = entry.file_name().to_str().map(str::to_string) else {
             continue;
         };
         // a newline or other control character can't be typed back at a prompt
         if (name.starts_with('.') && !hidden) || name.chars().any(char::is_control) {
             continue;
+        }
+        // names that can't match are skipped before the limit, so a huge folder still
+        // finds the one typed
+        if !name.to_lowercase().contains(&query) {
+            continue;
+        }
+        if found.len() == MAX_ENTRIES {
+            break;
         }
         // the listing tells the type, only links need a look at their target
         let dir = match entry.file_type() {
@@ -195,7 +207,12 @@ mod tests {
         assert_eq!(found[1].path, "sub dir/inner");
         assert!(found[1].dir);
 
-        // names are matched by the caller, a dot only lets hidden ones in
+        // only names with the typed one in them, a dot lets hidden ones in
+        let found = entries("O", &dir, None);
+        assert_eq!(
+            found.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(),
+            ["top"]
+        );
         assert!(
             entries(".h", &dir, None)
                 .iter()

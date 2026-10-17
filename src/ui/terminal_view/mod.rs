@@ -16,9 +16,9 @@ use alacritty_terminal::{selection::SelectionType, term::TermMode};
 use gpui::{
     App, AppContext, BorrowAppContext, ClipboardItem, Context, DismissEvent, Entity, EventEmitter,
     ExternalPaths, FocusHandle, Focusable, Hsla, InteractiveElement, IntoElement, KeyContext,
-    KeyDownEvent, KeyUpEvent, Modifiers, ModifiersChangedEvent, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, ParentElement, Pixels, Point, Render, ScrollDelta, ScrollWheelEvent, Styled,
-    Subscription, Task, Window, actions, div, px,
+    KeyDownEvent, KeyUpEvent, Keystroke, Modifiers, ModifiersChangedEvent, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Point, Render, ScrollDelta,
+    ScrollWheelEvent, Styled, Subscription, Task, Window, actions, div, px,
 };
 
 use crate::{
@@ -38,6 +38,7 @@ use crate::{
 
 pub use clipboard::copied_text;
 use clipboard::trim_copied;
+use completions::PopupKey;
 pub use links::open_link;
 use scroll::ScrollAnimation;
 
@@ -142,7 +143,7 @@ impl TerminalView {
     /// create a view that renders and forwards input to the terminal
     pub fn new(terminal: Entity<Terminal>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus_handle = cx.focus_handle();
-        let subscriptions = vec![
+        let mut subscriptions = vec![
             cx.subscribe(&terminal, |this, _, event: &Event, cx| match event {
                 Event::Wakeup => cx.notify(),
                 Event::Bell => this.ring_bell(cx),
@@ -158,6 +159,17 @@ impl TerminalView {
                 cx.notify();
             }),
         ];
+        // actions don't get the keystroke, a popup key that waits needs it to pass it on
+        let view = cx.entity().downgrade();
+        let keystrokes = cx.intercept_keystrokes(move |event, window, cx| {
+            let Some(view) = view.upgrade() else { return };
+            if view.read(cx).focus_handle.is_focused(window) {
+                view.update(cx, |view, _| {
+                    view.completions.set_keystroke(event.keystroke.clone())
+                });
+            }
+        });
+        subscriptions.push(keystrokes);
         Self {
             terminal,
             focus_handle,
@@ -238,6 +250,7 @@ impl TerminalView {
     /// send committed text from  input handler to pty
     pub fn commit_text(&mut self, text: &str, cx: &mut Context<Self>) {
         if !text.is_empty() {
+            self.forward_popup_keys(cx);
             self.input_happened(cx);
             self.terminal.update(cx, |term, _| {
                 term.input(InputSource::Keyboard, text.to_string().into_bytes())
@@ -339,25 +352,18 @@ impl TerminalView {
     }
 
     // the popup keys are plain keys the shell needs, a keymap may bind them anywhere
-    fn completion_key(
-        &mut self,
-        window: &Window,
-        cx: &mut Context<Self>,
-        run: impl FnOnce(&mut Self, &mut Context<Self>),
-    ) {
-        if self.completions_shown(window, cx) {
-            run(self, cx);
-        } else {
+    fn completion_key(&mut self, key: PopupKey, window: &Window, cx: &mut Context<Self>) {
+        if !(self.completion_keys_apply(window, cx) && self.popup_key(key, cx)) {
             cx.propagate();
         }
     }
 
     fn completion_next(&mut self, _: &CompletionNext, window: &mut Window, cx: &mut Context<Self>) {
-        self.completion_key(window, cx, |this, cx| this.move_completion(1, cx));
+        self.completion_key(PopupKey::Next, window, cx);
     }
 
     fn completion_prev(&mut self, _: &CompletionPrev, window: &mut Window, cx: &mut Context<Self>) {
-        self.completion_key(window, cx, |this, cx| this.move_completion(-1, cx));
+        self.completion_key(PopupKey::Prev, window, cx);
     }
 
     fn completion_accept(
@@ -366,7 +372,7 @@ impl TerminalView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.completion_key(window, cx, Self::accept_completion);
+        self.completion_key(PopupKey::Accept, window, cx);
     }
 
     fn completion_dismiss(
@@ -375,14 +381,24 @@ impl TerminalView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.completion_key(window, cx, Self::dismiss_completions);
+        self.completion_key(PopupKey::Dismiss, window, cx);
     }
 
     /// the completion popup shows, so its keys go to it
     fn completions_shown(&self, window: &Window, cx: &App) -> bool {
+        self.completions.visible() && self.popup_fits(window, cx)
+    }
+
+    /// a shell edits its line, so the popup keys go through the popup, which passes them on
+    /// while it doesn't show
+    fn completion_keys_apply(&self, window: &Window, cx: &App) -> bool {
+        self.completions.editing() && self.popup_fits(window, cx)
+    }
+
+    /// nothing else takes the keys or hides the cursor line
+    fn popup_fits(&self, window: &Window, cx: &App) -> bool {
         let content = &self.terminal.read(cx).last_content;
-        self.completions.visible()
-            && self.focus_handle.is_focused(window)
+        self.focus_handle.is_focused(window)
             && self.hints.is_none()
             && content.display_offset == 0
             && !content.mode.intersects(TermMode::VI | TermMode::ALT_SCREEN)
@@ -443,25 +459,35 @@ impl TerminalView {
         if event.prefer_character_input && event.keystroke.key_char.is_some() {
             return;
         }
-        let option_as_meta = Settings::get(cx).terminal.option_as_meta;
         let kind = if event.is_held {
             KeyEventKind::Repeat
         } else {
             KeyEventKind::Press
         };
-        if self.terminal.update(cx, |term, _| {
-            term.try_keystroke(
-                &event.keystroke,
-                kind,
-                option_as_meta,
-                InputSource::Keyboard,
-            )
-        }) {
+        // popup keys still waiting go first, the shell gets keys in the order they were typed
+        self.forward_popup_keys(cx);
+        if self.send_key(&event.keystroke, kind, cx) {
+            cx.stop_propagation();
+        }
+    }
+
+    /// send a key to the program, false when it takes no such key
+    fn send_key(
+        &mut self,
+        keystroke: &Keystroke,
+        kind: KeyEventKind,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let option_as_meta = Settings::get(cx).terminal.option_as_meta;
+        let sent = self.terminal.update(cx, |term, _| {
+            term.try_keystroke(keystroke, kind, option_as_meta, InputSource::Keyboard)
+        });
+        if sent {
             // input jumps to the bottom, a running glide would pull the view back up
             self.input_happened(cx);
-            cx.stop_propagation();
-            cx.emit(TypedInput::Key(event.keystroke.clone(), kind));
+            cx.emit(TypedInput::Key(keystroke.clone(), kind));
         }
+        sent
     }
 
     // releases only reach programs that asked for them through kitty's keyboard protocol
@@ -497,7 +523,7 @@ impl Focusable for TerminalView {
 }
 
 impl TerminalView {
-    // "vi_mode", "alt_screen" and "completion" let keybindings apply only then
+    // "vi_mode", "alt_screen", "completion" and "autocomplete" let keybindings apply only then
     fn key_context(&self, completions: bool, cx: &App) -> KeyContext {
         let mut context = KeyContext::new_with_defaults();
         context.add("Terminal");
@@ -510,6 +536,9 @@ impl TerminalView {
         }
         if completions {
             context.add("completion");
+        }
+        if Settings::get(cx).autocomplete.enable {
+            context.add("autocomplete");
         }
         context
     }

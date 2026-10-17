@@ -87,26 +87,28 @@ pub fn complete(request: &Request, specs: &Specs) -> Completions {
         query: &context.prefix,
         candidates: Vec::new(),
     };
-    let words = command_words(&context.words);
-    if context.redirect {
-        add_paths(&mut found, &context, request, true);
-    } else if let Some((command, args)) = words.split_first() {
-        let name = Path::new(command)
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or(command);
-        match specs.get(name) {
-            Some(spec) => add_from_spec(&mut found, specs, spec, args, &context, request),
-            // files are what most commands take
-            None if !context.prefix.starts_with('-') => {
-                add_paths(&mut found, &context, request, true)
+    match command_words(&context.words) {
+        _ if context.redirect => add_paths(&mut found, &context, request, true),
+        // the value of a wrapper's option, like the user of sudo -u
+        None => {}
+        Some([command, args @ ..]) => {
+            let name = Path::new(command)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or(command);
+            match specs.get(name) {
+                Some(spec) => add_from_spec(&mut found, specs, spec, args, &context, request),
+                // files are what most commands take
+                None if !context.prefix.starts_with('-') => {
+                    add_paths(&mut found, &context, request, true)
+                }
+                None => {}
             }
-            None => {}
         }
-    } else if context.prefix.contains('/') || context.prefix.starts_with('.') {
-        add_paths(&mut found, &context, request, true);
-    } else {
-        add_commands(&mut found, &context, request, specs);
+        Some([]) if context.prefix.contains('/') || context.prefix.starts_with('.') => {
+            add_paths(&mut found, &context, request, true)
+        }
+        Some([]) => add_commands(&mut found, &context, request, specs),
     }
     let mut candidates = found.candidates;
     candidates.sort_by(|a, b| {
@@ -124,18 +126,58 @@ pub fn complete(request: &Request, specs: &Specs) -> Completions {
     }
 }
 
-/// the words from the command on, past variable assignments and wrappers like sudo
-fn command_words(words: &[String]) -> &[String] {
-    let skipped = words
-        .iter()
-        .take_while(|word| {
-            let assignment = word.split_once('=').is_some_and(|(name, _)| {
-                !name.is_empty() && name.chars().all(|c| c == '_' || c.is_ascii_alphanumeric())
-            });
-            assignment || WRAPPERS.contains(&word.as_str())
-        })
-        .count();
-    &words[skipped..]
+/// options of a wrapper that take the next word as their value, like `sudo -u root`
+fn wrapper_values(wrapper: &str) -> &'static [&'static str] {
+    match wrapper {
+        "sudo" => &[
+            "-u", "-g", "-h", "-p", "-C", "-D", "-R", "-T", "-U", "-r", "-t", "--user", "--group",
+            "--host", "--prompt", "--chdir",
+        ],
+        "doas" => &["-u", "-C"],
+        "env" => &["-u", "-C", "-S", "--unset", "--chdir", "--split-string"],
+        "nice" => &["-n", "--adjustment"],
+        "watch" => &["-n", "--interval"],
+        "xargs" => &[
+            "-I",
+            "-n",
+            "-L",
+            "-P",
+            "-d",
+            "-E",
+            "-s",
+            "-a",
+            "--max-args",
+            "--max-procs",
+            "--delimiter",
+            "--arg-file",
+        ],
+        "time" => &["-f", "-o", "--format", "--output"],
+        "exec" => &["-a"],
+        _ => &[],
+    }
+}
+
+/// the words from the command on, past variable assignments and wrappers like sudo with
+/// their options. none when the typed word is the value of such an option
+fn command_words(words: &[String]) -> Option<&[String]> {
+    let mut ix = 0;
+    let mut wrapper = None;
+    while let Some(word) = words.get(ix) {
+        let assignment = word.split_once('=').is_some_and(|(name, _)| {
+            !name.is_empty() && name.chars().all(|c| c == '_' || c.is_ascii_alphanumeric())
+        });
+        if WRAPPERS.contains(&word.as_str()) {
+            wrapper = Some(word.as_str());
+        } else if let Some(wrapper) = wrapper.filter(|_| word.starts_with('-')) {
+            if wrapper_values(wrapper).contains(&word.as_str()) {
+                ix += 1;
+            }
+        } else if !assignment {
+            break;
+        }
+        ix += 1;
+    }
+    words.get(ix..)
 }
 
 /// how well `name` matches what was typed, none when it doesn't
@@ -341,6 +383,17 @@ fn add_from_spec<'a>(
         }
         return;
     }
+    if let Some(name) = &context.option {
+        let option = node
+            .options
+            .iter()
+            .chain(persistent.iter().copied())
+            .find(|option| option.name.contains(name));
+        if let Some(arg) = option.and_then(|option| option.args.at(0)) {
+            add_arg(found, arg, context, request);
+        }
+        return;
+    }
     if !options_done && context.prefix.starts_with('-') {
         let options = node.options.iter().chain(persistent.iter().copied());
         for option in options {
@@ -474,6 +527,13 @@ mod tests {
             ["run ", "remove ", "Rebuild "]
         );
         assert_eq!(inserts(&complete_in(&dir, "sudo FOO=1 tool rm")), ["rm "]);
+        // options of a wrapper and their values are skipped
+        assert_eq!(
+            inserts(&complete_in(&dir, "sudo -E -u root tool rm")),
+            ["rm "]
+        );
+        assert_eq!(labels(&complete_in(&dir, "sudo -u to")), Vec::<&str>::new());
+        assert_eq!(labels(&complete_in(&dir, "sudo -E to")), ["tool"]);
         // exact case first
         assert_eq!(labels(&complete_in(&dir, "tool Re")), ["Rebuild", "remove"]);
         std::fs::remove_dir_all(&dir).ok();
@@ -511,6 +571,12 @@ mod tests {
             labels(&complete_in(&dir, "tool --out ")),
             ["bin/", "sub dir/"]
         );
+        // the value of --name= completes in place
+        let value = complete_in(&dir, "tool --color=n");
+        assert_eq!(inserts(&value), ["never "]);
+        assert_eq!((value.start, value.end), (13, 14));
+        assert_eq!(labels(&complete_in(&dir, "tool --out=s")), ["sub dir/"]);
+        assert!(complete_in(&dir, "tool --verbose=").candidates.is_empty());
         // after -- everything is an argument
         assert!(complete_in(&dir, "tool rm -- -").candidates.is_empty());
         std::fs::remove_dir_all(&dir).ok();

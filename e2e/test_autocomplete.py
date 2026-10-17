@@ -28,12 +28,13 @@ def popup(app: App):
     return x0, y0 + below, x1, y1 + below
 
 
-def zsh_app(app_factory, tmp_path, **autocomplete) -> App:
+def zsh_app(app_factory, tmp_path, zshrc="", **autocomplete) -> App:
     # a .zshrc keeps zsh's first run wizard away, and tells when the prompt is up
     zdotdir = tmp_path / "zdotdir"
     zdotdir.mkdir()
     ready = tmp_path / "prompt"
-    (zdotdir / ".zshrc").write_text(f"PS1='$ '\nunsetopt prompt_sp\nprecmd() {{ : > {ready} }}\n")
+    (zdotdir / ".zshrc").write_text(
+        f"PS1='$ '\nunsetopt prompt_sp\nprecmd() {{ : > {ready} }}\n{zshrc}\n")
     work = tmp_path / "work"
     (work / "alpine").mkdir(parents=True)
     (work / "alpha_file.txt").write_text("")
@@ -66,3 +67,16 @@ def test_popup_shows_and_tab_completes_into_the_line(app_factory, tmp_path):
     app.wait(lambda: popup(app) is None, msg="popup gone after enter")
 
 
+
+
+def test_tab_right_after_typing_completes(app_factory, tmp_path):
+    """tab typed before the popup shows still takes the first completion, with zsh options
+    like ksh_arrays that change how scripts run"""
+    app = zsh_app(app_factory, tmp_path, zshrc="setopt ksh_arrays sh_word_split")
+    # candidates of a shorter word would put the folder in, "alph" only fits the file
+    app.type("ls alph")
+    app.key("Tab")
+    app.wait(lambda: line_cells(app) >= len("$ ls alpha_file.txt"), msg="completed line")
+    app.snap("tab right after typing put alpha_file.txt into the line")
+    app.key("Return")
+    app.wait_line(1, len("alpha_file.txt"))

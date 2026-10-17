@@ -46,9 +46,13 @@ if [[ -o interactive ]]; then
     typeset -gi __kuterm_cfd=-1 __kuterm_cseq=0
     typeset -g __kuterm_csent= __kuterm_cpath=
 
+    # each function starts with "emulate -L zsh": user options like ksh_arrays or
+    # sh_word_split must not change how they run
+
     # $1 as a json string in REPLY. other control characters become one char each, so the
     # cursor still counts the same chars as the line
     __kuterm_cjson() {
+      emulate -L zsh
       local s=$1
       s=${s//\\/\\\\}
       s=${s//\"/\\\"}
@@ -59,22 +63,26 @@ if [[ -o interactive ]]; then
     }
 
     __kuterm_cclose() {
+      emulate -L zsh
       zle -F $__kuterm_cfd 2>/dev/null
       exec {__kuterm_cfd}>&- 2>/dev/null
       __kuterm_cfd=-1
     }
 
     __kuterm_csend() {
+      emulate -L zsh
       (( __kuterm_cfd >= 0 )) || return
       # a closed socket must not kill the shell with SIGPIPE, the trap is back on return so
       # programs started later get the usual one
-      setopt localoptions localtraps
+      setopt localtraps
       trap '' PIPE
       print -r -- "$1" >&$__kuterm_cfd 2>/dev/null || __kuterm_cclose
     }
 
-    # a picked completion: "1 accept <seq> <start> <end> <text>", the text runs to the end
+    # a picked completion: "1 accept <seq> <start> <end> <text>", the text runs to the end.
+    # kuterm is told whether it was put in, so it can do it again on a line that changed
     __kuterm_creceive() {
+      emulate -L zsh
       local line
       if ! IFS= read -r -u $1 line; then
         # kuterm went away
@@ -83,21 +91,36 @@ if [[ -o interactive ]]; then
       fi
       local -a f
       f=("${(@s: :)line}")
-      [[ $f[1] == 1 && $f[2] == accept ]] || return
+      [[ $f[1] == 1 && $f[2] == accept && $f[3] == <-> ]] || return
+      local seq=$f[3] start=$f[4] end=$f[5] text=${line#* * * * * }
+      # keys typed since the last report may have changed the line, which then gets a new seq
+      __kuterm_creport
       # an answer to an older line would edit the wrong text
-      [[ $f[3] == $__kuterm_cseq ]] || return
-      local start=$f[4] end=$f[5] text=${line#* * * * * }
-      [[ $start == <-> && $end == <-> ]] || return
-      (( start <= end && end <= $#BUFFER )) || return
+      if [[ $seq != $__kuterm_cseq || $start != <-> || $end != <-> ]] \
+        || (( start > end || end > $#BUFFER )); then
+        __kuterm_csend "{\"v\":1,\"type\":\"answered\",\"seq\":$seq,\"applied\":false}"
+        return
+      fi
       BUFFER="${BUFFER[1,start]}$text${BUFFER[end+1,-1]}"
       CURSOR=$(( start + $#text ))
-      # a redraw from here runs no line-pre-redraw hook, so the new line is reported here
-      __kuterm_creport
+      # a redraw from here runs no line-pre-redraw hook, so they are run here: they report
+      # the new line, and plugins like zsh-syntax-highlighting color it there. the hook
+      # dispatcher finds its hooks by $WIDGET, which still names this handler
+      if (( $+functions[azhw:zle-line-pre-redraw] )); then
+        () {
+          local -h -r WIDGET=zle-line-pre-redraw
+          azhw:zle-line-pre-redraw
+        }
+      else
+        __kuterm_creport
+      fi
+      __kuterm_csend "{\"v\":1,\"type\":\"answered\",\"seq\":$seq,\"applied\":true}"
       zle -R
     }
     zle -N __kuterm_creceive
 
     __kuterm_creport() {
+      emulate -L zsh
       if (( __kuterm_cfd < 0 )); then
         zsocket "$KUTERM_COMPLETION_SOCKET" 2>/dev/null || return
         __kuterm_cfd=$REPLY
@@ -122,6 +145,7 @@ if [[ -o interactive ]]; then
     }
 
     __kuterm_cfinish() {
+      emulate -L zsh
       __kuterm_csent=
       __kuterm_csend '{"v":1,"type":"end"}'
     }

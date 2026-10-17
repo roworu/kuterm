@@ -13,6 +13,8 @@ pub struct LineContext {
     pub quote: Option<char>,
     /// the typed word follows `>` or `<`, so it is a file
     pub redirect: bool,
+    /// option of a typed `--name=value`, then `prefix` and `start` are of the value
+    pub option: Option<String>,
 }
 
 /// split `line`, the buffer up to the cursor
@@ -23,6 +25,9 @@ pub fn parse(line: &[char]) -> LineContext {
     let mut quote: Option<char> = None;
     let mut escaped = false;
     let mut redirect = false;
+    // the first unquoted `=` of a word that starts with `-`: word start, value start, and
+    // the length of the text before it
+    let mut equals: Option<(usize, usize, usize)> = None;
 
     let finish =
         |word: &mut Option<(usize, String)>, context: &mut LineContext, redirect: &mut bool| {
@@ -62,10 +67,31 @@ pub fn parse(line: &[char]) -> LineContext {
                     word.get_or_insert_with(|| (ix, String::new()));
                     quote = Some(c);
                 }
+                '=' if word.as_ref().is_some_and(|(start, text)| {
+                    text.starts_with('-') && equals.is_none_or(|(at, ..)| at != *start)
+                }) =>
+                {
+                    let (start, text) = word.as_mut().unwrap();
+                    equals = Some((*start, ix + 1, text.len()));
+                    text.push(c);
+                }
                 ' ' | '\t' => finish(&mut word, &mut context, &mut redirect),
                 '>' | '<' => {
+                    // the fd number of "2>" is no argument either
+                    if word
+                        .as_ref()
+                        .is_some_and(|(_, text)| text.chars().all(|c| c.is_ascii_digit()))
+                    {
+                        word = None;
+                    }
                     finish(&mut word, &mut context, &mut redirect);
                     redirect = true;
+                }
+                // "&>", ">&2" and "<&0" redirect, they start no new command
+                '&' if line.get(ix + 1) == Some(&'>')
+                    || (ix > 0 && matches!(line[ix - 1], '>' | '<')) =>
+                {
+                    finish(&mut word, &mut context, &mut redirect);
                 }
                 // each of these starts a new command
                 '|' | '&' | ';' | '(' | ')' | '`' | '\n' | '{' | '}' => {
@@ -77,7 +103,12 @@ pub fn parse(line: &[char]) -> LineContext {
             },
         }
     }
-    let (start, prefix) = word.unwrap_or((line.len(), String::new()));
+    let (mut start, mut prefix) = word.unwrap_or((line.len(), String::new()));
+    if let Some((_, value_start, len)) = equals.filter(|(at, ..)| *at == start) {
+        context.option = Some(prefix[..len].to_string());
+        prefix = prefix[len + 1..].to_string();
+        start = value_start;
+    }
     context.start = start;
     context.prefix = prefix;
     // only a quote the word opened with can be continued by a completion
@@ -153,6 +184,36 @@ mod tests {
         let context = at_end("sort > out x");
         assert_eq!(context.words, ["sort"]);
         assert!(!context.redirect);
+        // fd numbers and "&" in a redirection are neither arguments nor a new command
+        for line in [
+            "git 2>/dev/null lo",
+            "git &>log lo",
+            "git >&2 lo",
+            "git 2>&1 lo",
+        ] {
+            let context = at_end(line);
+            assert_eq!(context.words, ["git"], "{line}");
+            assert_eq!(context.prefix, "lo", "{line}");
+            assert!(!context.redirect, "{line}");
+        }
+        assert!(at_end("make 2> ou").redirect);
+    }
+
+    #[test]
+    fn the_value_of_an_option_is_the_typed_word() {
+        let context = at_end("ls --color=al");
+        assert_eq!(context.option.as_deref(), Some("--color"));
+        assert_eq!((context.prefix.as_str(), context.start), ("al", 11));
+        let context = at_end("x --out=\"my d");
+        assert_eq!(context.option.as_deref(), Some("--out"));
+        assert_eq!(
+            (context.prefix.as_str(), context.quote),
+            ("my d", Some('"'))
+        );
+        // only an unquoted = of the word being typed counts
+        assert_eq!(at_end("x --a=b c").option, None);
+        assert_eq!(at_end("x '--a=b").option, None);
+        assert_eq!(at_end("x FOO=b").option, None);
     }
 
     #[test]
