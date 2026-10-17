@@ -24,10 +24,14 @@
   },
 
   {
-    // run build made by podman
+    // run build made by podman, with config and state in .zed so the host config is untouched
     "label": "run app",
     "command": "./target/podman/debug/kuterm",
     "cwd": "$ZED_WORKTREE_ROOT",
+    "env": {
+      "XDG_CONFIG_HOME": "$ZED_WORKTREE_ROOT/.zed/config",
+      "XDG_STATE_HOME": "$ZED_WORKTREE_ROOT/.zed/state"
+    },
     "save": "all",
     "use_new_terminal": false,
     "allow_concurrent_runs": false,
@@ -39,6 +43,10 @@
     "command": "./target/podman/debug/kuterm",
     "args": ["--recreate-confs"],
     "cwd": "$ZED_WORKTREE_ROOT",
+    "env": {
+      "XDG_CONFIG_HOME": "$ZED_WORKTREE_ROOT/.zed/config",
+      "XDG_STATE_HOME": "$ZED_WORKTREE_ROOT/.zed/state"
+    },
     "save": "all",
     "use_new_terminal": false,
     "allow_concurrent_runs": false,
