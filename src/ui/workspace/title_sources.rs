@@ -295,6 +295,7 @@ mod tests {
         assert_eq!(clock("text"), "text");
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn passwd_user_names_the_user_this_process_runs_as() {
         // SAFETY: getpwuid returns a static entry or null, read before any other call

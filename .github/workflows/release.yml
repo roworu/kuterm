@@ -136,12 +136,17 @@ jobs:
         ln -s /Applications dmg/Applications
         hdiutil create -volname kuterm -srcfolder dmg -ov -format UDZO "$name.dmg"
 
+    - name: Install packagers
+      if: runner.os == 'Linux'
+      uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-deb,cargo-generate-rpm
+
     - name: Package deb, rpm, appimage
       if: runner.os == 'Linux'
       run: |
         name=kuterm-${RELEASE_REF#release/}-${{ matrix.name }}
         version=${RELEASE_REF#release/v}
-        cargo install --locked cargo-deb cargo-generate-rpm
         cargo deb --no-build --no-strip --target ${{ matrix.target }} --deb-version "$version" -o "$name.deb"
         cargo generate-rpm --target ${{ matrix.target }} --set-metadata "version = \"$version\"" -o "$name.rpm"
 

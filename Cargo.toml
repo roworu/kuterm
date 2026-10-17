@@ -73,5 +73,10 @@ libc = "0.2"
 [dev-dependencies]
 gpui = { git = "https://github.com/roworu/zed", rev = "f66d64d287d16beea9a29ce19d8b50b073ea4a9d", features = ["test-support"] }
 
+[profile.dev]
+# full debuginfo makes ~900 MB binaries, linking them dominates rebuilds
+debug = "line-tables-only"
+
 [profile.dev.package."*"]
 opt-level = 2
+debug = false

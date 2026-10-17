@@ -217,6 +217,7 @@ mod tests {
         assert_eq!(clipboard(cx), Some("allowed".into()));
     }
 
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     #[gpui::test]
     fn primary_selection_is_kept_apart_from_the_clipboard(cx: &mut gpui::TestAppContext) {
         use alacritty_terminal::term::ClipboardType;

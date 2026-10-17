@@ -9,7 +9,7 @@ RUN apt-get update \
         zsh \
     && rm -rf /var/lib/apt/lists/*
 
-RUN rustup component add clippy
+RUN rustup component add clippy rustfmt
 
 ENV SHELL=/bin/bash
 ENV CARGO_TARGET_DIR=/src/target/podman

@@ -411,6 +411,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn process_tree_and_environ_of_a_child_are_read() {
         // a child named like ssh under a shell, with a venv in its environment
