@@ -1,0 +1,121 @@
+// showcase: most of what kuterm can do turned on at once. tabs grouped by git project with
+// the branch, ports and progress in their titles, a full status bar, dimmed split panes,
+// marks next to commands, profiles for a server, a sandbox and incognito, extra
+// palette commands and keys for splits, groups and the tab overview
+{
+  "ui_font_size": 16,
+  "hide_bar_for_one_tab": false,
+  "tab_width": 250,
+  "tab_title": [
+    "progress", "icon", "folder", { "text": " " }, "git", { "text": " " }, "ports", "queue",
+  ],
+  "window_title": ["folder", { "text": " — " }, "command", { "text": " " }, "git"],
+  "new_tab_button": "after_tabs",
+  "status_bar": {
+    "enable": true,
+    "left": ["git", "venv", "kube", "cpu_graph", "cpu", "memory", "network", "ports"],
+    "right": [
+      { "text": "all tabs" }, "total_cpu", "total_memory", "all_ports", "size", "clock",
+    ],
+    "clock_format": "%a %d %b %H:%M",
+  },
+  "tab_groups": { "by_project": true },
+  "notifications": { "from_programs": "always", "timeout": 8 },
+  "restore_session": "ask",
+  "shell_integration": { "notify_after": 5, "mark_sources": "all" },
+  "autocomplete": { "max_items": 10 },
+  "panes": { "divider_width": 2, "dim_inactive": 0.25 },
+  "bell": { "visual": { "target": "terminal" } },
+  "hints": { "alphabet": "asdfjkl;gh" },
+  "links": {
+    "patterns": [
+      { "regex": "(https?|ftp|file|kuterm)://[^\\s<>\"'`(){}\\[\\]]*[^\\s<>\"'`(){}\\[\\].,;:!?]", "action": "open" },
+      // jira-like ticket ids open in the tracker
+      { "regex": "(?-u:\\b)KT-[0-9]+(?-u:\\b)", "action": { "exec": "xdg-open \"https://tracker.example.com/browse/$KUTERM_MATCH\"" } },
+    ],
+  },
+  "theme": { "mode": "dark", "dark": "catppuccin-mocha", "light": "catppuccin-latte" },
+  "window": {
+    "decorations": "client",
+    "padding": { "x": 10, "y": 8 },
+    "columns": 140,
+    "rows": 40,
+  },
+  "terminal": {
+    "font_fallbacks": ["Noto Color Emoji"],
+    "minimum_contrast": 3,
+    "cursor_blink": "on",
+    "scrollbar": { "enable": "on", "auto_hide": 0 },
+    "keep_block_width": true,
+  },
+  "profiles": [
+    { "name": "shell", "default": true, "command": "system" },
+    {
+      "name": "server",
+      "command": { "with_arguments": { "program": "ssh", "args": ["me@example.com"] } },
+      "theme": { "mode": "dark", "dark": "dracula" },
+      "icon": "",
+    },
+    {
+      "name": "untrusted",
+      "command": "system",
+      "working_directory": "~/Downloads",
+      "sandbox": { "network": false, "write": ["cwd"], "tmp": "private" },
+    },
+    { "name": "private", "command": "system", "incognito": true },
+  ],
+  "keybindings": {
+    "split_right": "ctrl-shift-r",
+    "split_down": "ctrl-shift-d",
+    "close_pane": "ctrl-shift-x",
+    "focus_pane_left": "ctrl-alt-h",
+    "focus_pane_right": "ctrl-alt-l",
+    "focus_pane_up": "ctrl-alt-k",
+    "focus_pane_down": "ctrl-alt-j",
+    "zoom_pane": "ctrl-shift-z",
+    "tab_overview": "ctrl-shift-o",
+    "new_group": "ctrl-shift-g",
+    "queue_command": "ctrl-shift-q",
+    "find_in_all_tabs": "ctrl-shift-a",
+    "pick_theme": "ctrl-shift-k",
+    "next_attention_tab": "ctrl-shift-j",
+  },
+  "keymap": [
+    { "keys": "ctrl-alt-b", "action": { "run": "checkout branch" } },
+    { "keys": "ctrl-alt-s", "action": { "new_tab_with_profile": "server" } },
+  ],
+  "commands": [
+    { "name": "go to tab", "category": "tabs", "actions": ["pick_tab"], "pinned": true },
+    { "name": "overview", "category": "tabs", "actions": ["tab_overview"] },
+    { "name": "split right", "category": "panes", "actions": ["split_right"] },
+    { "name": "split down", "category": "panes", "actions": ["split_down"] },
+    { "name": "pick theme", "category": "config", "actions": ["pick_theme"] },
+    { "name": "open history in pager", "category": "view", "actions": ["open_scrollback"] },
+    {
+      "name": "checkout branch",
+      "category": "git",
+      "inputs": { "branch": { "pick_from": "git branch --format=%(refname:short)" } },
+      "actions": [{ "type": "git checkout {branch}\n" }],
+    },
+    {
+      "name": "build in the background",
+      "category": "dev",
+      "actions": [
+        "new_background_tab",
+        { "type": "make\n" },
+        { "notify_when_done": "build finished" },
+      ],
+    },
+    {
+      "name": "run tests next to me",
+      "category": "dev",
+      "actions": [{ "target": "new_split_right", "action": { "type": "make test\n" } }],
+    },
+    {
+      "name": "grep for",
+      "category": "dev",
+      "inputs": { "pattern": { "text": "pattern" } },
+      "actions": [{ "type": "grep -rn {pattern} .\n" }],
+    },
+  ],
+}

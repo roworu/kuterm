@@ -1,0 +1,40 @@
+// minimal: just the terminal. no tab bar while one tab is open, no scrollbar, no popups,
+// no marks, no icons, the desktop draws the window frame.
+// copy it to ~/.config/kuterm/settings.jsonc, anything left out keeps its default
+{
+  "tab_title": ["folder"],
+  "window_title": ["folder"],
+  "show_tab_close_button": false,
+  "new_tab_button": "right",
+  "sleep_tabs_after_minutes": 0,
+  "command_palette": { "show_recent": false },
+  "notifications": {
+    "copy": false,
+    "paste": false,
+    "agent_waiting": false,
+    "program_waiting": false,
+  },
+  "shell_integration": { "notify_after": 0, "mark_sources": "none" },
+  "autocomplete": { "enable": false },
+  "bell": {
+    "visual": { "enable": false },
+    "urgent": false,
+    "tab_indicator": false,
+  },
+  "links": { "peek": false, "open_in_running_editor": false },
+  "window": {
+    "decorations": "server",
+    "menu_bar": "never",
+    "global_menu": false,
+    "padding": { "x": 14, "y": 10 },
+    "padding_balance": true,
+  },
+  "terminal": {
+    "cursor_shape": "block",
+    "cursor": { "unfocused": "hollow" },
+    "cursor_blink": "off",
+    "scrollbar": { "enable": "off" },
+    "smooth_scroll": { "enable": false },
+  },
+  "icons": { "dynamic": false },
+}

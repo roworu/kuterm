@@ -1,0 +1,50 @@
+// tmux: splits and tabs on a ctrl-a prefix, like tmux with its prefix moved to ctrl-a.
+// ctrl-a v / s split right / down, ctrl-a h j k l move between panes, ctrl-a z zooms,
+// ctrl-a x closes a pane, ctrl-a c opens a tab, ctrl-a n / p switch tabs, ctrl-a 1..5 jump.
+// panes without focus are dimmed, and the status bar shows folder, git and time
+{
+  "hide_bar_for_one_tab": false,
+  "expand_tabs": true,
+  "tab_title": ["number", { "text": ": " }, "command"],
+  "show_tab_close_button": false,
+  "new_tab_button": "right",
+  "status_bar": {
+    "enable": true,
+    "left": ["folder", "git"],
+    "right": ["size", "clock"],
+    "clock_format": "%a %H:%M",
+  },
+  "focus_follows_mouse": true,
+  "panes": { "divider_width": 2, "dim_inactive": 0.35 },
+  "theme": { "mode": "dark", "dark": "gruvbox-dark", "light": "gruvbox-light" },
+  "window": { "decorations": "none", "padding": { "x": 6, "y": 4 } },
+  "terminal": {
+    "cursor_shape": "block",
+    "scrollbar": { "enable": "off" },
+  },
+  "keymap": [
+    { "keys": "ctrl-a v", "action": "split_right" },
+    { "keys": "ctrl-a s", "action": "split_down" },
+    { "keys": "ctrl-a h", "action": "focus_pane_left" },
+    { "keys": "ctrl-a j", "action": "focus_pane_down" },
+    { "keys": "ctrl-a k", "action": "focus_pane_up" },
+    { "keys": "ctrl-a l", "action": "focus_pane_right" },
+    { "keys": "ctrl-a z", "action": "zoom_pane" },
+    { "keys": "ctrl-a x", "action": "close_pane" },
+    { "keys": "ctrl-a =", "action": "equalize_panes" },
+    { "keys": "ctrl-a c", "action": "new_tab" },
+    { "keys": "ctrl-a n", "action": "next_tab" },
+    { "keys": "ctrl-a p", "action": "prev_tab" },
+    { "keys": "ctrl-a 1", "action": { "activate_tab": 1 } },
+    { "keys": "ctrl-a 2", "action": { "activate_tab": 2 } },
+    { "keys": "ctrl-a 3", "action": { "activate_tab": 3 } },
+    { "keys": "ctrl-a 4", "action": { "activate_tab": 4 } },
+    { "keys": "ctrl-a 5", "action": { "activate_tab": 5 } },
+    { "keys": "ctrl-a [", "action": "vi_mode" },
+    { "keys": "ctrl-a /", "action": "search" },
+    { "keys": "ctrl-a ,", "action": "rename_tab" },
+    { "keys": "ctrl-a b", "action": "toggle_broadcast_all" },
+    // ctrl-a ctrl-a still reaches the shell, to go to the start of the line
+    { "keys": "ctrl-a ctrl-a", "action": { "send_text": "\u0001" } },
+  ],
+}

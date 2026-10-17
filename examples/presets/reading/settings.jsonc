@@ -1,0 +1,29 @@
+// reading: a calm light terminal for long sessions of docs, logs and man pages. big text
+// with tall lines, wide margins, contrast fixed for programs that pick poor colors, and tabs
+// stretched over the bar with their titles centered
+{
+  "ui_font_size": 17,
+  "hide_bar_for_one_tab": false,
+  "expand_tabs": true,
+  "tab_title": ["icon", { "text": " " }, "folder"],
+  "tab_title_align": "center",
+  "theme": { "mode": "light", "light": "solarized-light", "dark": "solarized-dark" },
+  "window": {
+    "padding": { "x": 28, "y": 18 },
+    "padding_balance": true,
+    "columns": 96,
+    "rows": 32,
+  },
+  "terminal": {
+    "font": { "size": 21 },
+    "line_height": "comfortable",
+    "minimum_contrast": 4.5,
+    "cursor_shape": "underline",
+    "cursor": { "thickness": 3 },
+    "cursor_blink": "on",
+    "scrollbar": { "enable": "dynamic", "width": 6, "auto_hide": 2 },
+    "smooth_scroll": { "duration": 400, "easing": "ease_in_out" },
+    "select_to_copy": true,
+  },
+  "scrollback_pager": ["less", "-R", "+G"],
+}

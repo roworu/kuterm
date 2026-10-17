@@ -32,6 +32,8 @@ partial changes work, missing values use defaults. you can just override things 
 
 you can check default settings used by terminal inside that repo: [Settings](https://github.com/roworu/kuterm/tree/main/assets)
 
+ready presets with screenshots, from minimal to everything turned on: [examples/presets](examples/presets)
+
 ## screenshots
 
 ![tabs](assets/screenshots/2.png)
