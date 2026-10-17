@@ -219,13 +219,21 @@ def test_pick_tab_action(app_factory):
     app.wait_title("3")
     app.palette("pick")
     h = app.bar_height()
-    # the tab bar has the panel color too, so look below it
-    box = app.wait(lambda: panel(app, app.shot()[h:]), msg="tab picker")
-    img = app.shot()[h:]
-    top = divider(img, box)
+
+    def listed() -> tuple:
+        """(how many rows of text the picker shows, those rows)"""
+        # the tab bar has the panel color too, so look below it
+        box = panel(app, app.shot()[h:])
+        if box is None:
+            return 0, []
+        img = app.shot()[h:]
+        top = divider(img, box)
+        rows = np.flatnonzero(near(img[top + 2 : box[3] - 2, box[0] + 4 : box[2] - 4], C["text"], 40).any(axis=1))
+        return (len(np.flatnonzero(np.diff(rows) > 4)) + 1 if len(rows) else 0), rows
+
     # one row of text per tab below the query
-    rows = np.flatnonzero(near(img[top + 2 : box[3] - 2, box[0] + 4 : box[2] - 4], C["text"], 40).any(axis=1))
-    assert len(rows) and len(np.flatnonzero(np.diff(rows) > 4)) + 1 == 3, rows
+    count, rows = app.wait(lambda: (c := listed())[0] == 3 and c, msg="three rows of tabs")
+    assert count == 3, rows
     app.snap("tab picker listing three tabs")
     app.key("Down", "Return")
     app.wait_title("2")
@@ -438,8 +446,8 @@ def test_run_command_over_the_socket_fills_inputs(app_factory):
     app.wait(lambda: ran(app) == ["dev"], msg=f"the input filled the command, got {ran(app)}")
     # without the input the command does not run, the error names what is missing
     app.run(f"{BIN} msg run-command checkout > $T2_TMP/err 2>&1")
-    error = app.wait_file("err")
-    assert "branch" in error, error
+    # the redirect makes the file before kuterm msg writes into it
+    app.wait(lambda: "branch" in app.file("err").read_text(), msg="the error naming the input")
     app.snap("the palette listing the command that ran")
 
 

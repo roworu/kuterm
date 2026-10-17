@@ -64,20 +64,57 @@ def start_x11() -> list:
     )]
     wait_until(lambda: subprocess.run(["xdpyinfo", "-display", DISPLAY], capture_output=True).returncode == 0,
                timeout=20, msg=f"xvfb on {DISPLAY}")
+    wm = [start_openbox()]
+
+    def keep_wm() -> None:
+        # openbox of a session can die soon after it started, then windows are never mapped
+        if wm[0].poll() is not None:
+            wm[0] = start_openbox()
+
+    Session.keep_wm = keep_wm
+    return procs + [WmHandle(wm)]
+
+
+class WmHandle:
+    """the current openbox of the session, it may have been started again"""
+
+    def __init__(self, wm: list) -> None:
+        self.wm = wm
+
+    def terminate(self) -> None:
+        self.wm[0].terminate()
+
+    def wait(self, timeout=None) -> None:
+        self.wm[0].wait(timeout)
+
+    def kill(self) -> None:
+        self.wm[0].kill()
+
+
+def start_openbox() -> subprocess.Popen:
+    """openbox owning the wm selection of the display, alive a moment after"""
     log = Path(Session.runtime_dir) / "openbox.log"
+    # sessions share no home, openbox keeps files there
+    home = Path(Session.runtime_dir) / "openbox-home"
+    home.mkdir(exist_ok=True)
+    env = {**session_env(), "HOME": str(home)}
     # sessions starting together on a busy machine can leave openbox without the wm selection,
     # then no window ever gets focus, so it gets another try
-    for _ in range(3):
-        wm = subprocess.Popen(["openbox"], env=session_env(), stdout=subprocess.DEVNULL,
+    for _ in range(5):
+        wm = subprocess.Popen(["openbox", "--replace"], env=env, stdout=subprocess.DEVNULL,
                               stderr=open(log, "a"))
-        # openbox is ready once it owns the wm selection
+        # openbox is ready once it owns the wm selection and stays up
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline and wm.poll() is None:
             out = sh("xprop", "-root", "_NET_SUPPORTING_WM_CHECK", check=False, env=session_env())
             if "window id" in out:
-                return procs + [wm]
+                time.sleep(0.5)
+                if wm.poll() is None:
+                    return wm
+                break
             time.sleep(0.1)
-        wm.kill()
+        if wm.poll() is None:
+            wm.kill()
         wm.wait()
     raise RuntimeError(f"openbox did not start on {DISPLAY}:\n{log.read_text()}")
 

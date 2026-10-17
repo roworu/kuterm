@@ -170,6 +170,8 @@ class Session:
     sway_socket = ""
     runtime_dir = f"/tmp/e2e-runtime-{WORKER}" if WORKER else "/tmp/e2e-runtime"
     bus_address = ""
+    # starts the window manager again when it died, set by conftest.py on x11
+    keep_wm = None
 
 
 def session_env() -> dict:
@@ -468,18 +470,21 @@ class App:
         return env
 
     def start(self) -> None:
+        if Session.keep_wm is not None:
+            Session.keep_wm()
         self.log = open(self.log_path, "w")
         self.proc = subprocess.Popen(
             [str(BIN), *self.args], cwd=self.home, env=self.app_env(), stdout=self.log, stderr=subprocess.STDOUT
         )
-        self.wid = wait_until(self._find_window, timeout=30, msg="the app window")
+        # many parallel sessions starting at once take a while on the software renderer
+        self.wid = wait_until(self._find_window, timeout=60, msg="the app window")
         if BACKEND == "wayland":
             # the output scale is set by the compositor, not by the app env
             self.scale = Input.scale()
         # give it focus like a user clicking it, the window manager usually does this on map already
         self.focus()
         # first frame: the window is no longer blank black
-        wait_until(self._painted, timeout=30, msg="the first painted frame")
+        wait_until(self._painted, timeout=60, msg="the first painted frame")
 
     def _painted(self) -> bool:
         if not self.alive():
