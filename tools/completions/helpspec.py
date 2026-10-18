@@ -6,6 +6,7 @@ programs it describes. see docs/COMPLETIONS.md. python standard library only"""
 import os
 import re
 import subprocess
+import tempfile
 
 # the popup shows one line, longer descriptions end in an ellipsis
 MAX_DESCRIPTION = 80
@@ -28,13 +29,24 @@ SUBCOMMAND = re.compile(
 
 
 def run(*cmd: str) -> str:
-    """output of a command, stdout and stderr together, in plain english and a known width"""
+    """output of a command, stdout and stderr together, in plain english and a known width.
+    written to files: node programs drop what is still buffered in a pipe when they exit"""
     env = dict(os.environ, LANG="C", LC_ALL="C", COLUMNS="120", PAGER="cat", MANPAGER="cat", NO_COLOR="1")
-    try:
-        done = subprocess.run(cmd, capture_output=True, text=True, timeout=30, env=env, stdin=subprocess.DEVNULL)
-    except (OSError, subprocess.TimeoutExpired):
-        return ""
-    return done.stdout + "\n" + done.stderr
+    with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+        try:
+            subprocess.run(cmd, stdout=out, stderr=err, timeout=30, env=env, stdin=subprocess.DEVNULL)
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
+        out.seek(0)
+        err.seek(0)
+        stdout = out.read().decode(errors="replace")
+        stderr = err.read().decode(errors="replace")
+    return stdout + "\n" + stderr
+
+
+def column(prefix: str) -> int:
+    """display column after `prefix`, with tabs at the usual 8 column stops"""
+    return len(prefix.expandtabs(8))
 
 
 def sentence(text: str | None) -> str | None:
@@ -45,7 +57,9 @@ def sentence(text: str | None) -> str | None:
     # crontab writes "(edit user's crontab)"
     if text.startswith("(") and text.endswith(")"):
         text = text[1:-1]
-    text = re.split(r"(?<=[.!?])\s|;\s", text, maxsplit=1)[0].rstrip(".,;: ")
+    # a sentence ends at ! or ?, or at a period followed by a capitalized word, so that
+    # "e.g." and the like don't cut the description
+    text = re.split(r"(?<=[!?])\s|(?<=\.)\s+(?=[A-Z][a-z])|;\s", text, maxsplit=1)[0].rstrip(".,;: ")
     # dpkg puts the arguments of its commands where the description goes
     if not text or text.startswith("<"):
         return None
@@ -87,10 +101,26 @@ def options(text: str) -> list:
         parts = re.split(r"(\s{2,}|\t)", stripped, maxsplit=1)
         head = parts[0].strip()
         description = parts[2].strip() if len(parts) == 3 else ""
-        if not description and ix + 1 < len(lines):
-            following = lines[ix + 1].strip()
-            if following and not following.startswith("-"):
-                description = following
+        # commander and newer clap wrap a long description onto the lines below, aligned
+        # with the description column; a new option starts in the name column
+        indent = column(line[: len(line) - len(stripped)])
+        desc_col = column(line[: len(line) - len(stripped)] + parts[0] + parts[1]) if len(parts) == 3 else None
+        jx = ix + 1
+        while jx < len(lines):
+            following = lines[jx].strip()
+            following_indent = column(lines[jx][: len(lines[jx]) - len(lines[jx].lstrip())])
+            continues = following_indent >= desc_col if desc_col is not None else following_indent > indent
+            header = following.endswith(":") and following_indent <= 4
+            if not following or not continues or header:
+                break
+            # with the description on its own line, the first one sets the column, and an
+            # option right below means this one has no description
+            if desc_col is None:
+                if following.startswith("-"):
+                    break
+                desc_col = following_indent
+            description = f"{description} {following}".strip()
+            jx += 1
         names, args = [], []
         for match in OPTION_NAME.finditer(head):
             names.append(match.group(1))
@@ -115,9 +145,11 @@ def subcommands(text: str, sections: str = r"commands", skip: tuple = ()) -> lis
     seen: set = set(skip)
     inside = False
     header = re.compile(sections, re.I)
-    for line in text.splitlines():
+    lines = text.splitlines()
+    for ix, line in enumerate(lines):
         stripped = line.strip()
-        if stripped.endswith(":") and len(line) - len(line.lstrip()) <= 4:
+        # help sometimes puts commented examples between the entries of a section
+        if stripped.endswith(":") and not stripped.startswith("#") and len(line) - len(line.lstrip()) <= 4:
             inside = bool(header.search(stripped))
             continue
         if not inside:
@@ -129,8 +161,19 @@ def subcommands(text: str, sections: str = r"commands", skip: tuple = ()) -> lis
         if not names or names[0] in seen:
             continue
         seen.update(names)
+        # a long description wraps to the lines below its column
+        desc_col = column(line[: match.start(2)])
+        description = match.group(2)
+        jx = ix + 1
+        while jx < len(lines):
+            following = lines[jx].strip()
+            following_indent = column(lines[jx][: len(lines[jx]) - len(lines[jx].lstrip())])
+            if not following or following_indent < desc_col or following.endswith(":"):
+                break
+            description = f"{description} {following}"
+            jx += 1
         sub: dict = {"name": names if len(names) > 1 else names[0]}
-        if desc := sentence(match.group(2)):
+        if desc := sentence(description):
             sub["description"] = desc
         found.append(sub)
     return found

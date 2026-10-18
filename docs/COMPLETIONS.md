@@ -58,9 +58,9 @@ kuterm reads (`src/completion/spec.rs`):
 ### generating specs
 
 recipes live in `tools/completions/generate.py`, grouped by the image their programs come from
-(`ubuntu`, `fedora`, `arch`, `opensuse`, `alpine`). each group has the image, an install
-command and recipes by command name. a recipe calls `helpspec.spec(...)`, which runs the help
-and parses it:
+(`ubuntu`, `fedora`, `arch`, `opensuse`, `alpine`, and `node` for tools installed from npm).
+each group has the image, an install command and recipes by command name. a recipe calls
+`helpspec.spec(...)`, which runs the help and parses it:
 
 - option lines: `-a, --all  description`, `--file=FILE`, `-o <file>`, `--color[=WHEN]`,
   systemd's `-M --machine=NAME`, zypper's `--config, -c <FILE>`. arguments named like files or

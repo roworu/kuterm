@@ -6,10 +6,11 @@ installed in. generate.sh runs this inside that image:
 writes <command>.json for every recipe of the image (or only the named ones) into /out"""
 
 import json
+import re
 import sys
 from pathlib import Path
 
-from helpspec import options, run, spec
+from helpspec import options, run, sentence, spec, subcommands
 
 OUT = Path("/out")
 
@@ -77,6 +78,206 @@ def pacman():
         if not seen.intersection(names):
             seen.update(names)
             result.setdefault("options", []).append(option)
+    return result
+
+
+def claude():
+    """commander help, with a second level for the commands that have commands of their own"""
+    result = spec(
+        "claude",
+        "Anthropic's agentic coding tool",
+        sections=r"^commands",
+        sub_help=("{}", "--help"),
+        top=("mcp", "agents", "auth", "plugin", "update", "doctor"),
+        args={"name": "prompt", "isOptional": True},
+        extra_subcommands=[
+            {"name": ["plugin", "plugins"], "description": "Manage Claude Code plugins"},
+            {"name": ["stop", "kill"], "description": "Stop a background session"},
+            {"name": ["update", "upgrade"], "description": "Check for updates and install if available"},
+        ],
+        option_overrides={
+            "--model": {"args": {"name": "model", "suggestions": ["fable", "opus", "sonnet", "haiku"]}},
+            "--permission-mode": {"args": {"name": "mode", "suggestions": [
+                "acceptEdits", "auto", "bypassPermissions", "manual", "dontAsk", "plan"]}},
+            "--effort": {"args": {"name": "level", "suggestions": ["low", "medium", "high", "xhigh", "max"]}},
+            "--output-format": {"args": {"name": "format", "suggestions": ["text", "json", "stream-json"]}},
+            "--input-format": {"args": {"name": "format", "suggestions": ["text", "stream-json"]}},
+        },
+    )
+    for sub in result.get("subcommands", []):
+        names = sub["name"] if isinstance(sub["name"], list) else [sub["name"]]
+        text = run("claude", names[0], "--help")
+        # mcp lists examples between its commands, so they stay inside the section
+        children = [c for c in subcommands(text, r"^(commands|examples)")
+                    if (c["name"] if isinstance(c["name"], str) else c["name"][0]) != "help"]
+        for child in children:
+            child_names = child["name"] if isinstance(child["name"], list) else [child["name"]]
+            child_text = run("claude", names[0], child_names[0], "--help")
+            if child_opts := options(child_text):
+                child["options"] = child_opts
+        if children:
+            sub["subcommands"] = children
+    return result
+
+
+# yargs puts the type, choices and default of an option in its own columns, and opens
+# choices with a second bracket, like [default: []]
+YARGS_BRACKET = re.compile(r"\s*\[[^\[\]]*(?:\[[^\]]*\][^\[\]]*)*\]")
+YARGS_COMMAND = re.compile(r"([a-z][a-z0-9-]*)((?:\s+(?:<[^>]+>|\[[^\]]+\]))*)\s{2,}(.*)$")
+
+
+def yargs_metadata(text):
+    """description, whether the option takes a value, and its choices"""
+    meta = re.findall(r"\[([^\[\]]*(?:\[[^\]]*\][^\[\]]*)*)\]", text)
+    takes_value = any(part.split(":", 1)[0] in ("string", "number", "array") for part in meta)
+    choices = next((re.findall(r'"([^"]+)"', part) for part in meta if part.startswith("choices: ")), [])
+    return sentence(YARGS_BRACKET.sub("", text).strip()), takes_value, choices
+
+
+def yargs_arg(raw):
+    """a positional from how yargs, like <url> or [message..], writes it"""
+    match = re.search(r"[<\[]([^\]>]+)[\]>]", raw)
+    if not match:
+        return None
+    arg = {"name": match.group(1).rstrip(".")}
+    if raw.strip().startswith("["):
+        arg["isOptional"] = True
+    if match.group(1).endswith(".."):
+        arg["isVariadic"] = True
+    if arg["name"].lower() in ("file", "files"):
+        arg["template"] = "filepaths"
+    elif arg["name"].lower() in ("dir", "directory", "project"):
+        arg["template"] = "folders"
+    return arg
+
+
+def yargs_options(text):
+    found, seen, inside = [], set(), False
+    lines = text.splitlines()
+    for ix, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.endswith(":"):
+            inside = stripped.lower() == "options:"
+            continue
+        if not inside or not stripped.startswith("-"):
+            continue
+        parts = re.split(r"\s{2,}", stripped, maxsplit=1)
+        head = parts[0]
+        description = parts[1] if len(parts) > 1 else ""
+        # a description that fills the width pushes the type to the next line
+        jx = ix + 1
+        while jx < len(lines) and lines[jx].strip().startswith("["):
+            description = f"{description} {lines[jx].strip()}"
+            jx += 1
+        names = [n for n in re.findall(r"(?<![\w-])--?[A-Za-z0-9][\w-]*", head) if n not in seen]
+        if not names:
+            continue
+        seen.update(names)
+        description, takes_value, choices = yargs_metadata(description)
+        option = {"name": names if len(names) > 1 else names[0]}
+        if description:
+            option["description"] = description
+        if takes_value:
+            long = next((n for n in names if n.startswith("--")), names[0]).lstrip("-")
+            option["args"] = {"name": long}
+            if choices:
+                option["args"]["suggestions"] = choices
+        found.append(option)
+    return found
+
+
+def yargs_positionals(text):
+    inside = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.endswith(":"):
+            inside = stripped.lower() == "positionals:"
+            continue
+        if not inside or not stripped or stripped.startswith("-"):
+            continue
+        parts = re.split(r"\s{2,}", stripped, maxsplit=1)
+        arg = {"name": parts[0].split()[0]}
+        description = parts[1] if len(parts) > 1 else ""
+        if "[array]" in description:
+            arg["isVariadic"] = True
+        if "[required]" not in description:
+            arg["isOptional"] = True
+        return arg
+    return None
+
+
+def yargs_commands(text, prefix=""):
+    found, seen, inside = [], set(), False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.endswith(":"):
+            inside = stripped.lower() == "commands:"
+            continue
+        if not inside or not stripped.startswith("opencode "):
+            continue
+        rest = stripped[len("opencode "):]
+        if prefix:
+            if not rest.startswith(prefix + " "):
+                continue
+            rest = rest[len(prefix) + 1:]
+        match = YARGS_COMMAND.match(rest)
+        if not match or match.group(1) in seen:
+            continue
+        name, arguments, description = match.groups()
+        aliases = re.search(r"\[aliases?: ([^\]]+)\]", description)
+        names = [name] + (re.findall(r"[\w-]+", aliases.group(1)) if aliases else [])
+        seen.update(names)
+        sub = {"name": names if len(names) > 1 else name}
+        if desc := sentence(YARGS_BRACKET.sub("", description).strip()):
+            sub["description"] = desc
+        if arg := yargs_arg(arguments):
+            sub["args"] = arg
+        found.append(sub)
+    return found
+
+
+def opencode():
+    """yargs help: commands are prefixed with the program name, descriptions preceded by
+    the type and choices columns"""
+    text = run("opencode", "--help")
+    global_options = yargs_options(text)
+    global_names = {n for option in global_options
+                    for n in ([option["name"]] if isinstance(option["name"], str) else option["name"])}
+    for option in global_options:
+        option["isPersistent"] = True
+    result = {
+        "name": "opencode",
+        "description": "AI coding agent for the terminal",
+        "options": global_options,
+        "args": {"name": "project", "template": "folders", "isOptional": True},
+    }
+    priorities = {"run": 80, "auth": 76, "providers": 76, "mcp": 76, "models": 75, "session": 75, "agent": 75}
+
+    def fill(subs, prefix, depth):
+        for sub in subs:
+            names = sub["name"] if isinstance(sub["name"], list) else [sub["name"]]
+            sub_text = run("opencode", *prefix, names[0], "--help")
+            sub_options = [o for o in yargs_options(sub_text)
+                           if not global_names.intersection([o["name"]] if isinstance(o["name"], str) else o["name"])]
+            if sub_options:
+                sub["options"] = sub_options
+            if "args" not in sub:
+                # a command whose help is the program's own has no positionals of its own
+                if sub_text != text and (arg := yargs_positionals(sub_text)):
+                    sub["args"] = arg
+            if depth > 1:
+                children = yargs_commands(sub_text, " ".join([*prefix, names[0]]))
+                if children:
+                    fill(children, [*prefix, names[0]], depth - 1)
+                    sub["subcommands"] = children
+        return subs
+
+    subcommands_ = fill(yargs_commands(text), [], 2)
+    for sub in subcommands_:
+        names = sub["name"] if isinstance(sub["name"], list) else [sub["name"]]
+        if priority := priorities.get(names[0]):
+            sub["priority"] = priority
+    result["subcommands"] = subcommands_
     return result
 
 
@@ -193,6 +394,12 @@ RECIPES = {
             "su": simple("su", "Run a shell as another user", args={"name": "user", "isOptional": True}),
             "crontab": simple("crontab", "Maintain crontab files", args={"name": "file", "template": "filepaths", "isOptional": True}),
         },
+    },
+    "node": {
+        "image": "docker.io/library/ubuntu:26.04",
+        "install": "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "
+        "python3 nodejs npm && npm install -g @anthropic-ai/claude-code opencode-ai",
+        "recipes": {"claude": claude, "opencode": opencode},
     },
     "fedora": {
         "image": "docker.io/library/fedora:latest",
