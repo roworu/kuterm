@@ -52,7 +52,7 @@ pub use builder::TerminalBuilder;
 use clipboard::ClipboardRequest;
 pub use content::{Content, IndexedCell};
 pub use context::{PaneContext, git_root};
-pub use decorations::{Decorations, GutterMark, Popover};
+pub use decorations::{Decorations, Popover};
 pub use file_links::{FileLine, parse_file_line, resolve as resolve_file, snippet};
 pub use integration::with_shell_integration;
 pub use links::{Link, TextPatterns};

@@ -375,25 +375,6 @@ def test_a_step_naming_no_pane_says_so_and_runs_nothing(app_factory):
     assert app.alive()
 
 
-def test_a_step_can_write_into_every_pane_of_the_window(app_factory):
-    """all_panes_in_tab types the filled step into every pane, and refuses other kinds of step"""
-    app = app_with(app_factory, [
-        {"name": "everywhere", "inputs": {"v": {"text": "value"}},
-         "actions": [{"target": "all_panes_in_tab", "action": {"type": "touch $T2_TMP/typed-$$-{v}\n"}}]},
-        {"name": "notice everywhere", "inputs": {"v": {"text": "value"}},
-         "actions": [{"target": "all_panes_in_tab", "action": {"notify": "{v}"}}]},
-    ])
-    assert msg(app, "split", "right").returncode == 0
-    app.wait(lambda: len({tab["pane"] for tab in tabs(app)}) == 2, msg="two panes in the tab")
-    run(app, "everywhere", "here")
-    app.wait(lambda: len(list(app.tmp.glob("typed-*-here"))) == 2, msg="both panes typed the step")
-    app.snap("the step ran in both panes of the window")
-    run(app, "notice everywhere", "hoi")
-    app.wait(lambda: notification_box(app, C), msg="the notice that this kind of step is refused")
-    assert len(list(app.tmp.glob("typed-*"))) == 2
-    assert app.alive()
-
-
 def test_a_step_can_work_in_a_new_window(app_factory):
     """{"target": "new_window"} opens a window of its own and runs the step in it"""
     app = app_with(app_factory, [{"name": "open there", "inputs": {"v": {"text": "value"}},

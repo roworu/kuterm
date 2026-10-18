@@ -66,20 +66,18 @@ pub enum ViewEvent {
     ConfirmPaste(String),
     /// hint picked in hints mode, a command asking for `{hint}` runs on it
     HintPicked(String),
-    /// the user scrolled the history this many lines, positive up
-    Scrolled(i32),
     /// a link names a line of a file, the workspace looks for an editor to open it in
     OpenFileLine(Link),
 }
 
-/// input the view wrote to its terminal, so panes typed into together get the same
+/// input the view wrote to its terminal, tests watch it to see what reached the shell
+#[cfg(test)]
 #[derive(Clone, Debug)]
 pub enum TypedInput {
     /// a key, each terminal turns it into bytes in its own key mode
     Key(gpui::Keystroke, KeyEventKind),
     /// text from the input method
     Text(String),
-    Paste(String),
 }
 
 /// `links.patterns` with their regexes built, shared by every terminal
@@ -260,6 +258,7 @@ impl TerminalView {
             self.terminal.update(cx, |term, _| {
                 term.input(InputSource::Keyboard, text.to_string().into_bytes())
             });
+            #[cfg(test)]
             cx.emit(TypedInput::Text(text.to_string()));
         }
     }
@@ -490,6 +489,7 @@ impl TerminalView {
         if sent {
             // input jumps to the bottom, a running glide would pull the view back up
             self.input_happened(cx);
+            #[cfg(test)]
             cx.emit(TypedInput::Key(keystroke.clone(), kind));
         }
         sent
@@ -510,6 +510,7 @@ impl TerminalView {
             )
         }) {
             cx.stop_propagation();
+            #[cfg(test)]
             cx.emit(TypedInput::Key(
                 event.keystroke.clone(),
                 KeyEventKind::Release,
@@ -519,6 +520,7 @@ impl TerminalView {
 }
 
 impl EventEmitter<ViewEvent> for TerminalView {}
+#[cfg(test)]
 impl EventEmitter<TypedInput> for TerminalView {}
 
 impl Focusable for TerminalView {

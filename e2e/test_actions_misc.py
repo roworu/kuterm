@@ -137,8 +137,7 @@ def test_equalize_panes_gives_the_panes_the_fresh_split_size(app_factory):
     """after the resize actions moved the divider, "equalize panes" in the palette gives both
     panes the size a fresh split had, their shells report the same rows and cols again"""
     app = app_factory(
-        integrated(window_title=["number"], panes={"dim_inactive": 0},
-                   shell_integration={"mark_sources": "none"}),
+        integrated(window_title=["number"], panes={"dim_inactive": 0}),
         themes={"dark": THEME},
         keybindings={"split_right": "ctrl-shift-r", "resize_pane_right": "ctrl-shift-l"})
     ready(app)
@@ -168,8 +167,7 @@ def test_split_left_moves_the_tab_into_a_pane_on_the_left(app_factory):
     """the split_left action takes the focused pane's tab into a new pane on the left and
     focuses it: the lit half is the left one and it holds the shell that was there before"""
     app = app_factory(
-        integrated(window_title=["number"], panes={"dim_inactive": 0.6},
-                   shell_integration={"mark_sources": "none"}),
+        integrated(window_title=["number"], panes={"dim_inactive": 0.6}),
         themes={"dark": THEME}, keybindings={"split_left": "ctrl-shift-h"})
     ready(app)
     send(app, "export WHERE=origin")
@@ -198,8 +196,7 @@ def test_split_up_moves_the_tab_into_a_pane_above(app_factory):
     """the split_up action takes the focused pane's tab into a new pane above it and focuses
     it: the lit pane is the upper one of that half and it holds the shell that moved"""
     app = app_factory(
-        integrated(window_title=["number"], panes={"dim_inactive": 0.6},
-                   shell_integration={"mark_sources": "none"}),
+        integrated(window_title=["number"], panes={"dim_inactive": 0.6}),
         themes={"dark": THEME}, keybindings={"split_left": "ctrl-shift-h", "split_up": "ctrl-shift-k"})
     ready(app)
     send(app, "export WHERE=origin")
@@ -266,7 +263,7 @@ def test_select_all_puts_the_whole_screen_on_the_clipboard(app_factory):
 def test_select_last_output_copies_just_the_last_output(app_factory):
     """with shell integration, "select last output" covers the lines the last command printed,
     a copy gives those back and not the output before them"""
-    app = app_factory(integrated(shell_integration={"mark_sources": "none"}), themes={"dark": THEME})
+    app = app_factory(integrated(), themes={"dark": THEME})
     ready(app)
     send(app, "echo FIRST_MARK")
     wait_block(app, "echo FIRST_MARK")

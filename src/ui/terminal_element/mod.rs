@@ -106,7 +106,7 @@ pub struct LayoutState {
     hint_background: Hsla,
     /// hint line under the prompt, relative to the grid origin, never part of the grid
     hint_line: Option<(Point<Pixels>, ShapedLine)>,
-    /// gutter marks and popovers, relative to the window
+    /// popovers, relative to the window
     decorations: decorations::DecorationsLayout,
 }
 
@@ -282,19 +282,13 @@ impl Element for TerminalElement {
         );
 
         let padding = window_settings.padding;
-        // a gutter only while some mark is set, so the grid never moves for those using none
-        let gutter = if self.terminal.read(cx).decorations().gutter.is_empty() {
-            px(0.)
-        } else {
-            cell_width * decorations::GUTTER_CELLS
-        };
-        let (pad_x, pad_y) = (px(padding.x) + gutter, px(padding.y));
+        let (pad_x, pad_y) = (px(padding.x), px(padding.y));
         let mut origin = point(bounds.origin.x + pad_x, bounds.origin.y + pad_y);
         if bar_settings.placement == ScrollbarPlacement::Left {
             origin.x += bar_width;
         }
         let mut grid_size = bounds.size;
-        grid_size.width = (grid_size.width - pad_x * 2. + gutter - bar_width).max(cell_width * 2.);
+        grid_size.width = (grid_size.width - pad_x * 2. - bar_width).max(cell_width * 2.);
         // alacritty panics on a grid without rows
         grid_size.height = (grid_size.height - pad_y * 2.).max(line_height);
         if window_settings.padding_balance {
@@ -406,7 +400,6 @@ impl Element for TerminalElement {
             terminal,
             &dimensions,
             bounds,
-            window.mouse_position(),
             &fonts.regular,
             font_size,
             theme,
@@ -592,10 +585,6 @@ impl Element for TerminalElement {
                 cursor.paint(origin, window, cx);
             }
             let line_height = layout.dimensions.line_height;
-            for (at, icon) in &layout.decorations.gutter {
-                icon.paint(*at, line_height, gpui::TextAlign::Left, None, window, cx)
-                    .ok();
-            }
             if let Some((scrollbar, _)) = &layout.scrollbar {
                 scrollbar.paint(window);
             }

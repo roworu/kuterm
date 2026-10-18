@@ -345,16 +345,6 @@ impl ScrollEasing {
     }
 }
 
-/// which commands get a gutter mark telling what typed them
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum MarkSources {
-    All,
-    /// only commands something other than the keyboard or a paste typed
-    Others,
-    None,
-}
-
 /// what a program may do with the clipboard through osc 52
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]

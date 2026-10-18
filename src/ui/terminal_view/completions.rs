@@ -1073,7 +1073,6 @@ mod tests {
                     crate::ui::terminal_view::TypedInput::Text(text) => {
                         seen.borrow_mut().push(text.clone())
                     }
-                    _ => {}
                 },
             )
         });

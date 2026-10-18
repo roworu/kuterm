@@ -83,7 +83,6 @@ impl TerminalView {
             } else {
                 self.terminal.update(cx, |term, _| term.scroll(lines));
             }
-            cx.emit(ViewEvent::Scrolled(lines));
             self.show_scrollbar(cx);
             cx.notify();
         }

@@ -13,6 +13,7 @@ pub(crate) use super::*;
 pub(crate) use crate::{
     settings::{Keybindings, MemoryUnit, Pins},
     terminal::{Terminal, TerminalBounds},
+    theme::Theme,
 };
 
 /// open a workspace with `tabs` tabs and user keybindings `keys`, the last tab is active

@@ -21,8 +21,7 @@ LINK = {"regex": "[\\w./-]+\\.txt:\\d+(:\\d+)?", "action": "open"}
 def editor_app(app_factory, **links) -> tuple:
     script, opened = opener()
     app = app_factory(integrated(window_title=["number"], links={"patterns": [LINK], "open_with": str(script),
-                                                                 **links},
-                                 shell_integration={"mark_sources": "none"}),
+                                                                 **links}),
                       themes={"dark": THEME})
     ready(app)
     (app.home / "f.txt").write_text("".join(f"line {n}\n" for n in range(1, 21)))

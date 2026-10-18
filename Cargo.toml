@@ -62,7 +62,7 @@ ashpd = { version = "0.13", default-features = false, features = ["async-io", "s
 [target.'cfg(target_os = "linux")'.dependencies]
 # process sampler reads clock ticks and page size
 libc = "0.2"
-# global menu: the menus go over dbus and x11 window properties point applets at them, all
+# tear off finds the x11 window under the pointer, desktop notifications go over dbus, all
 # already in the tree through gpui and ashpd
 raw-window-handle = "0.6"
 x11rb = "0.14"

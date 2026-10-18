@@ -193,21 +193,10 @@ impl Workspace {
                     this.command_finished(&view, *duration, *exit, window, cx)
                 }
                 Event::CommandStarted { block } => {
-                    let mode = Settings::get(cx).shell_integration.mark_sources;
-                    let theme = Theme::get(cx).clone();
                     let command = terminal.update(cx, |terminal, _| {
                         let blocks = terminal.blocks();
                         let found = blocks.iter().find(|found| found.id == *block);
-                        let (command, sources) = found
-                            .map(|found| (found.command.clone(), found.source))
-                            .unwrap_or_default();
-                        if let Some(mark) =
-                            source_marks::source_mark(sources, &command, mode, &theme)
-                        {
-                            terminal
-                                .decorate(|decorations| decorations.gutter.insert(*block, mark));
-                        }
-                        command
+                        found.map(|found| found.command.clone()).unwrap_or_default()
                     });
                     EventBus::publish(BusEvent::CommandStarted {
                         pane,
@@ -249,9 +238,6 @@ impl Workspace {
                 }
             }
         });
-        let input_subscription = cx.subscribe(&view, |this, view, input: &TypedInput, cx| {
-            this.broadcast_input(&view, input, cx)
-        });
         let clipboard_subscription = cx.subscribe_in(
             &view,
             window,
@@ -262,7 +248,6 @@ impl Workspace {
                     this.open_confirm_paste(view.clone(), text.clone(), window, cx)
                 }
                 ViewEvent::HintPicked(text) => this.hint_picked(view, text.clone(), window, cx),
-                ViewEvent::Scrolled(delta) => this.sync_scroll(view, *delta, cx),
                 ViewEvent::OpenFileLine(link) => this.open_file_line(view, link, window, cx),
             },
         );
@@ -310,7 +295,7 @@ impl Workspace {
             remote_allowed: false,
             moved: false,
             idle_task: Task::ready(()),
-            _subscriptions: [subscription, clipboard_subscription, input_subscription],
+            _subscriptions: [subscription, clipboard_subscription],
         });
         let ix = pane.tabs.len() - 1;
         if activate {

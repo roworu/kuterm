@@ -194,9 +194,9 @@
     // right away when it asks for a password (echo off, like sudo or ssh), or when a running
     // command goes quiet for 2 seconds with its last line matching "question_patterns", like
     // apt's "[Y/n]". yes or no questions get "y" and "n" buttons, password prompts "fill
-    // password". while a program asks for a password the tab shows a lock, and broadcast
-    // input, palette commands typing text, run links and remote or mcp clients can't type
-    // into it, the keyboard and paste still can
+    // password". while a program asks for a password the tab shows a lock, and palette
+    // commands typing text, run links and remote clients can't type into it, the keyboard
+    // and paste still can
     "program_waiting": true,
     // regexes for the last line of a question, matched with trailing spaces removed
     "question_patterns": [
@@ -254,14 +254,6 @@
     // a click on the command line you are typing moves the shell's cursor there, by
     // sending it arrow keys. needs the prompt marks of shell integration
     "click_moves_cursor": true,
-    // a mark left of each command telling what typed it, the mouse over it says more:
-    //   "all"    - every command: a person for typed, a clipboard for pasted
-    //   "others" - only commands something else typed: a palette command or key, broadcast
-    //              input, `kuterm msg`, a run link or the queue, or an ai agent through
-    //              `kuterm mcp`. agents running commands in your shell leave a trail
-    //   "none"   - no marks
-    // the marks take two cells left of the text while any is shown
-    "mark_sources": "others",
   },
 
   // a popup of completions for the command line: programs, subcommands, options and their
@@ -582,9 +574,6 @@
     // it is shown with one tab too, "hide_bar_for_one_tab" only hides the tab bar. without a
     // "server" frame, its empty part moves the window
     "menu_bar": "auto",
-    // linux only: offer the menus over dbus, so global menu applets like plasma's show them
-    // in the panel. works on x11, read when kuterm starts
-    "global_menu": true,
     // terminal size in cells the window opens with, columns from 10 to 1000, rows from 2 to 500
     "columns": 100,
     "rows": 30,
@@ -871,14 +860,6 @@
     "zoom_pane": null,
     // give all panes the same size
     "equalize_panes": null,
-    // type into every pane of the window at once, again to stop. joined panes get a red
-    // frame and a "broadcast" label
-    "toggle_broadcast_all": null,
-    // join the focused pane to the panes typed into together, or take it out
-    "toggle_broadcast_pane": null,
-    // scroll the focused pane together with the other joined panes, like vim's scrollbind,
-    // or take it out. joined panes get a "synced" label
-    "toggle_scroll_sync": null,
     // ask for a command typed into the active tab once its prompt is back, after the ones
     // queued before. "@18:00 make deploy" also waits for 18:00. the tab shows how many wait
     "queue_command": null,
@@ -1053,9 +1034,6 @@
   //                                        _right, _up, _down
   //   "zoom_pane"                        - show the focused pane alone, again to show all
   //   "equalize_panes"                   - give all panes the same size
-  //   "toggle_broadcast_all"             - type into every pane of the window at once, or stop
-  //   "toggle_broadcast_pane"            - join the focused pane to the broadcast, or leave it
-  //   "toggle_scroll_sync"               - scroll the focused pane with the other joined ones
   //   "queue_command"                    - type a command into the tab once its prompt is back
   //   "edit_queue"                       - edit, reorder or drop the queued commands
   //   "resume_queue"                     - go on with the queue after a failure paused it
@@ -1106,7 +1084,6 @@
   //                        _down
   //   "pane:tests"       - the pane named "tests" with rename_pane, or named by the title of
   //                        its tab or its 1 based number
-  //   "all_panes_in_tab" - every pane of the window, works with "type" and "send_text"
   //   "new_window"       - a window of its own
   //
   // a command can ask for values before it runs, with an "inputs" object. the inputs are asked
@@ -1160,9 +1137,6 @@
     { "name": "close pane", "category": "panes", "actions": ["close_pane"] },
     { "name": "zoom pane", "category": "panes", "actions": ["zoom_pane"] },
     { "name": "equalize panes", "category": "panes", "actions": ["equalize_panes"] },
-    { "name": "broadcast input to all panes", "category": "panes", "actions": ["toggle_broadcast_all"] },
-    { "name": "broadcast input from this pane", "category": "panes", "actions": ["toggle_broadcast_pane"] },
-    { "name": "sync scroll of this pane", "category": "panes", "actions": ["toggle_scroll_sync"] },
     { "name": "queue a command", "category": "queue", "actions": ["queue_command"] },
     { "name": "edit queued commands", "category": "queue", "actions": ["edit_queue"] },
     { "name": "resume queue", "category": "queue", "actions": ["resume_queue"] },

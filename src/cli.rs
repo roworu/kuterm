@@ -10,8 +10,6 @@ use crate::settings::{Pins, Settings, StatusBarState, ThemeMode, WindowSize};
 
 pub const USAGE: &str = "usage: kuterm [options]
        kuterm msg <command>        drive a running kuterm, see kuterm msg --help
-       kuterm mcp                  serve the model context protocol on stdin and stdout, so
-                                   agents read panes and run commands the user allows
 
 options:
   --recreate-confs            delete config files and write defaults
@@ -45,8 +43,6 @@ pub struct Cli {
     pub msg: Option<Vec<String>>,
     /// a `kuterm://` link to open
     pub url: Option<String>,
-    /// run as an mcp server for agents
-    pub mcp: bool,
 }
 
 static CLI: OnceLock<Cli> = OnceLock::new();
@@ -60,10 +56,6 @@ impl Cli {
         if args.peek().is_some_and(|arg| arg == "msg") {
             args.next();
             cli.msg = Some(args.map(|arg| arg.to_string_lossy().into_owned()).collect());
-            return Ok(cli);
-        }
-        if args.peek().is_some_and(|arg| arg == "mcp") {
-            cli.mcp = true;
             return Ok(cli);
         }
         while let Some(arg) = args.next() {

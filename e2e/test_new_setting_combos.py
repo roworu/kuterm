@@ -1,5 +1,4 @@
-"""the new settings used together, not one at a time: the command queue, broadcast, a stopped
-job, every way a command can be typed next to the source gutter, a held
+"""the new settings used together, not one at a time: the command queue, a stopped job, a held
 frame, the completion popup
 with its keys, its keymap and the shell, a question and an agent notifying together, and one app
 started with every new setting away from its default"""
@@ -15,7 +14,7 @@ import numpy as np
 from harness import (BIN, App, Notifications, as_rgb, close_to, count, dominant,
                      get_clipboard, ink, ink_bbox, mask_bbox, near, set_clipboard, unique_theme)
 from kit import (blocks, executable, integrated, listening, msg, nothing_for, notification_buttons,
-                 ready, send, socket_of, tabs, text, wait_block, wait_buttons, wait_text)
+                 ready, send, socket_of, tabs, text, wait_buttons, wait_text)
 
 FEATURE = "new settings together"
 
@@ -23,7 +22,7 @@ THEME = {**unique_theme(0xc1), "search_match": "#ffd400", "search_match_active":
 C = as_rgb(THEME)
 
 # keys for the features in this file, a test passes the ones it uses
-KEYS = {"split_right": "ctrl-shift-r", "toggle_broadcast_all": "ctrl-shift-b"}
+KEYS = {"split_right": "ctrl-shift-r"}
 
 # a shell command that asks and waits, and a program printing lines forever
 QUESTION = "printf 'continue? '; IFS= read -r x; echo \"$x\" > $T2_TMP/answer"
@@ -82,12 +81,6 @@ def queue(app: App, command: str, pane: str | None = None) -> None:
     args = ["queue"] + (["--pane", pane] if pane else []) + [command]
     done = msg(app, *args)
     assert done.returncode == 0, done.stderr
-
-
-def columns_seen(app: App, name: str, pane: str | None = None) -> int:
-    """columns the shell of a pane sees, asked over remote control"""
-    send(app, f"stty size > $T2_TMP/{name}.part && mv $T2_TMP/{name}.part $T2_TMP/{name}", pane)
-    return int(app.wait_file(name).split()[1])
 
 
 def marked(app: App) -> int:
@@ -314,53 +307,15 @@ def zsh_app(app_factory, tmp_path, **settings) -> App:
     return app
 
 
-def test_mark_sources_all_marks_every_source_with_one_gutter(app_factory):
-    """mark_sources all with commands typed by the keyboard, by remote control, by a palette
-    command, by the queue and pasted: every one is marked, the blocks say who did it, and the
-    gutter stays two cells wide while the marks pile up"""
-    plain = combo_app(app_factory, shell_integration={"mark_sources": "none"})
-    ready(plain)
-    plain_cols = columns_seen(plain, "plain")
-    app = combo_app(app_factory, shell_integration={"mark_sources": "all"},
-                    terminal={"paste_protection": False},
-                    commands=[{"name": "macro it",
-                               "actions": [{"type": "touch $T2_TMP/m_macro\n"}]}])
-    ready(app)
-    send(app, "true")
-    wait_block(app, "true")
-    assert columns_seen(app, "typed") == plain_cols - 2, "a typed command is marked in all mode"
-    app.type("touch $T2_TMP/m_keys")
-    app.key("Return")
-    app.wait_file("m_keys")
-    send(app, "touch $T2_TMP/m_remote")
-    app.wait_file("m_remote")
-    app.palette("macro it")
-    app.wait_file("m_macro")
-    queue(app, "touch $T2_TMP/m_queue")
-    app.wait_file("m_queue")
-    set_clipboard("touch $T2_TMP/m_paste\n")
-    app.wait(lambda: get_clipboard() == "touch $T2_TMP/m_paste\n", msg="clipboard owner")
-    app.key("ctrl+shift+v")
-    # the paste puts the text on the line, the keyboard's return runs it
-    app.key("Return")
-    app.wait_file("m_paste")
-    assert columns_seen(app, "last") == plain_cols - 2, "one gutter, not one per source"
-    sources = [tuple(b["source"]) for b in blocks(app)]
-    for wanted in (("keyboard",), ("remote",), ("macro",), ("automation",)):
-        assert wanted in sources, (wanted, sources)
-    assert any("paste" in found for found in sources), sources
-    app.snap("keyboard, remote, palette, queue and pasted commands, each with its mark")
-
-
-def test_marks_none_without_injection_holds_the_queue_until_a_reload(app_factory):
-    """shell_integration.inject off with mark_sources none: no gutter, no blocks, and the queue
-    cannot know the prompt came back so it waits; a new tab after a reload has injection and runs
+def test_without_injection_the_queue_waits_until_a_reload(app_factory):
+    """shell_integration.inject off: no blocks, and the queue cannot know the prompt came back
+    so it waits; a new tab after a reload has injection and runs
     its own queue while the old shell keeps waiting"""
-    app = combo_app(app_factory, shell_integration={"inject": False, "mark_sources": "none"},
+    app = combo_app(app_factory, shell_integration={"inject": False},
                     tab_title=["number", {"text": " "}, "queue"])
     listening(app)
     app.mouse(450, 300)
-    assert app.pty_size() == app.layout_pty(900, 600), "no marks, no gutter"
+    assert app.pty_size() == app.layout_pty(900, 600), "the grid fills the window"
     send(app, "true")
     time.sleep(1)
     assert blocks(app) == [], "a shell without the integration has no blocks"
@@ -372,7 +327,7 @@ def test_marks_none_without_injection_holds_the_queue_until_a_reload(app_factory
     # the new tab is spawned, and only new shells get the integration
     size = app.pty_size()
     app.write("settings.jsonc", {**app.settings, "status_bar": {"enable": True},
-                                 "shell_integration": {"inject": True, "mark_sources": "none"}})
+                                 "shell_integration": {"inject": True}})
     app.wait(lambda: app.pty_size() != size, msg="the reload read", timeout=15)
     app.key("ctrl+shift+t")
     app.wait(lambda: len(tabs(app)) == 2, msg="the new tab")
@@ -538,7 +493,6 @@ def test_status_bar_units_clock_and_titles_together(app_factory):
                                   {"text": " "}, "clock"],
                     tab_title=["number", {"text": " "}, "git", {"text": " "}, "venv"],
                     hide_bar_for_one_tab=True,
-                    shell_integration={"mark_sources": "none"},
                     env={"VIRTUAL_ENV": "/tmp/fake-venv"})
     listening(app)
     app.mouse(450, 300)
@@ -628,7 +582,7 @@ def test_decorations_none_with_click_moves_cursor(app_factory):
     sits under the bar the frame-less window always shows, a click in the command line moves
     the shell's cursor there, and a second tab keeps the grid under the bar"""
     app = combo_app(app_factory, window={"decorations": "none"}, hide_bar_for_one_tab=True,
-                    shell_integration={"click_moves_cursor": True, "mark_sources": "none"},
+                    shell_integration={"click_moves_cursor": True},
                     keybindings=KEYS)
     ready(app)
     app.mouse(450, 300)
@@ -655,16 +609,14 @@ def test_decorations_none_with_click_moves_cursor(app_factory):
     assert app.pty_size() == app.layout_pty(900, 600, tabs=2)
 
 
-# ---- the completion popup next to the gutter, xoff and the keymap -----------
+# ---- the completion popup, xoff and the keymap ------------------------------
 
 
-def test_the_popup_rows_its_trigger_and_the_marked_shell(app_factory, tmp_path):
-    """autocomplete with max_items 3 and trigger key next to mark_sources all, with ctrl+s
-    pausing the output under the open popup: the popup waits for the complete key, shows fewer
-    rows than the default eight, survives the pause, and typed commands still get their marks"""
-    tall = zsh_app(app_factory, tmp_path / "tall", shell_integration={"mark_sources": "none"})
-    # the line is still free here: later it holds "ls " and a sent command would run as `ls ...`
-    plain_cols = columns_seen(tall, "plain")
+def test_the_popup_rows_and_its_trigger(app_factory, tmp_path):
+    """autocomplete with max_items 3 and trigger key, with ctrl+s pausing the output under the
+    open popup: the popup waits for the complete key, shows fewer rows than the default eight,
+    survives the pause, and an accepted candidate runs"""
+    tall = zsh_app(app_factory, tmp_path / "tall")
     tall.type("ls ")
     big = tall.wait(lambda: popup(tall), msg="the default popup")
     tall.snap("the default eight rows of the same ten files")
@@ -672,8 +624,7 @@ def test_the_popup_rows_its_trigger_and_the_marked_shell(app_factory, tmp_path):
     # rect, and its open popup would be the pixels app.shot() reads
     tall.close()
     app = zsh_app(app_factory, tmp_path / "small", autocomplete={"trigger": "key", "max_items": 3},
-                  window_title=["number", {"text": " "}, "xoff"],
-                  shell_integration={"mark_sources": "all"}, terminal={"send_xoff": True})
+                  window_title=["number", {"text": " "}, "xoff"], terminal={"send_xoff": True})
     app.type("ls ")
     nothing_for(1, lambda: popup(app))
     app.key("ctrl+space")
@@ -696,13 +647,10 @@ def test_the_popup_rows_its_trigger_and_the_marked_shell(app_factory, tmp_path):
     app.key("Tab")
     app.wait(lambda: line_cells(app) >= len("$ ls file_0.txt"), msg="the completion in the line")
     app.wait(lambda: popup(app) is None, msg="the popup closed on the accepted candidate")
-    # the marked shell shifts the grid two cells right, so the printed file is checked by what
-    # the shell wrote, not by which cells the text lands on
     app.type(" > $T2_TMP/listed")
     app.key("Return")
     assert app.wait_file("listed", timeout=15).strip() == "file_0.txt"
-    assert columns_seen(app, "marked") == plain_cols - 2, "one marked shell, one not"
-    app.snap("completed with tab, run, and two cells taken by the source marks")
+    app.snap("completed with tab and run")
 
 
 def test_show_descriptions_and_a_reload_of_the_popup(app_factory, tmp_path):
@@ -802,7 +750,7 @@ def test_the_keymap_key_is_the_shells_own_without_the_popup(app_factory, tmp_pat
 
 def test_one_app_with_every_new_setting_away_from_its_default(app_factory):
     """every new setting at a non default value in one app: it starts, the grid is where the bars
-    leave it, a typed command runs and is marked, a queued one waits in the tab title, and a reload that takes both bars away grows the grid without breaking the
+    leave it, a typed command runs, a queued one waits in the tab title, and a reload that takes both bars away grows the grid without breaking the
     typing"""
     app = combo_app(app_factory,
                     status_bar={"enable": True, "memory_unit": "gb", "clock_format": "%Y",
@@ -822,7 +770,7 @@ def test_one_app_with_every_new_setting_away_from_its_default(app_factory):
                     selection={"hold_frame": False},
                     links={"open_in_running_editor": False, "peek": False},
                     shell_integration={"inject": True, "click_moves_cursor": False,
-                                       "mark_sources": "all", "notify_after": 0},
+                                       "notify_after": 0},
                     terminal={"paste_protection": False, "paste_check_invisible": False,
                               "queue_stop_on_failure": False, "send_xoff": False,
                               "max_history_length": 500},
@@ -840,19 +788,18 @@ def test_one_app_with_every_new_setting_away_from_its_default(app_factory):
     app.snap("every new setting at once: titles and the status bar with its blocks")
     send(app, "echo typed_ok > $T2_TMP/typed")
     assert app.wait_file("typed").strip() == "typed_ok"
-    assert app.pty_size()[1] == app.layout_pty(900, 600)[1] - 2, "the mark gutter took two cells"
     send(app, "sleep 8")
     queue(app, "touch $T2_TMP/queued")
     app.wait(lambda: "⧗" in tab_title(app, 1), msg="the queue block in the tab title", timeout=10)
     app.snap("a queued command in the tab title of the all-settings app")
     app.wait(app.file("queued").exists, msg="the queue ran", timeout=25)
-    # the reload takes both bars away: the grid grows by the bar heights, the marks still take
-    # their two cells, and typing and the titles still work
+    # the reload takes both bars away: the grid grows by the bar heights, and typing and the
+    # titles still work
     app.write("settings.jsonc", {**app.settings,
                                  "status_bar": {**app.settings["status_bar"], "enable": False},
                                  "hide_bar_for_one_tab": True})
     rows, cols = app.expected_pty(900, 600)
-    app.wait(lambda: app.pty_size() == (rows, cols - 2), msg="the grid without either bar")
+    app.wait(lambda: app.pty_size() == (rows, cols), msg="the grid without either bar")
     assert not status_bar_shown(app), "the status bar stayed after the reload"
     send(app, "echo again > $T2_TMP/typed2")
     assert app.wait_file("typed2").strip() == "again"

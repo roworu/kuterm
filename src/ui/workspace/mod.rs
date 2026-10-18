@@ -3,7 +3,6 @@
 mod actions;
 mod app_menu;
 mod attention;
-mod broadcast;
 mod closing;
 mod command_inputs;
 mod command_queue;
@@ -12,7 +11,6 @@ mod editor_links;
 mod end_truncated;
 mod find_all;
 #[cfg(target_os = "linux")]
-mod global_menu;
 mod groups;
 mod layout;
 mod menu_bar;
@@ -23,8 +21,6 @@ mod panes_view;
 mod remote_verbs;
 mod render;
 mod run_command;
-mod scroll_sync;
-mod source_marks;
 mod status_bar;
 mod system_notifications;
 mod tab_bar;
@@ -62,7 +58,6 @@ pub use app_menu::{RunLink, app_menus, dock_menu, open_urls, parse_run_link};
 use closing::*;
 pub use config_watch::watch_config;
 #[cfg(target_os = "linux")]
-pub use global_menu::start as start_global_menu;
 use layout::*;
 use menu_bar::{MenuBar, MenuPicked};
 use notifications::Notification;
@@ -86,14 +81,14 @@ use crate::{
         TerminalBuilder, TreeSample, foreground_process, pty_modes, stopped_jobs,
         with_shell_integration,
     },
-    theme::{self, Theme},
+    theme,
     ui::{
         dialogs::{
             About, CloseConfirmed, CloseTarget, CommandPalette, ConfirmClose, ConfirmPaste,
             InputPrompt, PasteConfirmed,
         },
         terminal_element::ShowHidden,
-        terminal_view::{TerminalView, TypedInput, ViewEvent, copied_text},
+        terminal_view::{TerminalView, ViewEvent, copied_text},
         text_input::TextInput,
     },
 };
@@ -186,7 +181,7 @@ struct Tab {
     moved: bool,
     /// marks the agent waiting unless its command finishes first
     idle_task: Task<()>,
-    _subscriptions: [Subscription; 3],
+    _subscriptions: [Subscription; 2],
 }
 
 impl Drop for Tab {
@@ -362,10 +357,6 @@ pub struct Workspace {
     menu_bar: Entity<MenuBar>,
     _menu_bar_subscriptions: [Subscription; 2],
     _overlay_subscriptions: Vec<Subscription>,
-    /// panes typed into together, none while input goes to the focused pane alone
-    broadcast: Option<std::collections::BTreeSet<usize>>,
-    /// panes scrolled together, the active tab of each follows the others
-    scroll_sync: std::collections::BTreeSet<usize>,
     /// patterns of questions programs wait on, compiled when they change
     question_patterns: waiting::QuestionPatterns,
     /// tab groups of the window
@@ -506,8 +497,6 @@ impl Workspace {
             menu_bar,
             _menu_bar_subscriptions,
             _overlay_subscriptions: Vec::new(),
-            broadcast: None,
-            scroll_sync: Default::default(),
             question_patterns: Default::default(),
             groups: Vec::new(),
             next_group_id: 0,
@@ -544,8 +533,6 @@ impl Workspace {
             this.window_resized(window, cx);
         })
         .detach();
-        #[cfg(target_os = "linux")]
-        global_menu::export_window(window, cx);
         this
     }
 
@@ -611,27 +598,6 @@ impl Workspace {
     fn active_terminal_of(&self, pane_id: usize, cx: &App) -> Option<Entity<Terminal>> {
         let pane = self.pane(pane_id)?;
         Some(pane.tabs.get(pane.active)?.view.read(cx).terminal().clone())
-    }
-
-    /// active terminals of the other panes in `joined`, when `view` is the active tab of one
-    /// of them, for broadcast input and synced scroll
-    fn joined_terminals(
-        &self,
-        joined: &std::collections::BTreeSet<usize>,
-        view: &Entity<TerminalView>,
-        cx: &App,
-    ) -> Vec<Entity<Terminal>> {
-        let Some((source, ix)) = self.find_view(view) else {
-            return Vec::new();
-        };
-        if !joined.contains(&source) || self.pane(source).is_none_or(|pane| pane.active != ix) {
-            return Vec::new();
-        }
-        joined
-            .iter()
-            .filter(|&&pane| pane != source)
-            .filter_map(|&pane| self.active_terminal_of(pane, cx))
-            .collect()
     }
 
     /// terminal of the tab at `ix` in pane `pane_id`

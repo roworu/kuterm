@@ -1,5 +1,5 @@
-"""kuterm msg and kuterm mcp as clients of the socket: what they print for each kind of reply,
-how they fail without a kuterm, and the startup paths that only show in the real binary"""
+"""kuterm msg as a client of the socket: what it prints for each kind of reply,
+how it fails without a kuterm, and the startup paths that only show in the real binary"""
 
 import json
 import socket
@@ -18,10 +18,10 @@ class FakeKuterm:
     """a unix socket answering like a running kuterm: one json reply per connection, then the
     lines of `stream` for a subscription"""
 
-    def __init__(self, reply: dict, stream: list[dict] | None = None, hold: float = 0):
+    def __init__(self, reply: dict, stream: list[dict] | None = None):
         self.dir = tempfile.mkdtemp(prefix="e2e-fake-kuterm-")
         self.path = str(Path(self.dir) / "kuterm-fake.sock")
-        self.reply, self.stream, self.hold = reply, stream or [], hold
+        self.reply, self.stream = reply, stream or []
         self.requests: list[dict] = []
         self.server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.server.bind(self.path)
@@ -41,8 +41,6 @@ class FakeKuterm:
                 conn.sendall((json.dumps(self.reply) + "\n").encode())
                 for event in self.stream:
                     conn.sendall((json.dumps(event) + "\n").encode())
-                # a subscriber waiting for more sees nothing until the hold is over
-                self.closed.wait(self.hold)
 
     def close(self) -> None:
         self.closed.set()
@@ -114,46 +112,6 @@ def test_msg_subscribe_prints_events_until_the_stream_ends():
         assert done.returncode == 1 and "remote control is off" in done.stderr, done
     finally:
         fake.close()
-
-
-def mcp_answers(lines: list, sock: str) -> list[dict]:
-    stdin = "".join((line if isinstance(line, str) else json.dumps(line)) + "\n" for line in lines)
-    done = client("mcp", sock=sock, stdin=stdin)
-    assert done.returncode == 0, done
-    return [json.loads(line) for line in done.stdout.splitlines()]
-
-
-def subscribe_call(id: int, **arguments) -> dict:
-    return {"jsonrpc": "2.0", "id": id, "method": "tools/call",
-            "params": {"name": "subscribe", "arguments": arguments}}
-
-
-def test_mcp_subscribe_returns_the_next_event_or_times_out():
-    event = {"event": "command_finished", "pane": 2, "exit": 0}
-    fake = FakeKuterm({"ok": True}, stream=[event], hold=5)
-    try:
-        # blank lines are skipped, a line that is no json gets a parse error with no id
-        answers = mcp_answers(["", "not json", subscribe_call(1, events=["command_finished"])], fake.path)
-        assert answers[0]["error"]["code"] == -32700 and answers[0]["id"] is None, answers
-        result = answers[1]["result"]
-        assert answers[1]["id"] == 1 and not result["isError"], answers
-        assert json.loads(result["content"][0]["text"]) == event
-        assert fake.requests[-1] == {"cmd": "subscribe", "events": ["command_finished"]}
-    finally:
-        fake.close()
-    # nothing happens within the time asked for
-    fake = FakeKuterm({"ok": True}, hold=10)
-    try:
-        answers = mcp_answers([subscribe_call(2, timeout_seconds=1)], fake.path)
-        assert answers[0]["result"]["content"][0]["text"] == "no event in 1 seconds", answers
-        # no events named means all of them
-        assert fake.requests[-1] == {"cmd": "subscribe", "events": []}
-    finally:
-        fake.close()
-    # without a kuterm the agent reads why
-    answers = mcp_answers([subscribe_call(3, timeout_seconds=5)], str(Path(tempfile.mkdtemp()) / "x.sock"))
-    result = answers[0]["result"]
-    assert result["isError"] and "no running kuterm" in result["content"][0]["text"], answers
 
 
 def test_missing_keybindings_file_is_a_warning(app_factory):

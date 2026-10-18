@@ -236,10 +236,8 @@ mod tests {
         });
         for source in [
             InputSource::Macro,
-            InputSource::Broadcast,
             InputSource::Remote,
             InputSource::Automation,
-            InputSource::Mcp,
         ] {
             assert!(!terminal.input(source, b"x".to_vec()), "{source:?}");
         }

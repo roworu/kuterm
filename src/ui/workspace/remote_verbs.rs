@@ -217,14 +217,8 @@ impl Workspace {
                     }
                 }
             }
-            Request::Run {
-                command, client, ..
-            } => {
-                let source = match client.as_deref() {
-                    Some("mcp") => InputSource::Mcp,
-                    _ => InputSource::Remote,
-                };
-                self.ask_to_run(pane, ix, command, source, reply, cx);
+            Request::Run { command, .. } => {
+                self.ask_to_run(pane, ix, command, InputSource::Remote, reply, cx);
                 return;
             }
             Request::Queue { command, .. } => {
@@ -579,7 +573,6 @@ mod tests {
         let run = |command: &str| Request::Run {
             pane: None,
             command: command.into(),
-            client: None,
         };
         let terminal = terminal(&ws, cx, 0);
         let shows = |cx: &mut VisualTestContext, text: &str| {

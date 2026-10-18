@@ -84,13 +84,6 @@ impl TerminalView {
     /// or report the motion to a program that asked for it
     pub fn mouse_move(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
         self.last_mouse = Some((event.position, event.modifiers));
-        // gutter tooltips follow the mouse, the element reads where it is
-        let terminal = self.terminal.read(cx);
-        if !terminal.decorations().gutter.is_empty()
-            && event.position.x < terminal.last_content.terminal_bounds.bounds.origin.x
-        {
-            cx.notify();
-        }
         if event.pressed_button.is_none() {
             self.update_hovered_link(cx);
             self.update_peek(event.position, cx);

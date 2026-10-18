@@ -39,8 +39,8 @@ pub use keybindings::Keybindings;
 pub use limits::MAX_HISTORY_LENGTH;
 pub use options::{
     BellTarget, ClipboardAccess, CompletionTrigger, ConfirmQuit, CursorBlink, CursorShape,
-    CursorUnfocused, Decorations, FontSlant, LineHeight, LinkModifier, MarkSources, MemoryUnit,
-    MenuBarMode, NewTabButton, PatternAction, ProgramNotifications, RemoteControl, ScrollEasing,
+    CursorUnfocused, Decorations, FontSlant, LineHeight, LinkModifier, MemoryUnit, MenuBarMode,
+    NewTabButton, PatternAction, ProgramNotifications, RemoteControl, ScrollEasing,
     ScrollbarEnable, ScrollbarPlacement, SearchCase, Shell, StartupMode, TabTitleAlign,
     TabTitleBlock, ThemeMode,
 };
@@ -112,8 +112,6 @@ pub struct ShellIntegrationSettings {
     pub notify_after: f32,
     /// a click on the command line being typed moves the shell's cursor there
     pub click_moves_cursor: bool,
-    /// commands that get a gutter mark telling what typed them
-    pub mark_sources: MarkSources,
 }
 
 /// popup of completions for the command line, fed by shell integration
@@ -291,8 +289,6 @@ pub struct WindowSettings {
     pub blur: bool,
     pub decorations: Decorations,
     pub menu_bar: MenuBarMode,
-    /// export the menus over dbus for global menu applets, linux only
-    pub global_menu: bool,
     /// grid size the window opens with
     pub columns: u32,
     pub rows: u32,
@@ -1218,10 +1214,10 @@ mod window_settings {
         let w = window(
             r#"{"padding": {"x": 12, "y": 0}, "padding_balance": true, "opacity": 0.5,
                 "blur": true, "decorations": "client", "columns": 120, "rows": 40,
-                "startup": "maximized", "remember_size": true, "global_menu": false}"#,
+                "startup": "maximized", "remember_size": true}"#,
         );
         assert_eq!(w.padding, WindowPadding { x: 12., y: 0. });
-        assert!(w.padding_balance && w.blur && w.remember_size && !w.global_menu);
+        assert!(w.padding_balance && w.blur && w.remember_size);
         assert_eq!(w.opacity, 0.5);
         assert_eq!(w.decorations, Decorations::Client);
         assert_eq!((w.columns, w.rows), (120, 40));

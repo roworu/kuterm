@@ -14,7 +14,7 @@ use gpui::App;
 use gpui_platform::application;
 
 use crate::{
-    automation::{Request, mcp, msg, socket},
+    automation::{Request, msg, socket},
     cli::{Cli, USAGE},
     settings::{Config, ConfigFiles, Pins, RemoteControl, Settings, StatusBarState},
     theme::{PortalAppearance, Theme},
@@ -104,11 +104,6 @@ fn init(portal: PortalAppearance, cx: &mut App) {
     });
     cx.set_menus(app_menus());
     cx.set_dock_menu(dock_menu());
-    // after the keys are bound, the menus show them
-    #[cfg(target_os = "linux")]
-    if Settings::get(cx).window.global_menu {
-        ui::workspace::start_global_menu(cx);
-    }
 }
 
 fn main() {
@@ -117,7 +112,6 @@ fn main() {
             println!("{USAGE}");
             return;
         }
-        Ok(Cli { mcp: true, .. }) => std::process::exit(mcp::run()),
         Ok(Cli {
             msg: Some(args), ..
         }) => {

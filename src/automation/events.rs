@@ -1,5 +1,5 @@
 //! event bus: what happens in panes, sent to every subscriber as it happens. the remote
-//! socket and mcp print the events as json, one per line
+//! socket prints the events as json, one per line
 
 use std::{
     path::PathBuf,
