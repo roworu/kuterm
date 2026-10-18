@@ -27,9 +27,12 @@ pub(super) fn spawn_profile(
             .entry("KUTERM_SOCKET".into())
             .or_insert_with(|| socket.0.to_string_lossy().into_owned());
     }
-    // only kuterm's own zsh script talks to it
+    // only kuterm's own zsh script talks to it, other shells get neither
     #[cfg(unix)]
-    let bridge = if settings.autocomplete.enable && settings.shell_integration.inject {
+    let bridge = if settings.autocomplete.enable
+        && settings.shell_integration.inject
+        && has_zsh_completion(&profile)
+    {
         crate::completion::Bridge::new()
             .inspect_err(|error| eprintln!("autocomplete is off in this tab: {error}"))
             .ok()

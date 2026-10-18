@@ -93,7 +93,15 @@ def popup_of(app: App, rows: int):
 
 
 def popup_rows(app: App, box: tuple) -> int:
-    """rows the popup shows, it is that many line heights tall plus its padding"""
+    """rows the popup shows, it is that many line heights tall plus its padding. the whole
+    description of the selected candidate sits under a border below the rows, when it shows"""
+    img = app.shot()[box[1]:box[3], box[0]:box[2]]
+    border = near(img, C["border"])
+    divider = next((y for y in range(border.shape[0]) if border[y].sum() > border.shape[1] * 0.5),
+                   None)
+    if divider is not None:
+        # the popup's bottom padding and the gap above the border
+        return round((divider - 6) / app.line_height())
     return round((box[3] - box[1] - 6) / app.line_height())
 
 

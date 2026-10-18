@@ -190,8 +190,12 @@ shell to kuterm, one json object per line:
 {"v":1,"type":"hello","shell":"zsh"}
 {"v":1,"type":"env","path":"<PATH>"}                     when PATH changed
 {"v":1,"type":"line","seq":7,"cursor":3,"buffer":"git","cwd":"/abs"}   every edit, cursor in chars
+{"v":1,"type":"line",...,"history":true}                  the edit came from moving through history
 {"v":1,"type":"end"}                                      the line ran or was dropped
 ```
+
+the history flag keeps the auto popup out of the way while moving through history: the next
+up or down reaches the shell again, and only typing or the complete key brings the popup back.
 
 kuterm to shell, plain text so zsh needs no json parser:
 
@@ -254,8 +258,9 @@ before any dynamic provider is added, it needs:
    options, suggestions, file and folder templates, priority, hidden, `loadSpec`.
 4. the cursor cell comes from `last_content.cursor`, cell size from `terminal_bounds`; the
    popup starts under the first char of the word being completed.
-5. with `autocomplete.enable` and `shell_integration.inject` on, new tabs get
-   `KUTERM_COMPLETION_SOCKET` and kuterm's `.zshenv` connects.
+5. with `autocomplete.enable` and `shell_integration.inject` on, new zsh tabs get
+   `KUTERM_COMPLETION_SOCKET` and kuterm's `.zshenv` connects. other shells get neither the
+   socket nor the variable, so nothing there tries to complete.
 6. `autocomplete.trigger`: `"auto"` (default) or `"key"`.
 7. up/down move, tab accepts, escape hides until the next word, enter is left to the shell;
    all rebindable. they reach the popup while zsh edits its line and pass to the shell
