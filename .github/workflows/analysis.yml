@@ -1,7 +1,7 @@
 name: Analysis
 
 on:
-  # static checks never gate a merge, so once a week is enough
+  # these scans never gate a merge, so once a week is enough
   schedule:
     - cron: "0 6 * * 1"
   # lets changes to this file be tried without waiting for the schedule
@@ -11,36 +11,6 @@ permissions:
   contents: read
 
 jobs:
-  lint:
-
-    runs-on: ubuntu-26.04
-
-    steps:
-
-    - uses: actions/checkout@v7
-      with:
-        persist-credentials: false
-
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y --no-install-recommends \
-          clang cmake pkg-config \
-          libfontconfig-dev libfreetype-dev libxkbcommon-dev libxkbcommon-x11-dev \
-          libwayland-dev libx11-xcb-dev libxcb1-dev libvulkan-dev \
-          libasound2-dev libssl-dev libzstd-dev
-
-    - uses: Swatinem/rust-cache@v2
-
-    - name: Add format and lint components
-      run: rustup component add rustfmt clippy
-
-    - name: Format
-      run: cargo fmt --check
-
-    - name: Clippy
-      run: cargo clippy --all-targets -- -D warnings
-
   deny:
 
     runs-on: ubuntu-26.04
@@ -94,31 +64,6 @@ jobs:
         grep "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" gitleaks_checksums.txt | sha256sum -c -
         tar xzf "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" gitleaks
         ./gitleaks git --redact --verbose
-
-  codeql:
-
-    runs-on: ubuntu-26.04
-
-    permissions:
-      contents: read
-      security-events: write
-
-    steps:
-
-    - uses: actions/checkout@v7
-      with:
-        persist-credentials: false
-
-    - name: Initialize CodeQL
-      uses: github/codeql-action/init@v4
-      with:
-        languages: rust
-        build-mode: none
-
-    - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v4
-      with:
-        category: "/language:rust"
 
   scorecard:
 

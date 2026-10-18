@@ -1,7 +1,10 @@
 name: Test
 
 on:
-  # pull requests into main only: merged code has already run these tests
+  # main too, so pull requests restore its caches and codeql has a baseline to compare with
+  push:
+    branches: [ "main" ]
+    paths-ignore: [ "**.md", "LICENSE" ]
   pull_request:
     branches: [ "main" ]
     paths-ignore: [ "**.md", "LICENSE" ]
@@ -49,6 +52,36 @@ jobs:
         name: kuterm-debug
         path: target/debug/kuterm
 
+  lint:
+
+    runs-on: ubuntu-26.04
+
+    steps:
+
+    - uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          clang cmake pkg-config \
+          libfontconfig-dev libfreetype-dev libxkbcommon-dev libxkbcommon-x11-dev \
+          libwayland-dev libx11-xcb-dev libxcb1-dev libvulkan-dev \
+          libasound2-dev libssl-dev libzstd-dev
+
+    - uses: Swatinem/rust-cache@v2
+
+    - name: Add format and lint components
+      run: rustup component add rustfmt clippy
+
+    - name: Format
+      run: cargo fmt --check
+
+    - name: Clippy
+      run: cargo clippy --all-targets -- -D warnings
+
   test:
 
     runs-on: ubuntu-26.04
@@ -81,9 +114,11 @@ jobs:
         name: test-output
         path: test-output.txt
 
-  # the built binary driven on a virtual x display and on a headless wayland compositor
+  # the built binary driven on a virtual x display and on a headless wayland compositor.
+  # pull requests only, merged code has already passed them
   e2e:
 
+    if: github.event_name == 'pull_request'
     needs: build
     runs-on: ubuntu-26.04
     strategy:
@@ -147,3 +182,28 @@ jobs:
 
     - name: Clippy
       run: cargo clippy --all-targets
+
+  codeql:
+
+    runs-on: ubuntu-26.04
+
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+
+    - uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v4
+      with:
+        languages: rust
+        build-mode: none
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v4
+      with:
+        category: "/language:rust"
