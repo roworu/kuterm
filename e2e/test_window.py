@@ -107,13 +107,15 @@ def test_startup_maximized(app_factory):
 
 
 @pytest.mark.wayland_only
-def test_opacity_shows_through_the_background(app_factory):
+@pytest.mark.parametrize("opacity", [0.2, 0.85])
+def test_opacity_shows_through_the_background(app_factory, opacity):
     """window.opacity makes the default background see through, colored cells stay solid"""
-    app = app_factory({"theme": {"mode": "dark"}, "window": {"opacity": 0.2}}, script=RED_BLOCK)
+    app = app_factory({"theme": {"mode": "dark"}, "window": {"opacity": opacity}}, script=RED_BLOCK)
     red_box(app)
-    app.snap("opacity 0.2")
+    app.snap(f"opacity {opacity}")
     img = app.shot()
     x0, y0, x1, y1 = app.cell_rect(20, 5, 5, 1)
+    # 0.85 also catches the background painted twice, which compounds the alpha
     assert not close_to(tuple(img[(y0 + y1) // 2, (x0 + x1) // 2]), DARK["terminal_background"], 3)
     assert close_to(app.cells_color(0, 0, 10), RED, 3)
 

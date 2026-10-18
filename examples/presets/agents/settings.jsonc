@@ -1,0 +1,52 @@
+// agents: a terminal for ai coding agents. a tab is marked once its agent stops working
+// without finishing and waits for you, and the window says so when you are looking elsewhere.
+// next_attention_tab jumps to the agent that waited longest, pick_agent_tab lists them all.
+// titles show progress, icon, folder, git and queued commands; the status bar shows the
+// machine and the ports agents serve
+{
+  "ui_font_size": 17,
+  "hide_bar_for_one_tab": false,
+  "tab_width": 240,
+  "tab_title": ["progress", "icon", "folder", { "text": " " }, "git", "queue"],
+  "window_title": ["folder", { "text": " — " }, "command", { "text": " " }, "git"],
+  "notifications": {
+    "enable": true,
+    "timeout": 8,
+    // agents and builds say when they are done, even while the window is focused
+    "from_programs": "always",
+    "agent_waiting": true,
+    "program_waiting": true,
+  },
+  "shell_integration": { "notify_after": 5 },
+  "status_bar": {
+    "enable": true,
+    "left": ["git", "venv", "kube", "cpu", "memory", "network", "ports"],
+    "right": ["total_cpu", "total_memory", "all_ports", "clock"],
+    "clock_format": "%H:%M",
+  },
+  "panes": { "divider_width": 2, "dim_inactive": 0.2 },
+  "theme": { "mode": "dark", "dark": "catppuccin-mocha", "light": "catppuccin-latte" },
+  "window": {
+    "decorations": "client",
+    "padding": { "x": 10, "y": 8 },
+    "columns": 120,
+    "rows": 34,
+  },
+  "terminal": {
+    "font_fallbacks": ["Noto Color Emoji"],
+    "cursor_blink": "on",
+    "scrollbar": { "enable": "dynamic", "auto_hide": 4 },
+  },
+  "keybindings": {
+    "next_attention_tab": "ctrl-shift-j",
+    "pick_agent_tab": "ctrl-shift-g",
+    "split_right": "ctrl-shift-r",
+    "split_down": "ctrl-shift-d",
+    "close_pane": "ctrl-shift-x",
+    "focus_pane_left": "ctrl-alt-h",
+    "focus_pane_right": "ctrl-alt-l",
+    "focus_pane_up": "ctrl-alt-k",
+    "focus_pane_down": "ctrl-alt-j",
+    "zoom_pane": "ctrl-shift-z",
+  },
+}

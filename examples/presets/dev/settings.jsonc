@@ -1,0 +1,71 @@
+// dev: a development workspace. tabs grouped by git project, titles with progress, folder,
+// command, git and ports, a status bar with git, venv, kube, cpu, memory and listening ports.
+// completions and editor links are on, inactive splits are dimmed, and the split keys are set
+{
+  "ui_font_size": 16,
+  "hide_bar_for_one_tab": false,
+  "tab_width": 220,
+  "tab_title": [
+    "progress", "icon", "folder", { "text": " " }, "command", { "text": " " }, "git", "ports",
+  ],
+  "window_title": ["folder", { "text": " — " }, "command", { "text": " " }, "git"],
+  "new_tab_button": "after_tabs",
+  "status_bar": {
+    "enable": true,
+    "left": ["git", "venv", "kube", "cpu_graph", "cpu", "memory", "network", "ports"],
+    "right": ["total_cpu", "total_memory", "all_ports", "size", "clock"],
+  },
+  "tab_groups": { "by_project": true },
+  "shell_integration": { "notify_after": 5 },
+  "autocomplete": { "max_items": 10 },
+  "panes": { "divider_width": 2, "dim_inactive": 0.2 },
+  "links": { "open_in_running_editor": true, "peek": true },
+  "theme": { "mode": "dark", "dark": "nord", "light": "solarized-light" },
+  "window": {
+    "decorations": "client",
+    "padding": { "x": 8, "y": 6 },
+    "columns": 140,
+    "rows": 38,
+  },
+  "terminal": {
+    "font_fallbacks": ["Noto Color Emoji"],
+    "cursor_blink": "on",
+    "scrollbar": { "enable": "dynamic", "auto_hide": 4 },
+  },
+  "keybindings": {
+    "split_right": "ctrl-shift-r",
+    "split_down": "ctrl-shift-d",
+    "split_left": "ctrl-shift-l",
+    "split_up": "ctrl-shift-u",
+    "close_pane": "ctrl-shift-x",
+    "focus_pane_left": "ctrl-alt-h",
+    "focus_pane_right": "ctrl-alt-l",
+    "focus_pane_up": "ctrl-alt-k",
+    "focus_pane_down": "ctrl-alt-j",
+    "zoom_pane": "ctrl-shift-z",
+    "equalize_panes": "ctrl-shift-e",
+  },
+  "commands": [
+    { "name": "go to tab", "category": "tabs", "actions": ["pick_tab"], "pinned": true },
+    { "name": "split right", "category": "panes", "actions": ["split_right"] },
+    { "name": "split down", "category": "panes", "actions": ["split_down"] },
+    { "name": "pick theme", "category": "config", "actions": ["pick_theme"] },
+    {
+      "name": "checkout branch",
+      "category": "git",
+      "inputs": { "branch": { "pick_from": "git branch --format=%(refname:short)" } },
+      "actions": [{ "type": "git checkout {branch}\n" }],
+    },
+    {
+      "name": "run tests next to me",
+      "category": "dev",
+      "actions": [{ "target": "new_split_right", "action": { "type": "make test\n" } }],
+    },
+    {
+      "name": "grep for",
+      "category": "dev",
+      "inputs": { "pattern": { "text": "pattern" } },
+      "actions": [{ "type": "grep -rn {pattern} .\n" }],
+    },
+  ],
+}

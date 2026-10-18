@@ -8,11 +8,12 @@ highly configurable, gpu accelerated terminal
 
 <br clear="right">
 
-## tour
+## showcase
 
-showcase of going from none enabled features, to all at once:
+tabs grouped by project, splits with live cpu, memory and port metrics, completions, and themes
+previewed in the command palette:
 
-[![kuterm tour](assets/tour/tour.png)](assets/tour/tour.mp4)
+![kuterm showcase](assets/showcase/showcase.webp)
 
 ## installation
 

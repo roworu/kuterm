@@ -1,0 +1,31 @@
+// glass: a borderless, see-through window. the desktop behind shows through the terminal,
+// text stays solid, and wide padding, tall lines and a quiet ui keep it airy.
+// the transparency needs a compositor. "blur" is off on purpose: on x11 it makes the window
+// opaque, it is only used where the system supports it (wayland)
+{
+  "ui_font_size": 16,
+  "hide_bar_for_one_tab": false,
+  "expand_tabs": true,
+  "tab_title": ["icon", { "text": " " }, "folder"],
+  "tab_title_align": "center",
+  "show_tab_close_button": false,
+  "new_tab_button": "right",
+  "theme": { "mode": "dark", "dark": "tokyo-night", "light": "catppuccin-latte" },
+  "window": {
+    "opacity": 0.85,
+    "blur": false,
+    "decorations": "none",
+    "padding": { "x": 24, "y": 18 },
+    "padding_balance": true,
+    "columns": 110,
+    "rows": 32,
+  },
+  "terminal": {
+    "font": { "size": 18 },
+    "line_height": "comfortable",
+    "cursor_shape": "bar",
+    "cursor": { "thickness": 2 },
+    "scrollbar": { "enable": "dynamic", "width": 4, "auto_hide": 2 },
+    "smooth_scroll": { "duration": 350 },
+  },
+}

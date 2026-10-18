@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""record examples/presets/<preset>/demo.mp4: kuterm with the preset's settings on a virtual x
+"""record examples/presets/<preset>/demo.webp: kuterm with the preset's settings on a virtual x
 display with a window manager, driven by xdotool like a person would, filmed with ffmpeg at the
-screen's own resolution. "tour" records assets/tour/tour.mp4 for the readme instead: settings
-grown from bare to most features while it runs, with captions laid over by
-ffmpeg. runs inside the image of tools/presets/Containerfile, see tools/presets/record.sh.
+screen's own resolution. "readme" records assets/showcase/showcase.webp for the readme instead:
+a short 60 fps tour of the main features, with captions laid over by ffmpeg. runs inside the
+image of tools/presets/Containerfile, see tools/presets/record.sh.
 
-usage: record.py [--fps 60] [--crf 16] [--stills] [preset or tour ...]
---crf is the h.264 quality, lower is sharper and bigger. --stills also saves a png at every
-step() into /tmp/stills, to find where to click"""
+usage: record.py [--fps 60] [--stills] [preset or readme ...]
+--stills also saves a png at every step() into /tmp/stills, to find where to click"""
 
 import argparse
 import json
 import math
+from datetime import datetime, timedelta
 import os
 import random
 import shutil
@@ -23,17 +23,20 @@ from pathlib import Path
 
 SRC = Path("/src")
 PRESETS = SRC / "examples/presets"
-BIN = Path(os.environ.get("KUTERM_BIN", SRC / "target/podman/debug/kuterm"))
+BIN = Path(os.environ.get("KUTERM_BIN", SRC / "target/podman/release/kuterm"))
 DISPLAY = ":99"
 DESKTOP = (1920, 1080)
 # part of the desktop filmed, as size and offset, and the left (none to center it) and top of
-# the window's client area in it. the tour leaves room right of the window for its captions
+# the window's client area in it. the readme leaves room right of the window for its captions
 REGION = ((1440, 900), (240, 90), None, 84)
-REGIONS = {"tour": ((1920, 1080), (0, 0), 72, 160)}
+REGIONS = {"readme": ((1920, 1080), (0, 0), 72, 160)}
 # client area of the window, the frame of the window manager comes around it
 WINDOW = (1280, 760)
 # videos that are not a preset's demo
-OUTPUTS = {"tour": SRC / "assets/tour/tour.mp4"}
+OUTPUTS = {"readme": SRC / "assets/showcase/showcase.webp"}
+# demos are webp for inline previews, scaled down since captions and wallpaper compress badly
+# at full size
+SCALE = "1200:-2"
 STILLS = Path("/tmp/stills")
 
 ZSHRC = """PS1='%F{green}dev@kuterm%f:%F{blue}%~%f$ '
@@ -41,7 +44,35 @@ unsetopt prompt_sp
 alias ls='ls --color=auto'
 # output goes into the terminal history, not into less, so scrolling shows it
 export GIT_PAGER=cat
+export PATH="$HOME/bin:$PATH"
 """
+
+# the fake agent of the agents demo: python3 is in the "interpreters" list, so the script name
+# "claude" picks the bundled agents group and its tab counts as an agent. it reports busy,
+# goes idle without its command finishing, then waits for a line
+AGENT = r'''#!/usr/bin/python3
+import sys
+import time
+
+
+def progress(state: str) -> None:
+    sys.stdout.write(f"\033]9;4;{state}\007")
+    sys.stdout.flush()
+
+
+progress("3")
+time.sleep(1.2)
+print("reading the codebase...", flush=True)
+time.sleep(1.2)
+progress("0")
+print("ready for a review", flush=True)
+for line in sys.stdin:
+    progress("3")
+    time.sleep(0.9)
+    print(f"done: {line.strip()}", flush=True)
+    progress("0")
+    break
+'''
 
 
 def sh(*args: str, check: bool = True, **kw) -> str:
@@ -64,8 +95,36 @@ def commit(folder: Path, message: str, files: dict) -> None:
     git(folder, "commit", "-q", "-m", message)
 
 
+def api_log() -> str:
+    """a few hundred lines of a busy api's log, warnings, 404s and a failed order with its
+    traceback, so the reading demo scrolls through something that looks real"""
+    start = datetime(2026, 10, 18, 9, 12, 4)
+    methods = ["GET", "POST", "GET", "GET", "PATCH", "DELETE"]
+    paths = ["/health", "/users/42", "/users", "/orders", "/orders/8812",
+             "/items?page=2", "/items?page=3", "/login", "/metrics"]
+    lines = []
+    for i in range(360):
+        at = start + timedelta(seconds=3 * i)
+        method = methods[i % len(methods)]
+        path = paths[i % len(paths)]
+        status = 500 if i % 67 == 66 else 404 if i % 41 == 40 else 200
+        level = "INFO " if status == 200 else "WARN " if status == 404 else "ERROR"
+        elapsed = 2 + (i * 7) % 40
+        lines.append(f"{at:%Y-%m-%dT%H:%M:%S}.{at.microsecond // 1000:03d}Z {level} "
+                     f"request {method:6} {path:18} {status} {elapsed:3}ms")
+    lines += [
+        "2026-10-18T09:30:04.000Z ERROR request POST   /orders/8812       500  12ms",
+        "2026-10-18T09:30:04.001Z ERROR orders  Traceback (most recent call last):",
+        '  File "/srv/api/orders.py", line 42, in create',
+        "    total = sum(item.price for item in items)",
+        "TypeError: unsupported operand type(s) for +: 'NoneType' and 'Decimal'",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 def projects(home: Path) -> None:
-    """~/api with a merged branch and a changed file, ~/web with two commits on a dev branch"""
+    """~/api with merged and mainline commits and a changed file, ~/web with a dev branch, and
+    a realistic log for the reading demo"""
     api = home / "api"
     api.mkdir()
     git(api, "init", "-q", "-b", "main")
@@ -80,6 +139,11 @@ def projects(home: Path) -> None:
         "    return {'status': 'ok'}\n\n\n"
         "@app.get('/users/<int:user>')\ndef user(user: int) -> dict:\n    return {'id': user, 'name': 'ada'}\n")})
     git(api, "merge", "-q", "--no-ff", "feature/auth", "-m", "merge feature/auth")
+    commit(api, "add request logging", {"log.py": (
+        "import logging\n\nlogging.basicConfig(level=logging.INFO)\n")})
+    commit(api, "handle empty orders", {"orders.py": (
+        "def total(items: list) -> int:\n    return sum(item.price for item in items)\n")})
+    commit(api, "bump dependencies", {"requirements.txt": "flask==3.1.1\n"})
     (api / "README.md").write_text("# api\n\nrun with `flask --app app run`\n")
     web = home / "web"
     web.mkdir()
@@ -87,12 +151,15 @@ def projects(home: Path) -> None:
     commit(web, "initial site", {"index.html": "<h1>kuterm</h1>\n", "package.json": '{ "name": "web" }\n'})
     commit(web, "add styles", {"style.css": "h1 { color: #89b4fa; }\n"})
     git(web, "checkout", "-q", "-b", "dev")
+    commit(web, "add contact page", {"contact.html": "<h1>contact</h1>\n"})
+    commit(web, "fix nav on small screens", {"style.css": "h1 { color: #89b4fa; }\nnav { display: flex; }\n"})
     # outside any project, so tab_groups.by_project leaves their tabs for groups made by hand
-    for name, files in {"notes": ["todo.md", "ideas.md"], "logs": ["api.log", "web.log"],
+    for name, files in {"notes": ["todo.md", "ideas.md"], "logs": ["web.log"],
                         "scratch": ["draft.txt"]}.items():
         (home / name).mkdir()
         for file in files:
             (home / name / file).write_text("")
+    (home / "logs/api.log").write_text(api_log())
 
 
 class Desktop:
@@ -165,9 +232,13 @@ TEXT = (236, 238, 242, 255)
 MUTED = (176, 182, 194, 255)
 BOLD = SRC / "assets/fonts/jetbrains/JetBrainsMonoNLNerdFontMono-Bold.ttf"
 REGULAR = SRC / "assets/fonts/jetbrains/JetBrainsMonoNLNerdFontMono-Regular.ttf"
-# desktop wallpaper, a gradient through these colors; the tour's are the logo's slates
+# desktop wallpaper, a gradient through these colors; the readme's are the logo's slates
 WALLPAPER = ["#313244", "#585b70", "#1e1e2e"]
-WALLPAPERS = {"tour": ["#2a303b", "#444d5f", "#2f3542"]}
+WALLPAPERS = {
+    "readme": ["#2a303b", "#444d5f", "#2f3542"],
+    # a bright gradient, so the glass window, its padding and the desktop behind it stand out
+    "glass": ["#ff6b6b", "#f7b267", "#4cc9f0", "#4361ee"],
+}
 # seconds overlays take to fade and slide in or out
 FADE = 0.35
 
@@ -222,9 +293,9 @@ def title_png(path: Path, size: tuple, title: str, body: str) -> None:
     img.save(path)
 
 
-def overlay_graph(overlays: list, tmp: Path, fps: int) -> tuple:
+def overlay_graph(overlays: list, tmp: Path, fps: int, scale: str | None = None) -> tuple:
     """ffmpeg inputs and filter graph laying `overlays` over the recording, each fading in and
-    out and sliding up into place as it comes"""
+    out and sliding up into place as it comes, then scaling the result when `scale` is set"""
     inputs, chain, last = [], [], "0:v"
     for ix, item in enumerate(overlays, start=1):
         start, end = item["start"], max(item["end"], item["start"] + 2 * FADE)
@@ -234,10 +305,13 @@ def overlay_graph(overlays: list, tmp: Path, fps: int) -> tuple:
                      f"fade=t=out:st={duration - FADE:.3f}:d={FADE}:alpha=1,"
                      f"setpts=PTS-STARTPTS+{start:.3f}/TB[o{ix}]")
         slide = f"{item['y']}+{item.get('slide', 0)}*pow(max(0,1-(t-{start:.3f})/{FADE}),2)"
-        label = "out" if ix == len(overlays) else f"v{ix}"
+        label = ("merged" if scale else "out") if ix == len(overlays) else f"v{ix}"
         chain.append(f"[{last}][o{ix}]overlay=x={item['x']}:y='{slide}':eof_action=pass:"
                      f"enable='between(t,{start:.3f},{end:.3f})'[{label}]")
         last = label
+    if scale and overlays:
+        # a simple -vf cannot be combined with -filter_complex, so scaling stays in the graph
+        chain.append(f"[merged]scale={scale}[out]")
     return inputs, ";".join(chain)
 
 
@@ -257,11 +331,16 @@ class Scene:
         config = self.home / ".config/kuterm"
         config.mkdir(parents=True)
         self.settings_path = config / "settings.jsonc"
-        if name in TOUR_START:
-            self.settings = json.loads(json.dumps(TOUR_START[name]))
+        if name in README_START:
+            self.settings = json.loads(json.dumps(README_START[name]))
             self.settings_path.write_text(json.dumps(self.settings, indent=2))
         else:
             shutil.copy(PRESETS / name / "settings.jsonc", self.settings_path)
+        if name == "agents":
+            agent = self.home / "bin/claude"
+            agent.parent.mkdir()
+            agent.write_text(AGENT)
+            agent.chmod(0o755)
         # captions laid over the video, with their times in it
         self.overlays = []
         self.caption = None
@@ -274,13 +353,15 @@ class Scene:
         sh("hsetroot", *(arg for color in WALLPAPERS.get(name, WALLPAPER) for arg in ("-add", color)),
            "-gradient", "135")
         self.log = open(self.tmp / "kuterm.log", "w")
-        server = '"decorations": "server"' in self.settings_path.read_text()
+        text = self.settings_path.read_text()
+        client = '"decorations": "none"' in text or '"decorations": "client"' in text
         for _ in range(5):
             self.proc = subprocess.Popen([str(BIN)], cwd=self.home, env=env, stdout=self.log, stderr=subprocess.STDOUT)
             self.wid = wait(self._window, "the kuterm window", 60)
             # gpui falls back to a frame of the window manager while the compositor is not up
-            # yet, as it is right after xfwm4 started
-            if server or self._decorations() == "0x0":
+            # yet, as it is right after xfwm4 started. decorations absent means the default,
+            # which the window manager draws
+            if not client or self._decorations() == "0x0":
                 break
             self.proc.terminate()
             self.proc.wait()
@@ -314,6 +395,8 @@ class Scene:
         return int(info["Absolute upper-left X"]), int(info["Absolute upper-left Y"])
 
     def record(self) -> None:
+        if self.proc.poll() is not None:
+            raise RuntimeError(f"kuterm exited:\n{(self.tmp / 'kuterm.log').read_text()}")
         self.raw = self.tmp / "raw.mkv"
         # lossless while filming, so encoding can't drop frames, the real encode comes after
         self.ffmpeg = subprocess.Popen(
@@ -334,18 +417,20 @@ class Scene:
         self.proc.terminate()
         self.say_end()
         self.render_captions()
-        video = OUTPUTS.get(self.name, PRESETS / self.name / "demo.mp4")
+        video = OUTPUTS.get(self.name, PRESETS / self.name / "demo.webp")
         video.parent.mkdir(parents=True, exist_ok=True)
-        inputs, graph = overlay_graph(self.overlays, self.tmp, self.options.fps)
+        inputs, graph = overlay_graph(self.overlays, self.tmp, self.options.fps, SCALE)
         # a video with overlays ends with its last one, like the closing card
         end = ["-t", f"{max(item['end'] for item in self.overlays):.3f}"] if self.overlays else []
-        # yuv420p and faststart so browsers and github play it, "animation" keeps flat
-        # colors and text edges crisp
+        # webp stores millisecond delays, so 60 fps is real here. "text" keeps glyph edges crisp,
+        # and the animation loops forever like a gif
+        codec = ["-c:v", "libwebp_anim", "-preset", "text", "-quality", "80",
+                 "-pix_fmt", "yuv420p", "-loop", "0"]
+        plain = ["-vf", f"scale={SCALE}"] if not graph else []
         subprocess.run(
             ["ffmpeg", "-loglevel", "error", "-y", "-i", str(self.raw), *inputs,
-             *(["-filter_complex", graph, "-map", "[out]"] if graph else []), *end, "-r", str(self.options.fps),
-             "-c:v", "libx264", "-preset", "slow", "-tune", "animation", "-crf", str(self.options.crf),
-             "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(video)],
+             *(["-filter_complex", graph, "-map", "[out]"] if graph else []), *end,
+             "-r", str(self.options.fps), *plain, *codec, str(video)],
             check=True)
         print(f"{video}: {video.stat().st_size // 1024} KB")
         if self.poster_at is not None:
@@ -369,12 +454,12 @@ class Scene:
         self.settings_path.write_text(json.dumps(self.settings, indent=2))
         time.sleep(pause)
 
-    def say(self, title: str, body: str) -> None:
+    def say(self, title: str, body: str, wait: float = 2.0) -> None:
         """caption the next part next to the window until the next one, with time to read it
         before anything happens"""
         self.say_end()
         self.caption = {"title": title, "body": body, "start": self.now()}
-        time.sleep(2.0)
+        time.sleep(wait)
 
     def say_end(self) -> None:
         if self.caption is None:
@@ -526,11 +611,14 @@ def tmux(s: Scene) -> None:
 def reading(s: Scene) -> None:
     s.run("cd ~/api && clear", pause=0.5)
     s.record()
-    s.run("git log --stat -3", pause=1.5)
-    s.wheel(600, 400, up=True, clicks=4)
-    s.step("scrolled up", 1.2)
-    s.wheel(600, 400, up=False, clicks=4)
-    s.step("scrolled down", 1.0)
+    # a long log to show smooth scroll: the wheel steps glide instead of jumping
+    s.run("cat ~/logs/api.log", pause=1.5)
+    s.wheel(600, 400, up=True, clicks=10)
+    time.sleep(1.0)
+    s.step("smooth scroll up", 1.0)
+    s.wheel(600, 400, up=False, clicks=10)
+    time.sleep(1.0)
+    s.step("smooth scroll down", 0.8)
     s.run("cat README.md", pause=1.0)
     s.drag(*READING_DRAG)
     s.step("selected and copied", 2.0)
@@ -589,11 +677,6 @@ def showcase(s: Scene) -> None:
     s.park()
     s.run("git status -sb", pause=1.2)
     s.step("api tab")
-    s.key("ctrl+shift+o", pause=1.5)
-    s.key("Right", pause=0.6)
-    s.key("Right", pause=0.6)
-    s.step("overview")
-    s.key("Escape", pause=1.0)
     s.key("ctrl+shift+p", pause=0.8)
     s.type("theme")
     s.key("Return", pause=1.0)
@@ -622,115 +705,158 @@ SHOWCASE_OPS_SECOND_EDGE = (775, SHOWCASE_BAR_Y)
 SHOWCASE_WEB_CHIP = (284, SHOWCASE_BAR_Y)
 SHOWCASE_API_TAB = (159, SHOWCASE_BAR_Y)
 
-# the tour starts from this: only the shell, everything else off or out of the way
-TOUR_START = {"tour": {
-    "hide_bar_for_one_tab": True,
-    "tab_title": ["folder"],
+# the readme starts from this: a dark theme, titles with icons and git, a split key
+README_START = {"readme": {
+    "hide_bar_for_one_tab": False,
+    "tab_title": ["icon", "folder", {"text": " "}, "git"],
     "tab_width": 200,
     "window_title": ["folder"],
-    "theme": {"mode": "dark", "dark": "dark"},
+    "theme": {"mode": "dark", "dark": "catppuccin-mocha"},
     "window": {"decorations": "server", "menu_bar": "never", "padding": {"x": 14, "y": 10}},
     "terminal": {"cursor_shape": "block", "scrollbar": {"enable": "off"}},
-    "shell_integration": {"mark_sources": "none"},
     "autocomplete": {"enable": False},
-    "icons": {"dynamic": False},
+    "icons": {"dynamic": True},
     # "config reloaded" says each save worked, without piling up
     "notifications": {"timeout": 2},
-    "keybindings": {"split_right": "ctrl-shift-r", "focus_pane_left": "ctrl-alt-h",
-                    "tab_overview": "ctrl-shift-o"},
+    "tab_groups": {"by_project": True},
+    "keybindings": {"split_right": "ctrl-shift-r", "focus_pane_left": "ctrl-alt-h"},
 }}
 
-# tabs and chips in the tab bar, found with --stills: the notes and logs tabs before they are
-# grouped, and the api tab once they are
-TOUR_NOTES = (610, 18)
-TOUR_LOGS = (810, 18)
-TOUR_API_TAB = (155, 18)
+# tabs in the tab bar, found with --stills: the notes and logs tabs before they are grouped,
+# and the api tab once it has its project chip
+README_NOTES = (610, 18)
+README_LOGS = (810, 18)
+README_API_TAB = (155, 18)
 
 
-def tour(s: Scene) -> None:
+def readme(s: Scene) -> None:
     s.run("cd ~/api && clear", pause=0.3)
     s.record()
-    s.say("Just a terminal", "with almost nothing turned on kuterm is a shell in a window. "
-          "every part added next is a line or two in settings.jsonc")
-    s.run("ls")
-    s.run("git log --oneline --graph --decorate", pause=2.0)
-    s.say("Settings apply as you save", "settings.jsonc is watched: change the theme, the font or "
-          "the padding and the window follows, no restart")
-    s.configure({"theme": {"dark": "catppuccin-mocha"}}, pause=1.6)
-    s.configure({"terminal": {"font": {"size": 18}}, "window": {"padding": {"x": 20, "y": 14}}}, pause=2.0)
-    s.say("Tabs", "a second tab brings the tab bar. titles are built from blocks: icon, folder, "
-          "git branch, ports, cpu, memory and more")
-    s.configure({"tab_title": ["icon", "folder", {"text": " "}, "git"], "icons": {"dynamic": True}}, pause=0.4)
-    s.key("ctrl+shift+t", pause=0.6)
-    s.run("cd ~/web", pause=1.5)
     s.say("Tab groups", "tabs of one git project group up on their own. drag a tab onto another "
-          "to group them by hand, like in chrome")
-    s.configure({"tab_groups": {"by_project": True}}, pause=1.0)
-    time.sleep(1.5)
-    s.key("ctrl+shift+t", pause=0.6)
-    s.run("cd ~/notes", pause=0.6)
-    s.key("ctrl+shift+t", pause=0.6)
-    s.run("cd ~/logs", pause=1.0)
+          "to group them by hand, like in chrome", wait=1.2)
+    s.key("ctrl+shift+t", pause=0.4)
+    s.run("cd ~/web", pause=0.4)
+    s.key("ctrl+shift+t", pause=0.4)
+    s.run("cd ~/notes", pause=0.3)
+    s.key("ctrl+shift+t", pause=0.4)
+    s.run("cd ~/logs", pause=0.5)
     s.step("before the drag")
-    s.drag(TOUR_LOGS, TOUR_NOTES, hover=0.8)
-    s.step("grouped", 1.5)
-    s.say("Splits", "split a pane with a key, or drop a tab on a pane's edge. panes without "
-          "focus are dimmed")
-    s.configure({"panes": {"dim_inactive": 0.3}}, pause=0.3)
-    s.click(*TOUR_API_TAB, pause=0.8)
+    s.drag(README_LOGS, README_NOTES, hover=0.6)
+    s.step("grouped", 0.8)
+    s.say("Splits and live metrics", "split a pane with a key, or drop a tab on a pane's edge. "
+          "the status bar follows cpu, memory, traffic and listening ports", wait=1.2)
+    s.configure({"panes": {"dim_inactive": 0.3}, "status_bar": {"enable": True}}, pause=0.4)
+    s.click(*README_API_TAB, pause=0.5)
     s.park()
-    s.key("ctrl+shift+r", pause=0.6)
-    s.run("python3 -m http.server 8000", pause=2.0)
+    s.key("ctrl+shift+r", pause=0.4)
+    s.run("python3 -m http.server 8000", pause=1.2)
     s.step("split")
-    s.say("Status bar", "git, a cpu graph, memory, traffic and listening ports of the active tab, "
-          "and of all tabs together")
-    s.configure({"status_bar": {"enable": True}}, pause=0.6)
-    time.sleep(2.6)
-    s.say("Completions", "commands, subcommands, options and paths with what they do, from bundled "
-          "specs. nothing is run to find them")
+    s.say("Completions", "commands, options and paths with what they do, from bundled specs. "
+          "nothing is run to find them", wait=1.2)
     s.configure({"autocomplete": {"enable": True}}, pause=0.3)
-    s.key("ctrl+alt+h", pause=0.5)
-    # tabs opened after the change get it
-    s.key("ctrl+shift+t", pause=0.8)
+    s.key("ctrl+alt+h", pause=0.3)
+    # tabs opened after the change pick it up
+    s.key("ctrl+shift+t", pause=0.4)
     s.type("git ch", speed=0.7)
-    time.sleep(1.2)
-    s.key("Down", pause=0.6)
-    s.key("Down", pause=0.6)
-    # the readme shows this frame: groups, a split, the status bar, the popup and a caption
-    s.poster_at = s.now()
-    s.step("completions", 0.6)
-    s.key("Tab", pause=1.0)
-    s.key("ctrl+u", pause=0.6)
-    s.say("Command palette", "every action is in the palette, next to commands of your own. "
-          "themes are previewed as you move through them")
-    s.key("ctrl+shift+p", pause=0.8)
+    time.sleep(0.8)
+    s.key("Down", pause=0.4)
+    s.key("Down", pause=0.4)
+    s.step("completions", 0.4)
+    s.key("Tab", pause=0.6)
+    s.key("ctrl+u", pause=0.3)
+    s.say("Themes", "pick a theme in the command palette and the whole window follows as you "
+          "move", wait=1.2)
+    s.key("ctrl+shift+p", pause=0.6)
     s.type("theme")
-    s.key("Return", pause=1.0)
-    for _ in range(4):
-        s.key("Down", pause=0.9)
+    s.key("Return", pause=0.6)
+    for _ in range(3):
+        s.key("Down", pause=0.6)
     s.step("themes")
-    s.key("Escape", pause=1.0)
-    s.say("Overview", "a live grid of every tab in every pane. type to filter, enter to jump")
-    s.key("ctrl+shift+o", pause=1.2)
-    s.type("web")
-    time.sleep(1.2)
-    s.step("overview")
-    s.key("Return", pause=1.5)
+    s.key("Escape", pause=0.6)
     s.say_end()
-    s.card("kuterm", "github.com/roworu/kuterm\nready presets in examples/presets", 4.0)
 
 
-SCENES = {"minimal": minimal, "tmux": tmux, "reading": reading, "showcase": showcase, "tour": tour}
+def agents(s: Scene) -> None:
+    s.run("cd ~/api && clear", pause=0.3)
+    s.record()
+    s.run("claude", pause=0.2)
+    # stay on the tab long enough for the title refresh to see the agent busy
+    time.sleep(2.0)
+    s.key("ctrl+shift+t", pause=0.5)
+    s.run("cd ~/web && git status -sb", pause=0.5)
+    # it went idle without finishing, so its tab is marked and a notification shows
+    time.sleep(1.2)
+    s.step("agent waiting", 1.2)
+    s.key("ctrl+shift+j", pause=0.8)
+    s.type("yes")
+    s.key("Return", pause=1.2)
+    s.step("answered")
+
+
+def glass(s: Scene) -> None:
+    s.run("cd ~/api && clear", pause=0.4)
+    s.record()
+    s.run("git log --oneline --graph --decorate", pause=1.4)
+    s.wheel(600, 400, up=True, clicks=3)
+    s.step("history", 1.0)
+    s.run("ls", pause=0.8)
+    s.key("ctrl+shift+t", pause=0.8)
+    s.run("cd ~/web && ls", pause=1.0)
+    s.step("second tab")
+
+
+def compact(s: Scene) -> None:
+    s.run("cd ~/api && clear", pause=0.3)
+    s.record()
+    s.run("ls -la", pause=0.7)
+    s.run("git log --oneline --graph --all", pause=1.0)
+    s.step("history")
+    s.key("ctrl+shift+r", pause=0.5)
+    s.run("git status -sb", pause=0.8)
+    s.step("split")
+    s.key("ctrl+alt+h", pause=0.4)
+    s.key("ctrl+shift+t", pause=0.5)
+    s.run("cd ~/web && ls", pause=0.8)
+    s.type("git ch", speed=0.7)
+    time.sleep(1.0)
+    s.key("Down", pause=0.5)
+    s.step("completions")
+
+
+def dev(s: Scene) -> None:
+    s.run("cd ~/api && clear", pause=0.3)
+    s.record()
+    s.key("ctrl+shift+r", pause=0.5)
+    s.run("python3 -m http.server 8000", pause=1.6)
+    s.step("server port")
+    s.key("ctrl+alt+h", pause=0.4)
+    s.run("git log --oneline --graph --decorate", pause=1.0)
+    s.key("ctrl+shift+d", pause=0.5)
+    s.run("git status -sb", pause=0.8)
+    s.step("three panes")
+    s.key("ctrl+shift+p", pause=0.7)
+    s.type("checkout")
+    s.step("palette")
+    s.key("Escape", pause=0.6)
+    s.type("git ch", speed=0.7)
+    time.sleep(1.0)
+    s.key("Down", pause=0.5)
+    s.step("completions", 0.8)
+
+
+SCENES = {"minimal": minimal, "tmux": tmux, "reading": reading, "showcase": showcase,
+          "agents": agents, "glass": glass, "compact": compact, "dev": dev, "readme": readme}
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="record examples/presets/<preset>/demo.mp4")
+    parser = argparse.ArgumentParser(description="record preset demos and the readme showcase")
     parser.add_argument("--fps", type=int, default=60)
-    parser.add_argument("--crf", type=int, default=16)
     parser.add_argument("--stills", action="store_true")
     parser.add_argument("presets", nargs="*", help=f"some of {', '.join(SCENES)}, all by default")
     options = parser.parse_args()
-    names = options.presets or list(SCENES)
+    # the glass demo comes from a live compositor: x11 does not show the window opacity, so
+    # it is only recorded when named
+    names = options.presets or [name for name in SCENES if name != "glass"]
     for name in names:
         if name not in SCENES:
             parser.error(f"no scene for {name!r}")

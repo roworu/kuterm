@@ -1,7 +1,8 @@
 #!/bin/sh
-# record examples/presets/<preset>/demo.mp4 (60 fps, native resolution) for every preset and the
-# readme tour assets/tour/tour.mp4 with its poster, or the ones named:
-#   sh tools/presets/record.sh [--fps 60] [--crf 16] [--stills] [preset or tour ...]
+# record examples/presets/<preset>/demo.webp (60 fps, 1200 px wide) for every preset and the
+# readme showcase assets/showcase/showcase.webp, or the ones named. glass is skipped unless
+# named: its demo is recorded on a live compositor, x11 cannot show the window opacity:
+#   sh tools/presets/record.sh [--fps 60] [--stills] [preset or readme ...]
 # kuterm runs on a virtual x display with a window manager inside podman, driven by xdotool and
 # filmed with ffmpeg, so nothing touches your desktop. KUTERM_BIN=path picks the binary, otherwise
 # a release build is made first, a debug one draws too slowly for 60 fps. --stills also saves a
