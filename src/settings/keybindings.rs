@@ -79,8 +79,12 @@ impl Default for Keybindings {
     }
 }
 
-// the popup keys are plain keys the shell needs, so they only work while it shows
 const COMPLETION_CONTEXT: &str = "Terminal && completion";
+
+// the popup keys are plain keys the shell needs. the popup checks when they come whether a
+// shell edits its line, the context of the last frame may be older than that, and passes
+// them on while it doesn't show or once it finds nothing to show
+const POPUP_KEYS_CONTEXT: &str = "Terminal && autocomplete";
 
 // keys are checked before this runs, so `KeyBinding::new` won't panic
 fn binding(action: &str, keys: &str, when: Option<&str>) -> Option<KeyBinding> {
@@ -95,16 +99,16 @@ fn binding(action: &str, keys: &str, when: Option<&str>) -> Option<KeyBinding> {
         "vi_mode" => KeyBinding::new(keys, ToggleViMode, when.or(Some("Terminal"))),
         "complete" => KeyBinding::new(keys, Complete, when.or(Some("Terminal"))),
         "completion_next" => {
-            KeyBinding::new(keys, CompletionNext, when.or(Some(COMPLETION_CONTEXT)))
+            KeyBinding::new(keys, CompletionNext, when.or(Some(POPUP_KEYS_CONTEXT)))
         }
         "completion_prev" => {
-            KeyBinding::new(keys, CompletionPrev, when.or(Some(COMPLETION_CONTEXT)))
+            KeyBinding::new(keys, CompletionPrev, when.or(Some(POPUP_KEYS_CONTEXT)))
         }
         "completion_accept" => {
-            KeyBinding::new(keys, CompletionAccept, when.or(Some(COMPLETION_CONTEXT)))
+            KeyBinding::new(keys, CompletionAccept, when.or(Some(POPUP_KEYS_CONTEXT)))
         }
         "completion_dismiss" => {
-            KeyBinding::new(keys, CompletionDismiss, when.or(Some(COMPLETION_CONTEXT)))
+            KeyBinding::new(keys, CompletionDismiss, when.or(Some(POPUP_KEYS_CONTEXT)))
         }
         "command_palette" => KeyBinding::new(keys, ToggleCommandPalette, when),
         "toggle_fullscreen" => KeyBinding::new(keys, ToggleFullscreen, when),

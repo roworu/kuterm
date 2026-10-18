@@ -74,11 +74,12 @@ def test_scrollbar_width(app_factory, width, expected):
 
 def test_scrollbar_auto_hide(app_factory):
     """scrollbar.auto_hide hides the bar after some quiet seconds, scrolling shows it again"""
-    app = scroll_app(app_factory, {"enable": "dynamic", "auto_hide": 1}, lines=200)
+    # a second is too short to catch the bar on a loaded ci runner
+    app = scroll_app(app_factory, {"enable": "dynamic", "auto_hide": 3}, lines=200)
     app.wait(lambda: thumb(app), msg="scrollbar")
     app.snap("history printed, bar shown")
-    app.wait(lambda: thumb(app) is None, msg="bar hidden", timeout=5)
-    app.snap("bar hidden after a second")
+    app.wait(lambda: thumb(app) is None, msg="bar hidden")
+    app.snap("bar hidden after a few seconds")
     app.wheel(450, 300, up=True, clicks=3)
     app.wait(lambda: thumb(app), msg="bar back after scrolling")
 

@@ -138,7 +138,23 @@ pub(super) struct LayoutRect {
 }
 
 impl LayoutRect {
-    pub(super) fn paint(&self, origin: Point<Pixels>, dims: &TerminalBounds, window: &mut Window) {
+    /// paint it, stretched to the sides of `edges` it touches the grid edge at
+    pub(super) fn paint(
+        &self,
+        origin: Point<Pixels>,
+        dims: &TerminalBounds,
+        edges: Option<Bounds<Pixels>>,
+        window: &mut Window,
+    ) {
+        window.paint_quad(fill(self.bounds(origin, dims, edges), self.color));
+    }
+
+    fn bounds(
+        &self,
+        origin: Point<Pixels>,
+        dims: &TerminalBounds,
+        edges: Option<Bounds<Pixels>>,
+    ) -> Bounds<Pixels> {
         let position = point(
             (origin.x + self.column as f32 * dims.cell_width).floor(),
             origin.y + self.line as f32 * dims.line_height,
@@ -147,7 +163,27 @@ impl LayoutRect {
             (dims.cell_width * self.num_of_cells as f32).ceil(),
             dims.line_height,
         );
-        window.paint_quad(fill(Bounds::new(position, size), self.color));
+        let rect = Bounds::new(position, size);
+        let Some(edges) = edges else {
+            return rect;
+        };
+        // a full screen program colors its edge rows, like htop's key bar, the padding and
+        // the part of a cell the window is too small for would leave a strip in between
+        let (mut left, mut top, mut right, mut bottom) =
+            (rect.left(), rect.top(), rect.right(), rect.bottom());
+        if self.line == 0 {
+            top = edges.top();
+        }
+        if self.line + 1 == dims.num_lines() as i32 {
+            bottom = edges.bottom();
+        }
+        if self.column == 0 {
+            left = edges.left();
+        }
+        if self.column as usize + self.num_of_cells >= dims.num_columns() {
+            right = edges.right();
+        }
+        Bounds::from_corners(point(left, top), point(right, bottom))
     }
 }
 
@@ -429,6 +465,36 @@ mod tests {
     use gpui::{Rgba, font, rgb};
 
     use super::*;
+
+    #[test]
+    fn edge_backgrounds_reach_the_element_edges() {
+        // 10x4 cells of 10x20 at (14, 14) in an element of (10, 10) 116x100
+        let dims = TerminalBounds::new(
+            px(20.),
+            px(10.),
+            Bounds::new(point(px(14.), px(14.)), size(px(100.), px(80.))),
+        );
+        let edges = Bounds::new(point(px(10.), px(10.)), size(px(116.), px(100.)));
+        let origin = dims.bounds.origin;
+        let rect = |line, column, num_of_cells| LayoutRect {
+            line,
+            column,
+            num_of_cells,
+            color: gpui::black(),
+        };
+        let corners = |b: Bounds<Pixels>| (b.left(), b.top(), b.right(), b.bottom());
+        // a full bottom row covers the bottom padding and both sides
+        let bottom = rect(3, 0, 10).bounds(origin, &dims, Some(edges));
+        assert_eq!(corners(bottom), (px(10.), px(74.), px(126.), px(110.)));
+        // the top left cell takes the corner, an inner one stays a cell
+        let corner = rect(0, 0, 1).bounds(origin, &dims, Some(edges));
+        assert_eq!(corners(corner), (px(10.), px(10.), px(24.), px(34.)));
+        let inner = rect(1, 2, 3).bounds(origin, &dims, Some(edges));
+        assert_eq!(corners(inner), (px(34.), px(34.), px(64.), px(54.)));
+        // without edges nothing grows
+        let plain = rect(3, 0, 10).bounds(origin, &dims, None);
+        assert_eq!(corners(plain), (px(14.), px(74.), px(114.), px(94.)));
+    }
 
     fn themes() -> [(&'static str, Theme); 2] {
         [

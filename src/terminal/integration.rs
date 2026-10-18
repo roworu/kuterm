@@ -747,10 +747,17 @@ mod tests {
             eprintln!("no zsh, skipped");
             return;
         };
-        // a home of its own: no user files, and an empty .zshrc skips zsh's first run wizard
+        // a home of its own: no user files, and a .zshrc skips zsh's first run wizard. its
+        // options change how scripts run, kuterm's must work the same with them. its redraw
+        // hook stands for plugins like zsh-syntax-highlighting, which color the line there
         let home = std::env::temp_dir().join(format!("kuterm-zsh-{}", std::process::id()));
         std::fs::create_dir_all(&home).unwrap();
-        std::fs::write(home.join(".zshrc"), "PS1='$ '\n").unwrap();
+        let zshrc = "PS1='$ '\n\
+            autoload -Uz add-zle-hook-widget\n\
+            seen() { print -r -- \"$BUFFER\" >> $HOME/seen }\n\
+            add-zle-hook-widget line-pre-redraw seen\n\
+            setopt ksh_arrays sh_word_split\n";
+        std::fs::write(home.join(".zshrc"), zshrc).unwrap();
         let mut zsh = profile(Shell::Program(zsh.into()));
         let home_str = home.to_string_lossy().into_owned();
         zsh.env.insert("HOME".into(), home_str.clone());
@@ -783,9 +790,16 @@ mod tests {
         };
         assert!(cwd.is_absolute());
 
-        // an answer to an older line is dropped
+        // an answer to an older line is turned down
         let stale = protocol::accept(seq - 1, 5, 10, "wrong ").unwrap();
         assert!(terminal.send_to_shell(typed.conn, &stale));
+        let older = seq - 1;
+        wait_shell(&mut events, "the rejection", |m| {
+            *m == ShellMessage::Answered {
+                seq: older,
+                applied: false,
+            }
+        });
         let fresh = protocol::accept(*seq, 5, 10, "comp_done ").unwrap();
         assert!(terminal.send_to_shell(typed.conn, &fresh));
         wait_shell(
@@ -793,6 +807,13 @@ mod tests {
             "the completed line",
             |m| matches!(m, ShellMessage::Line { buffer, cursor: 15, .. } if buffer == "echo comp_done "),
         );
+        let seq = *seq;
+        wait_shell(&mut events, "the answer", |m| {
+            *m == ShellMessage::Answered { seq, applied: true }
+        });
+        // redraw hooks saw the completed line before it was drawn
+        let seen = std::fs::read_to_string(home.join("seen")).unwrap();
+        assert!(seen.lines().any(|line| line == "echo comp_done "), "{seen}");
 
         // the completed line runs as typed
         terminal.type_text(b"\r");

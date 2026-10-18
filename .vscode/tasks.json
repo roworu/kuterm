@@ -27,10 +27,36 @@
       "reveal": "always"
     },
     {
-      // run build made by podman
+      // run build made by podman, with config and state in .vscode so the host config is untouched
       "label": "run app",
+      "type": "shell",
       "command": "./target/podman/debug/kuterm",
       "cwd": "${workspaceFolder}",
+      "options": {
+        "env": {
+          "XDG_CONFIG_HOME": "${workspaceFolder}/.vscode/config",
+          "XDG_STATE_HOME": "${workspaceFolder}/.vscode/state"
+        }
+      },
+      "save": "all",
+      "useNewTerminal": false,
+      "parallel": false,
+      "problemMatcher": [],
+      "reveal": "always"
+    },
+    {
+      // run build made by podman with fresh config files, recreating them in .vscode/config
+      "label": "run app, refresh settings",
+      "type": "shell",
+      "command": "./target/podman/debug/kuterm",
+      "args": ["--recreate-confs"],
+      "cwd": "${workspaceFolder}",
+      "options": {
+        "env": {
+          "XDG_CONFIG_HOME": "${workspaceFolder}/.vscode/config",
+          "XDG_STATE_HOME": "${workspaceFolder}/.vscode/state"
+        }
+      },
       "save": "all",
       "useNewTerminal": false,
       "parallel": false,

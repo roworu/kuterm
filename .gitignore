@@ -25,3 +25,9 @@ e2e/artifacts
 
 # e2e python code
 __pycache__
+
+# local config and state written by the editor run tasks
+.zed/config
+.zed/state
+.vscode/config
+.vscode/state

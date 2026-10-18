@@ -1,10 +1,10 @@
 //! completion popup of a terminal view: follows what the shell reports about its command
 //! line, asks the engine for candidates off the main thread, and draws them at the cursor
 
-use std::{path::PathBuf, sync::Arc};
+use std::{collections::VecDeque, path::PathBuf, sync::Arc, time::Duration};
 
 use gpui::{
-    Anchor, AnyElement, AppContext, Context, Global, InteractiveElement, IntoElement,
+    Anchor, AnyElement, AppContext, Context, Global, InteractiveElement, IntoElement, Keystroke,
     ParentElement, Pixels, Point, ScrollDelta, ScrollWheelEvent, SharedString, Styled, Task,
     anchored, deferred, div, point, prelude::FluentBuilder as _, px,
 };
@@ -12,6 +12,7 @@ use gpui::{
 use crate::{
     completion::{self, Candidate, Completions, Kind, Request, ShellEvent, ShellMessage, Specs},
     settings::{CompletionTrigger, Settings, config_dir},
+    terminal::KeyEventKind,
     theme::Theme,
 };
 
@@ -26,6 +27,19 @@ impl Global for CompletionSpecs {}
 const MAX_LABEL_CELLS: usize = 40;
 const MAX_DESCRIPTION_CELLS: usize = 50;
 
+// popup keys and accepts stop waiting for the shell after this, one that never answers, like
+// a nested zsh of an older kuterm, or a slow folder must not eat them
+const KEY_WAIT: Duration = Duration::from_millis(300);
+
+/// what a popup key does
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum PopupKey {
+    Next,
+    Prev,
+    Accept,
+    Dismiss,
+}
+
 /// the command line a shell reported last
 #[derive(Clone, Debug)]
 struct Line {
@@ -34,6 +48,18 @@ struct Line {
     buffer: String,
     cursor: usize,
     cwd: PathBuf,
+}
+
+/// a completion sent to the shell that it has not answered yet
+struct SentAccept {
+    /// the line it was for, none when its candidates were older than the line
+    seq: Option<u64>,
+    /// the shell turned it down, its line had changed meanwhile
+    rejected: bool,
+    /// label of the picked candidate, kept when the selection was moved to it
+    picked: Option<String>,
+    /// key that accepted it, the shell gets it when the newer line has nothing to pick
+    keystroke: Option<Keystroke>,
 }
 
 #[derive(Default)]
@@ -47,12 +73,20 @@ pub(super) struct CompletionMenu {
     /// the popup should show, it still needs candidates for that
     open: bool,
     selected: usize,
+    /// the selection was moved by the user since the candidates came
+    moved: bool,
     /// first row shown
     top: usize,
     /// connection and word start escape hid the popup for, it stays hidden for that word
     dismissed: Option<(u64, usize)>,
-    /// accept asked for while the candidates were older than the line, done once they come
-    pending_accept: bool,
+    /// last keystroke this view got, popup keys keep it to pass it on
+    keystroke: Option<Keystroke>,
+    /// accept the shell has not answered, keys after it wait for the line it makes
+    accept: Option<SentAccept>,
+    /// popup keys typed while candidates or an answer were on the way
+    queued: VecDeque<(PopupKey, Option<Keystroke>)>,
+    /// stops waiting when the shell takes too long
+    wait_timeout: Option<Task<()>>,
     /// running completion, a new one replaces and so cancels it
     task: Option<Task<()>>,
 }
@@ -61,6 +95,29 @@ impl CompletionMenu {
     /// true when the popup has something to show
     pub(super) fn visible(&self) -> bool {
         self.open && self.line.is_some() && self.result.is_some()
+    }
+
+    /// a shell edits its line, so popup keys go through the popup
+    pub(super) fn editing(&self) -> bool {
+        self.line.is_some()
+    }
+
+    /// candidates for the line are still being found
+    fn finding(&self) -> bool {
+        let Some(line) = &self.line else {
+            return false;
+        };
+        self.task.is_some() && self.result.as_ref().is_none_or(|(seq, _)| *seq != line.seq)
+    }
+
+    /// popup keys have to wait: for candidates, or for the shell to answer an accept
+    fn busy(&self) -> bool {
+        self.line.is_some() && (self.accept.is_some() || self.finding())
+    }
+
+    /// remember the keystroke being dispatched, its popup key may pass it on later
+    pub(super) fn set_keystroke(&mut self, keystroke: Keystroke) {
+        self.keystroke = Some(keystroke);
     }
 
     fn candidates(&self) -> &[Candidate] {
@@ -100,6 +157,10 @@ impl TerminalView {
                     cursor: *cursor,
                     cwd: cwd.clone(),
                 };
+                // a new shell, like a nested one, answers nothing the old one was sent
+                if menu.line.as_ref().is_some_and(|old| old.conn != line.conn) {
+                    menu.accept = None;
+                }
                 let blank = line
                     .buffer
                     .chars()
@@ -116,19 +177,34 @@ impl TerminalView {
                     menu.task = None;
                 }
             }
+            ShellMessage::Answered { seq, applied } => {
+                if let Some(accept) = &mut menu.accept
+                    && accept.seq == Some(*seq)
+                {
+                    if *applied {
+                        menu.accept = None;
+                    } else {
+                        accept.rejected = true;
+                    }
+                }
+            }
             ShellMessage::End | ShellMessage::Closed => {
                 if menu
                     .line
                     .as_ref()
                     .is_some_and(|line| line.conn == event.conn)
                 {
+                    // keys still waiting go to whatever reads them now
                     *menu = CompletionMenu {
                         path_var: menu.path_var.take(),
+                        keystroke: menu.keystroke.take(),
+                        queued: std::mem::take(&mut menu.queued),
                         ..CompletionMenu::default()
                     };
                 }
             }
         }
+        self.run_popup_keys(cx);
         cx.notify();
     }
 
@@ -182,12 +258,130 @@ impl TerminalView {
             menu.open = menu.dismissed.is_none() && CompletionMenu::worth_showing(&result);
         }
         menu.selected = 0;
+        menu.moved = false;
         menu.top = 0;
         menu.result = Some((seq, result));
-        if std::mem::take(&mut menu.pending_accept) {
-            self.accept_completion(cx);
-        }
+        self.run_popup_keys(cx);
         cx.notify();
+    }
+
+    /// a popup key, true when the popup took it. while candidates or an answer of the shell
+    /// are on the way it waits for them
+    pub(super) fn popup_key(&mut self, key: PopupKey, cx: &mut Context<Self>) -> bool {
+        let menu = &mut self.completions;
+        if menu.busy() || !menu.queued.is_empty() {
+            let keystroke = menu.keystroke.clone();
+            menu.queued.push_back((key, keystroke));
+            self.run_popup_keys(cx);
+            return true;
+        }
+        if !menu.visible() {
+            return false;
+        }
+        let keystroke = menu.keystroke.clone();
+        self.run_popup_key(key, keystroke, cx);
+        true
+    }
+
+    fn run_popup_key(
+        &mut self,
+        key: PopupKey,
+        keystroke: Option<Keystroke>,
+        cx: &mut Context<Self>,
+    ) {
+        match key {
+            PopupKey::Next => self.move_completion(1, cx),
+            PopupKey::Prev => self.move_completion(-1, cx),
+            PopupKey::Accept => self.accept_completion(keystroke, cx),
+            PopupKey::Dismiss => self.dismiss_completions(cx),
+        }
+    }
+
+    /// do what waits once nothing is on the way: an accept the shell turned down again on
+    /// the newer line, then the queued keys, on the popup when it shows, else in the shell
+    fn run_popup_keys(&mut self, cx: &mut Context<Self>) {
+        let menu = &mut self.completions;
+        let seq = menu.line.as_ref().map(|line| line.seq);
+        // a line newer than the one turned down, the same one would be turned down again
+        let newer = |accept: &mut SentAccept| {
+            accept.rejected
+                && accept
+                    .seq
+                    .is_none_or(|sent| seq.is_some_and(|seq| seq > sent))
+        };
+        if !menu.finding()
+            && let Some(accept) = menu.accept.take_if(newer)
+        {
+            self.redo_accept(accept, cx);
+        }
+        let mut ran = false;
+        while !self.completions.busy() {
+            let Some((key, keystroke)) = self.completions.queued.pop_front() else {
+                break;
+            };
+            ran = true;
+            if self.completions.visible() {
+                self.run_popup_key(key, keystroke, cx);
+            } else if let Some(keystroke) = keystroke {
+                self.send_key(&keystroke, KeyEventKind::Press, cx);
+            }
+        }
+        let menu = &mut self.completions;
+        if !menu.busy() && menu.queued.is_empty() {
+            menu.wait_timeout = None;
+        } else if ran || menu.wait_timeout.is_none() {
+            menu.wait_timeout = Some(cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(KEY_WAIT).await;
+                this.update(cx, |this, cx| this.stop_waiting(cx)).ok();
+            }));
+        }
+    }
+
+    /// the shell or the engine took too long: an unanswered accept is given up, keys still
+    /// waiting go to the shell
+    fn stop_waiting(&mut self, cx: &mut Context<Self>) {
+        let menu = &mut self.completions;
+        menu.wait_timeout = None;
+        menu.accept = None;
+        self.run_popup_keys(cx);
+        let menu = &mut self.completions;
+        menu.wait_timeout = None;
+        for (_, keystroke) in std::mem::take(&mut menu.queued) {
+            if let Some(keystroke) = keystroke {
+                self.send_key(&keystroke, KeyEventKind::Press, cx);
+            }
+        }
+    }
+
+    /// send the queued keys to the shell, a key typed after them must not pass them
+    pub(super) fn forward_popup_keys(&mut self, cx: &mut Context<Self>) {
+        if !self.completions.queued.is_empty() {
+            self.stop_waiting(cx);
+        }
+    }
+
+    /// accept on the candidates of the newer line what the shell turned down for an older
+    /// one: the same candidate when it was picked by moving to it, else the first
+    fn redo_accept(&mut self, accept: SentAccept, cx: &mut Context<Self>) {
+        let menu = &mut self.completions;
+        let fresh = menu
+            .result
+            .as_ref()
+            .filter(|(seq, _)| menu.line.as_ref().is_some_and(|line| line.seq == *seq))
+            .map_or(&[][..], |(_, result)| result.candidates.as_slice());
+        let picked = accept
+            .picked
+            .as_ref()
+            .and_then(|label| fresh.iter().position(|c| &c.label == label));
+        if fresh.is_empty() {
+            if let Some(keystroke) = accept.keystroke {
+                self.send_key(&keystroke, KeyEventKind::Press, cx);
+            }
+            return;
+        }
+        menu.selected = picked.unwrap_or(0);
+        menu.moved = picked.is_some();
+        self.accept_completion(accept.keystroke, cx);
     }
 
     /// show the popup for the current line, false when no shell reported one
@@ -211,6 +405,7 @@ impl TerminalView {
             return;
         }
         menu.selected = (menu.selected as isize + delta).rem_euclid(count as isize) as usize;
+        menu.moved = true;
         // keep the selected row in view
         if menu.selected < menu.top {
             menu.top = menu.selected;
@@ -220,27 +415,47 @@ impl TerminalView {
         cx.notify();
     }
 
-    /// put the selected candidate into the shell's command line
-    pub(super) fn accept_completion(&mut self, cx: &mut Context<Self>) {
+    /// put the selected candidate into the shell's command line. `keystroke` is the key that
+    /// asked, the shell gets it when the line changed to one with nothing to pick
+    pub(super) fn accept_completion(
+        &mut self,
+        keystroke: Option<Keystroke>,
+        cx: &mut Context<Self>,
+    ) {
         let menu = &mut self.completions;
         let (Some(line), Some((seq, result))) = (&menu.line, &menu.result) else {
             return;
         };
-        // the shell would drop an answer to an older line, so wait for the fresh one
-        if *seq != line.seq {
-            menu.pending_accept = true;
-            return;
-        }
         let Some(candidate) = result.candidates.get(menu.selected) else {
             return;
         };
+        let picked = menu.moved.then(|| candidate.label.clone());
+        menu.open = false;
+        // the shell would turn an answer to an older line down, so it waits for the fresh one
+        if *seq != line.seq {
+            menu.accept = Some(SentAccept {
+                seq: None,
+                rejected: true,
+                picked,
+                keystroke,
+            });
+            return;
+        }
         let message =
             completion::protocol::accept(*seq, result.start, result.end, &candidate.insert);
-        let conn = line.conn;
-        menu.open = false;
-        // the next line the shell reports brings the popup back for what follows
-        if let Some(message) = message {
-            self.terminal.read(cx).send_to_shell(conn, &message);
+        let (seq, conn) = (*seq, line.conn);
+        // the line the shell reports with it brings the popup back for what follows, keys
+        // typed until it answers wait for that
+        if let Some(message) = message
+            && self.terminal.read(cx).send_to_shell(conn, &message)
+        {
+            self.completions.accept = Some(SentAccept {
+                seq: Some(seq),
+                rejected: false,
+                picked,
+                keystroke,
+            });
+            self.run_popup_keys(cx);
         }
         cx.notify();
     }
@@ -249,7 +464,6 @@ impl TerminalView {
     pub(super) fn dismiss_completions(&mut self, cx: &mut Context<Self>) {
         let menu = &mut self.completions;
         menu.open = false;
-        menu.pending_accept = false;
         if let (Some(line), Some((_, result))) = (&menu.line, &menu.result) {
             menu.dismissed = Some((line.conn, result.start));
         }
@@ -258,7 +472,8 @@ impl TerminalView {
 
     fn completion_clicked(&mut self, ix: usize, cx: &mut Context<Self>) {
         self.completions.selected = ix;
-        self.accept_completion(cx);
+        self.completions.moved = true;
+        self.accept_completion(None, cx);
     }
 
     fn completion_wheel(&mut self, event: &ScrollWheelEvent, cx: &mut Context<Self>) {
@@ -474,8 +689,10 @@ fn completion_row(
 #[cfg(all(test, unix))]
 mod tests {
     use std::{
+        cell::RefCell,
         io::{BufRead, BufReader, Write},
         os::unix::net::UnixStream,
+        rc::Rc,
         time::Duration,
     };
 
@@ -570,6 +787,22 @@ mod tests {
         cx.run_until_parked();
     }
 
+    /// the shell tells whether it put the accept for line `seq` in
+    fn answer(
+        view: &Entity<TerminalView>,
+        cx: &mut VisualTestContext,
+        shell: &FakeShell,
+        seq: u64,
+        applied: bool,
+    ) {
+        let event = ShellEvent {
+            conn: shell.conn,
+            message: ShellMessage::Answered { seq, applied },
+        };
+        view.update(cx, |view, cx| view.shell_event(&event, cx));
+        cx.run_until_parked();
+    }
+
     /// labels in the popup, empty while it doesn't show
     fn shown(view: &Entity<TerminalView>, cx: &mut VisualTestContext) -> Vec<String> {
         view.update_in(cx, |view, window, cx| {
@@ -660,7 +893,7 @@ mod tests {
         let newer = line_event(&shell, 2, "cat alph");
         view.update(cx, |view, cx| {
             view.shell_event(&newer, cx);
-            view.accept_completion(cx);
+            view.accept_completion(None, cx);
         });
         cx.run_until_parked();
         assert_eq!(shell.received(), "1 accept 2 4 8 alpha.txt \n");
@@ -823,22 +1056,123 @@ mod tests {
         );
     }
 
-    #[gpui::test]
-    fn popup_keys_reach_the_shell_while_it_is_hidden(cx: &mut TestAppContext) {
-        use std::{cell::RefCell, rc::Rc};
-        let (view, cx, shell) = with_shell("hidden", AUTO, cx);
+    /// keys and text the view sends to the shell, in order
+    fn sent_keys(
+        view: &Entity<TerminalView>,
+        cx: &mut VisualTestContext,
+    ) -> (Rc<RefCell<Vec<String>>>, gpui::Subscription) {
         let keys = Rc::new(RefCell::new(Vec::new()));
         let seen = keys.clone();
-        let _subscription = cx.update(|_, cx| {
+        let subscription = cx.update(|_, cx| {
             cx.subscribe(
-                &view,
-                move |_, input: &crate::ui::terminal_view::TypedInput, _| {
-                    if let crate::ui::terminal_view::TypedInput::Key(keystroke, _) = input {
-                        seen.borrow_mut().push(keystroke.key.clone());
+                view,
+                move |_, input: &crate::ui::terminal_view::TypedInput, _| match input {
+                    crate::ui::terminal_view::TypedInput::Key(keystroke, _) => {
+                        seen.borrow_mut().push(keystroke.key.clone())
                     }
+                    crate::ui::terminal_view::TypedInput::Text(text) => {
+                        seen.borrow_mut().push(text.clone())
+                    }
+                    _ => {}
                 },
             )
         });
+        (keys, subscription)
+    }
+
+    #[gpui::test]
+    fn tab_before_the_popup_shows_waits_for_it(cx: &mut TestAppContext) {
+        let (view, cx, mut shell) = with_shell("early", AUTO, cx);
+        let (keys, _subscription) = sent_keys(&view, cx);
+        // the prompt is up, then tab comes before the candidates for the line do
+        type_line(&view, cx, &shell, 1, "");
+        let event = line_event(&shell, 2, "cat al");
+        view.update(cx, |view, cx| view.shell_event(&event, cx));
+        cx.simulate_keystrokes("tab");
+        cx.run_until_parked();
+        assert_eq!(shell.received(), "1 accept 2 4 6 alpine/\n");
+        assert!(keys.borrow().is_empty(), "tab reached the shell");
+        answer(&view, cx, &shell, 2, true);
+
+        // nothing to show for the line, so the waiting tab is the shell's
+        let event = line_event(&shell, 3, "cat zzqx");
+        view.update(cx, |view, cx| view.shell_event(&event, cx));
+        cx.simulate_keystrokes("tab");
+        cx.run_until_parked();
+        assert_eq!(*keys.borrow(), ["tab"]);
+    }
+
+    #[gpui::test]
+    fn tab_after_an_accept_waits_for_the_new_line(cx: &mut TestAppContext) {
+        let (view, cx, mut shell) = with_shell("again", AUTO, cx);
+        let (keys, _subscription) = sent_keys(&view, cx);
+        type_line(&view, cx, &shell, 1, "cat al");
+        cx.simulate_keystrokes("down tab");
+        assert_eq!(shell.received(), "1 accept 1 4 6 alpha.txt \n");
+        // the shell hasn't reported the completed line yet, the second tab waits for it
+        cx.simulate_keystrokes("tab");
+        assert!(keys.borrow().is_empty(), "tab reached the shell");
+        type_line(&view, cx, &shell, 2, "cat alpha.txt ");
+        assert!(keys.borrow().is_empty());
+        answer(&view, cx, &shell, 1, true);
+        assert_eq!(shell.received(), "1 accept 2 14 14 alpine/\n");
+        assert!(keys.borrow().is_empty());
+
+        // a shell that never reports the line gets the key after a while
+        cx.simulate_keystrokes("tab");
+        assert!(keys.borrow().is_empty());
+        cx.executor().advance_clock(KEY_WAIT);
+        cx.run_until_parked();
+        assert_eq!(*keys.borrow(), ["tab"]);
+    }
+
+    #[gpui::test]
+    fn tab_typed_ahead_of_the_shell_waits_for_its_line(cx: &mut TestAppContext) {
+        let (view, cx, mut shell) = with_shell("ahead", AUTO, cx);
+        type_line(&view, cx, &shell, 1, "cat al");
+        assert!(!shown(&view, cx).is_empty());
+        // "p" went to the shell before tab, so the shell turns the accept for "cat al" down,
+        // and it is done again on the line with the "p"
+        cx.simulate_keystrokes("p tab");
+        assert_eq!(shell.received(), "1 accept 1 4 6 alpine/\n");
+        type_line(&view, cx, &shell, 2, "cat alp");
+        answer(&view, cx, &shell, 1, false);
+        assert_eq!(shell.received(), "1 accept 2 4 7 alpine/\n");
+
+        // the selection moved to a candidate stays on it, and one the newer line has
+        // nothing for goes to the shell as the key it was
+        let (keys, _subscription) = sent_keys(&view, cx);
+        answer(&view, cx, &shell, 2, true);
+        type_line(&view, cx, &shell, 3, "cat al");
+        cx.simulate_keystrokes("down tab");
+        assert_eq!(shell.received(), "1 accept 3 4 6 alpha.txt \n");
+        type_line(&view, cx, &shell, 4, "cat alph");
+        answer(&view, cx, &shell, 3, false);
+        assert_eq!(shell.received(), "1 accept 4 4 8 alpha.txt \n");
+        answer(&view, cx, &shell, 4, true);
+        type_line(&view, cx, &shell, 5, "cat al");
+        cx.simulate_keystrokes("tab");
+        assert_eq!(shell.received(), "1 accept 5 4 6 alpine/\n");
+        type_line(&view, cx, &shell, 6, "cat alx");
+        answer(&view, cx, &shell, 5, false);
+        assert_eq!(*keys.borrow(), ["tab"]);
+    }
+
+    #[gpui::test]
+    fn a_waiting_key_goes_before_the_next_typed_one(cx: &mut TestAppContext) {
+        let (view, cx, shell) = with_shell("order", AUTO, cx);
+        let (keys, _subscription) = sent_keys(&view, cx);
+        type_line(&view, cx, &shell, 1, "");
+        let event = line_event(&shell, 2, "cat al");
+        view.update(cx, |view, cx| view.shell_event(&event, cx));
+        cx.simulate_keystrokes("tab x");
+        assert_eq!(*keys.borrow(), ["tab", "x"]);
+    }
+
+    #[gpui::test]
+    fn popup_keys_reach_the_shell_while_it_is_hidden(cx: &mut TestAppContext) {
+        let (view, cx, shell) = with_shell("hidden", AUTO, cx);
+        let (keys, _subscription) = sent_keys(&view, cx);
         // a blank line shows nothing, so down is the shell's
         type_line(&view, cx, &shell, 1, " ");
         cx.simulate_keystrokes("down");

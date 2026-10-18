@@ -5,7 +5,7 @@ import math
 
 import pytest
 
-from harness import BACKEND, App, bundled_theme, close_to, session_env, sh, swaymsg, xdo
+from harness import BACKEND, App, bundled_theme, close_to, near, session_env, sh, swaymsg, xdo
 
 FEATURE = "window"
 
@@ -52,6 +52,28 @@ def test_balanced_padding_centers_the_grid(app_factory):
     app.snap("balanced padding")
     assert abs(x0 - math.floor(pad + spare_x / 2)) <= 1, (x0, spare_x)
     assert abs(y0 - math.floor(pad + spare_y / 2)) <= 1, (y0, spare_y)
+
+
+# the last row painted red in the alternate screen, like htop's key bar, or on the normal one
+RED_BOTTOM = ("printf '{alt}\\033[2J\\033[%d;1H\\033[41m%*s\\033[0;1H\\033[0m' "
+              "$(tput lines) $(tput cols) ''; sleep 60\n")
+
+
+@pytest.mark.parametrize("alt", [True, False])
+def test_edge_rows_of_full_screen_programs_reach_the_window_edge(app_factory, alt):
+    """a full screen program's bottom row fills the padding under it, with no strip of the
+    terminal background, a shell's output keeps the padding"""
+    app = app_factory({"theme": {"mode": "dark"}, "terminal": {"scrollbar": {"enable": "off"}},
+                       "window": {"padding": {"x": 4, "y": 4}}},
+                      script=RED_BOTTOM.format(alt="\\033[?1049h" if alt else ""))
+    app.wait(lambda: near(app.shot()[:, 450:451], RED, 3).any(), msg="red bottom row")
+    img = app.wait_still()
+    app.snap("bottom row of a full screen program" if alt else "bottom row on the normal screen")
+    bottom = img[-1, 450]
+    if alt:
+        assert close_to(bottom, RED, 3), bottom
+    else:
+        assert close_to(bottom, DARK["terminal_background"], 3), bottom
 
 
 def test_remember_size_saves_the_last_size(app_factory):

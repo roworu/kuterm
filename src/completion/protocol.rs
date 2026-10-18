@@ -32,6 +32,9 @@ pub enum ShellMessage {
         cursor: usize,
         cwd: PathBuf,
     },
+    /// what the shell did with the accept for line `seq`: not applied when its line had
+    /// changed since
+    Answered { seq: u64, applied: bool },
     /// the line was run or dropped, the editor is gone until the next prompt
     End,
     /// the shell went away, never sent by one
@@ -114,6 +117,13 @@ mod tests {
             assert!(parse(bad).is_err(), "{bad}");
         }
         assert_eq!(parse(r#"{"v":1,"type":"end"}"#), Ok(ShellMessage::End));
+        assert_eq!(
+            parse(r#"{"v":1,"type":"answered","seq":4,"applied":false}"#),
+            Ok(ShellMessage::Answered {
+                seq: 4,
+                applied: false
+            })
+        );
         assert_eq!(
             parse(r#"{"v":1,"type":"hello","shell":"zsh"}"#),
             Ok(ShellMessage::Hello {

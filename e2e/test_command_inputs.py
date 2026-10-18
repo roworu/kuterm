@@ -227,7 +227,8 @@ def test_unknown_placeholders_are_left_alone(app_factory):
                                   "actions": [{"type": "echo '{print $1}' {nope} > $T2_TMP/unknown\n"}]}])
     app.palette("left alone")
     app.wait_file("unknown", "{print $1} {nope}")
-    assert panel(app) is None
+    # the shell can write the file before the closed palette is repainted
+    app.wait(lambda: panel(app) is None, msg="palette closed")
     assert app.alive()
 
 

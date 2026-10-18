@@ -7,7 +7,9 @@ mod grid;
 mod input_handler;
 mod scrollbar;
 
-use alacritty_terminal::{index::Point as AlacPoint, term::search::Match, vte::ansi::CursorShape};
+use alacritty_terminal::{
+    index::Point as AlacPoint, term::TermMode, term::search::Match, vte::ansi::CursorShape,
+};
 use std::sync::Arc;
 
 use gpui::{
@@ -548,8 +550,16 @@ impl Element for TerminalElement {
                 cx,
             );
 
+            // only full screen programs own the edges, a shell prompt keeps its padding
+            let alt_screen = self
+                .terminal
+                .read(cx)
+                .last_content
+                .mode
+                .contains(TermMode::ALT_SCREEN);
+            let edges = alt_screen.then_some(bounds);
             for rect in &layout.rects {
-                rect.paint(origin, &layout.dimensions, window);
+                rect.paint(origin, &layout.dimensions, edges, window);
             }
             // over cell backgrounds, under the text
             for (image_bounds, image) in &layout.images {

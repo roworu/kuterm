@@ -46,6 +46,12 @@ def pytest_sessionstart(session):
 
 
 def pytest_collection_modifyitems(config, items):
+    # E2E_SHARD=i/n keeps every nth test from the ith, so ci splits a backend over n runners.
+    # taken in turn rather than in blocks, slow files spread over all shards
+    if shard := os.environ.get("E2E_SHARD"):
+        i, n = map(int, shard.split("/"))
+        config.hook.pytest_deselected(items=[item for ix, item in enumerate(items) if ix % n != i - 1])
+        items[:] = items[i - 1::n]
     REPORT.order = {item.nodeid: i for i, item in enumerate(items)}
     other = "wayland_only" if BACKEND == "x11" else "x11_only"
     for item in items:

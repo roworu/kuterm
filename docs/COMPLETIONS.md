@@ -258,7 +258,10 @@ before any dynamic provider is added, it needs:
    `KUTERM_COMPLETION_SOCKET` and kuterm's `.zshenv` connects.
 6. `autocomplete.trigger`: `"auto"` (default) or `"key"`.
 7. up/down move, tab accepts, escape hides until the next word, enter is left to the shell;
-   all rebindable, they only work while the popup shows (`"when": "completion"`).
+   all rebindable. they reach the popup while zsh edits its line and pass to the shell
+   while it doesn't show; one typed while candidates are still being
+   found, or right after an accept, waits for them (at most 400 ms) and goes to the shell
+   when nothing shows. `"when": "completion"` is while the popup shows.
 8. dynamic providers are not supported, see safety.
 9. zsh 5.3 or newer (`add-zle-hook-widget`, `line-pre-redraw`) with `zsh/net/socket`.
 10. zsh only, see status.
@@ -269,4 +272,4 @@ before any dynamic provider is added, it needs:
 - the socket fd is inherited by programs started from the shell; a background program that
   outlives the shell delays the "closed" event until it exits.
 - the popup shows the candidates of the previous keystroke for the few milliseconds the engine
-  takes; an accept in that window waits for the fresh ones.
+  takes; popup keys in that window wait for the fresh ones.

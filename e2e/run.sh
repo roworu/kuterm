@@ -3,6 +3,7 @@
 # usage: e2e/run.sh [--backend x11|wayland|all] [pytest args], e.g. -k cursor or -x
 # KUTERM_BIN=path/to/kuterm tests that binary, otherwise a debug build is made first.
 # E2E_WORKERS=n runs the tests in n parallel sessions (4 by default), 0 runs them one at a time.
+# E2E_SHARD=i/n runs only the ith of n equal parts of the tests, for splitting ci over runners.
 # the report with screenshots of every tested feature is written to e2e/artifacts/report-<backend>.html.
 # --backend all runs x11 and wayland at the same time, their lines prefixed with the backend.
 # exits non-zero when any test fails
@@ -52,7 +53,7 @@ run_backend() (
 	# the 64 MB default is too small
 	n=$((workers > 1 ? workers : 1))
 	podman create --name "$name" --init --memory "$((2 + 2 * n))g" --shm-size "${n}g" \
-		-e KUTERM_BIN=/src/kuterm -e E2E_BACKEND="$b" -e PYTHONDONTWRITEBYTECODE=1 \
+		-e KUTERM_BIN=/src/kuterm -e E2E_BACKEND="$b" -e E2E_SHARD="$E2E_SHARD" -e PYTHONDONTWRITEBYTECODE=1 \
 		kuterm-e2e python3 -m pytest -p no:cacheprovider -v -rfEs --tb=short e2e "$@" >/dev/null || exit
 	tar -C "$ROOT" --exclude=e2e/artifacts --exclude=__pycache__ -cf - e2e assets Cargo.toml |
 		podman cp - "$name:/src" || exit
