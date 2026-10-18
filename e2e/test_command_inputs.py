@@ -486,22 +486,6 @@ def test_inputs_with_a_queued_command(app_factory):
     app.wait(lambda: "⧗" not in app.title(), msg="the queue is empty again")
 
 
-def test_inputs_work_in_an_incognito_tab(app_factory):
-    """a command with inputs types its value into the incognito tab it was run in"""
-    app = app_with(app_factory, [{"name": "private", "actions": ["new_incognito_tab"]},
-                                 touch("make it")])
-    app.palette("private")
-    app.wait_title(lambda title: title.startswith("2"))
-    private = next(tab for tab in tabs(app) if tab["active"])
-    run(app, "make it", "secret")
-    app.wait(lambda: app.file("secret").exists(), msg="the value ran in the incognito tab")
-    # the other tab never saw it, and the incognito one still can not be read
-    first = next(tab for tab in tabs(app) if tab["id"] != private["id"])
-    assert "secret" not in text(app, str(first["id"]))
-    done = msg(app, "get-text", "--pane", str(private["id"]))
-    assert done.returncode != 0 and "incognito" in done.stderr + done.stdout
-
-
 def test_a_pinned_command_with_inputs_comes_first_in_the_palette(app_factory):
     """a pinned command is listed before the others, so enter picks it and asks for its value"""
     app = app_with(app_factory, [

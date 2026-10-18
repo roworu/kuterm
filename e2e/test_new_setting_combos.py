@@ -1,5 +1,5 @@
 """the new settings used together, not one at a time: the command queue, broadcast, a stopped
-job and incognito tabs, every way a command can be typed next to the source gutter, a held
+job, every way a command can be typed next to the source gutter, a held
 frame, the completion popup
 with its keys, its keymap and the shell, a question and an agent notifying together, and one app
 started with every new setting away from its default"""

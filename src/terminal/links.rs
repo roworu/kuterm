@@ -74,21 +74,36 @@ fn is_url_char(c: char) -> bool {
 
 /// cells after `end` up to where its row stops: the last column, or a box border after at
 /// most one space of padding. none when other text comes first
-fn tail_to_edge<T: EventListener>(term: &Term<T>, end: AlacPoint) -> Option<String> {
-    let row = &term.grid()[end.line];
-    let mut tail = String::new();
-    let mut column = end.column.0 + 1;
+// url chars of `line` from `column` on, each with the last cell it covers, a wide char
+// covers two
+fn url_run<T: EventListener>(term: &Term<T>, line: Line, mut column: usize) -> Vec<(char, usize)> {
+    let row = &term.grid()[line];
+    let mut run = Vec::new();
     while column < term.columns() && is_url_char(row[Column(column)].c) {
-        tail.push(row[Column(column)].c);
-        column += 1;
+        let cell = &row[Column(column)];
+        let last = if cell.flags.contains(Flags::WIDE_CHAR) {
+            (column + 1).min(term.last_column().0)
+        } else {
+            column
+        };
+        run.push((cell.c, last));
+        column = last + 1;
     }
+    run
+}
+
+fn tail_to_edge<T: EventListener>(term: &Term<T>, end: AlacPoint) -> Option<(String, Column)> {
+    let row = &term.grid()[end.line];
+    let run = url_run(term, end.line, end.column.0 + 1);
+    let tail: String = run.iter().map(|(c, _)| c).collect();
+    let column = run.last().map_or(end.column.0 + 1, |(_, last)| last + 1);
     let padding = (column..term.columns())
         .take_while(|&c| row[Column(c)].c == ' ')
         .count();
     let after = column + padding;
     let at_edge = column == term.columns()
         || (padding <= 1 && after < term.columns() && BORDERS.contains(&row[Column(after)].c));
-    at_edge.then_some(tail)
+    at_edge.then_some((tail, Column(column.saturating_sub(1))))
 }
 
 /// true when `line` ends in url chars at its edge or right before a box border, so a url
@@ -134,12 +149,12 @@ fn join_cut_url<T: EventListener>(term: &Term<T>, link: &mut Link) {
         {
             break;
         }
-        let Some(tail) = tail_to_edge(term, end) else {
+        let Some((tail, tail_last)) = tail_to_edge(term, end) else {
             break;
         };
         let line = Line(end.line.0 + 1);
         let row = &term.grid()[line];
-        let mut column = match border {
+        let first = match border {
             Some(border) if !BORDERS.contains(&row[Column(border)].c) => break,
             Some(border) => {
                 let mut column = border + 1;
@@ -150,12 +165,9 @@ fn join_cut_url<T: EventListener>(term: &Term<T>, link: &mut Link) {
             }
             None => 0,
         };
-        let first = column;
-        let mut run = String::new();
-        while column < term.columns() && is_url_char(row[Column(column)].c) {
-            run.push(row[Column(column)].c);
-            column += 1;
-        }
+        let cells = url_run(term, line, first);
+        let column = cells.last().map_or(first, |(_, last)| last + 1);
+        let run: String = cells.iter().map(|(c, _)| c).collect();
         let rest_blank = (column..term.columns()).all(|c| {
             let c = row[Column(c)].c;
             c == ' ' || BORDERS.contains(&c)
@@ -171,12 +183,11 @@ fn join_cut_url<T: EventListener>(term: &Term<T>, link: &mut Link) {
         // the url chars before the edge of the row above are part of it after all
         if !tail.is_empty() {
             let last = link.rest.last_mut().unwrap_or(&mut link.range);
-            let tail_end = AlacPoint::new(end.line, end.column + tail.chars().count());
-            *last = *last.start()..=tail_end;
+            *last = *last.start()..=AlacPoint::new(end.line, tail_last);
             link.target.push_str(&tail);
         }
         link.target.push_str(kept);
-        end = AlacPoint::new(line, Column(first + kept.chars().count() - 1));
+        end = AlacPoint::new(line, Column(cells[kept.chars().count() - 1].1));
         link.rest.push(AlacPoint::new(line, Column(first))..=end);
         if kept.len() < run.len() {
             break;
@@ -385,6 +396,15 @@ mod tests {
         }
         assert_eq!(super::pattern_at(&term, &mut patterns, at(1, 11)), None);
         assert_eq!(super::pattern_at(&term, &mut patterns, at(2, 1)), None);
+    }
+
+    #[test]
+    fn wide_chars_of_a_cut_url_count_two_cells() {
+        let first = format!("{}https://example.com/aaaaaaaa/b", "x ".repeat(25));
+        let term = term_with(&[&first, "日本/a next"]);
+        let link = super::pattern_at(&term, &mut urls(), at(0, 60)).unwrap();
+        assert_eq!(link.target, "https://example.com/aaaaaaaa/b日本/a");
+        assert_eq!(link.rest, [at(1, 0)..=at(1, 5)]);
     }
 
     #[test]

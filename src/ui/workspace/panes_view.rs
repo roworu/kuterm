@@ -163,7 +163,6 @@ impl Workspace {
             })
             .children(self.render_queue_list(pane, cx))
             .children(self.render_pty_banner(pane, cx))
-            .children(self.render_profile_frame(pane, cx))
             .when(self.scroll_synced(pane_id), |terminal| {
                 terminal.child(
                     div()

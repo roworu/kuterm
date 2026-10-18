@@ -55,12 +55,6 @@ pub enum BusEvent {
         pane: u64,
         title: String,
     },
-    /// output matched a watched pattern
-    OutputMatched {
-        pane: u64,
-        pattern: String,
-        text: String,
-    },
     PaneOpened {
         pane: u64,
     },
@@ -160,11 +154,6 @@ mod tests {
             BusEvent::TitleChanged {
                 pane: 1,
                 title: "x".into(),
-            },
-            BusEvent::OutputMatched {
-                pane: 1,
-                pattern: "err".into(),
-                text: "error".into(),
             },
             BusEvent::PaneOpened { pane: 1 },
             BusEvent::PtyModesChanged {

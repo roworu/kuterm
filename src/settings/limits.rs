@@ -62,9 +62,6 @@ const DIVIDER_WIDTH_RANGE: (f32, f32) = (0., 20.);
 
 const DIM_INACTIVE_RANGE: (f32, f32) = (0., 1.);
 
-// a few megabytes hold some images, more than this is a lot for one tab
-const GRAPHICS_MEMORY_RANGE: (f32, f32) = (1., 4096.);
-
 // Duration panics on negative or huge seconds, a day is already "never"
 const NOTIFY_AFTER_RANGE: (f32, f32) = (0., 86400.);
 
@@ -225,12 +222,6 @@ impl Settings {
             MAX_COMPLETION_ITEMS_RANGE,
         )
         .map_or(defaults.autocomplete.max_items, |items| items as usize);
-        settings.graphics.max_memory_mb = limit(
-            "graphics.max_memory_mb",
-            settings.graphics.max_memory_mb as f32,
-            GRAPHICS_MEMORY_RANGE,
-        )
-        .map_or(defaults.graphics.max_memory_mb, |mb| mb as usize);
         let window = &mut settings.window;
         window.padding.x = limit("window.padding.x", window.padding.x, PADDING_RANGE)
             .unwrap_or(defaults.window.padding.x);
@@ -259,6 +250,7 @@ impl Settings {
         }
         let alphabet = &mut settings.hints.alphabet;
         let mut letters: Vec<char> = alphabet.chars().collect();
+        letters.sort_unstable();
         letters.dedup();
         // labels need at least two different letters, and spaces would be invisible
         if letters.len() != alphabet.chars().count()
@@ -558,8 +550,15 @@ mod tests {
                 .alphabet
         };
         let default = Settings::default().hints.alphabet;
-        // one letter, repeated letters next to each other, and invisible ones make no labels
-        for bad in [r#""a""#, r#""aab""#, r#""a b""#, r#""a\tb""#, r#""""#] {
+        // one letter, repeated letters anywhere, and invisible ones make no labels
+        for bad in [
+            r#""a""#,
+            r#""aab""#,
+            r#""aba""#,
+            r#""a b""#,
+            r#""a\tb""#,
+            r#""""#,
+        ] {
             assert_eq!(alphabet(bad), default, "{bad}");
         }
         assert_eq!(alphabet(r#""jk""#), "jk");

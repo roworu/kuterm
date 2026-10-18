@@ -30,8 +30,7 @@ gpui = { git = "https://github.com/roworu/zed", rev = "f66d64d287d16beea9a29ce19
 gpui_platform = { git = "https://github.com/roworu/zed", rev = "f66d64d287d16beea9a29ce19d8b50b073ea4a9d", features = ["wayland", "x11", "font-kit"] }
 alacritty_terminal = { git = "https://github.com/zed-industries/alacritty", rev = "4c129667ce56611becdc82de6e28218c80e2e88f" }
 anyhow = "1"
-# images of kitty's graphics protocol come in base64
-base64 = "0.23"
+# the window icon is a png
 image = { version = "0.25", default-features = false, features = ["png"] }
 futures = "0.3"
 # big completion specs are bundled gzipped, already in the tree through gpui
@@ -49,6 +48,8 @@ regex = "1"
 # command values are quoted for the shell with this, already in the tree through gpui
 shlex = "1"
 skrifa = "0.48"
+# cells a completion takes, wide chars take two, already in the tree through alacritty
+unicode-width = "0.2"
 
 [target.'cfg(unix)'.dependencies]
 # alacritty's pty traits take its poller, the pty is wrapped to scan its output

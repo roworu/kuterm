@@ -42,7 +42,7 @@ E2E_WORKERS=0 sh e2e/run.sh -k palette
 - tests talk to the display only through `App` in `e2e/harness.py` (keys, mouse, screenshots, titles, clipboard), which picks xdotool/xwininfo or swaymsg/grim/wl-clipboard by backend.
 - wayland input comes from `e2e/fake_input.py`, one virtual keyboard and pointer for the whole session; headless sway has no devices of its own.
 - `@pytest.mark.x11_only` / `@pytest.mark.wayland_only` skip tests on the other backend.
-- the e2e container (`e2e/Containerfile`) also has cjk, emoji and ligature (fira code) fonts, xkb tools for layout tests, wmctrl, sway, grim, wl-clipboard, less, git, vim-tiny, neovim and bubblewrap.
+- the e2e container (`e2e/Containerfile`) also has cjk, emoji and ligature (fira code) fonts, xkb tools for layout tests, wmctrl, sway, grim, wl-clipboard, less, git, vim-tiny and neovim.
 
 CI also runs `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings`. container output goes to `target/podman/`. gpui and alacritty are pinned to same git revision in `Cargo.toml`; bump them together. gpui comes from a fork of zed with kuterm commits on top, bump it as in `docs/UPDATE_DEPS.md`.
 

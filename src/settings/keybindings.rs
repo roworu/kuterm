@@ -160,9 +160,6 @@ fn binding(action: &str, keys: &str, when: Option<&str>) -> Option<KeyBinding> {
         "rename_tab" => KeyBinding::new(keys, RunAction(CommandAction::RenameTab), when),
         "pin_tab" => KeyBinding::new(keys, RunAction(CommandAction::PinTab), when),
         "duplicate_tab" => KeyBinding::new(keys, RunAction(CommandAction::DuplicateTab), when),
-        "new_incognito_tab" => {
-            KeyBinding::new(keys, RunAction(CommandAction::NewIncognitoTab), when)
-        }
         "next_attention_tab" => {
             KeyBinding::new(keys, RunAction(CommandAction::NextAttentionTab), when)
         }
@@ -552,7 +549,7 @@ mod tests {
     fn actions_unbound_by_default_bind_when_given_keys() {
         // these have no default keys, so only a user's binding reaches them
         let keys = Keybindings::parse(
-            r#"{"select_last_output": "ctrl-alt-o", "new_incognito_tab": "ctrl-alt-i"}"#,
+            r#"{"select_last_output": "ctrl-alt-o", "duplicate_tab": "ctrl-alt-i"}"#,
         )
         .unwrap();
         let actions: Vec<CommandAction> = keys
@@ -566,7 +563,7 @@ mod tests {
             "{actions:?}"
         );
         assert!(
-            actions.contains(&CommandAction::NewIncognitoTab),
+            actions.contains(&CommandAction::DuplicateTab),
             "{actions:?}"
         );
     }

@@ -10,7 +10,6 @@ mod decorations;
 mod events;
 mod file_links;
 mod frozen;
-mod graphics;
 mod integration;
 mod keys;
 mod links;
@@ -21,7 +20,6 @@ mod prompt;
 mod pty_state;
 mod queue;
 mod sampler;
-mod sandbox;
 mod scanner;
 mod scrollback;
 mod search;
@@ -161,10 +159,6 @@ pub struct Terminal {
     pub shell_pid: u32,
     /// id of the pane for remote control, its shell has it in $KUTERM_PANE
     pub pane_id: u64,
-    /// keeps no history, is never saved or read from outside, wiped when dropped
-    pub incognito: bool,
-    /// the shell runs in a sandbox
-    pub sandboxed: bool,
     /// color scheme from the profile, global theme when none
     theme_settings: Option<ProfileTheme>,
     theme: Option<Theme>,
@@ -199,6 +193,8 @@ pub struct Terminal {
     prompt_mark: Option<usize>,
     /// the shell marks the end of its prompts with `B`
     saw_prompt_end: bool,
+    /// the queue typed an entry the shell has not started or ended yet
+    queue_typed: bool,
     /// drawn under the prompt line until the next command
     hint_line: Option<HintLine>,
     /// commands typed at the next prompts
@@ -218,10 +214,6 @@ pub struct Terminal {
     /// what wrote input and when, since the prompt was drawn. timed, since the marks of the
     /// prompt may be handled after input already came
     typed_sources: Vec<TypedSource>,
-    /// images the program showed
-    graphics: graphics::SharedGraphics,
-    /// cell size for sizing images, shared with the pty thread
-    cell_size: Arc<graphics::CellSize>,
     /// socket the shells of this tab report their command line on, none without autocomplete
     #[cfg(unix)]
     completion: Option<crate::completion::Bridge>,
@@ -309,10 +301,6 @@ impl Terminal {
 
     /// queue a resize, applied on next `sync`
     pub fn set_size(&mut self, new_bounds: TerminalBounds) {
-        self.cell_size.set(
-            f32::from(new_bounds.cell_width),
-            f32::from(new_bounds.line_height),
-        );
         let old_bounds = self.last_content.terminal_bounds;
         self.last_content.terminal_bounds = new_bounds;
         // skip pixel-only changes so dragging window does not spam SIGWINCH
@@ -387,20 +375,6 @@ impl Terminal {
         true
     }
 
-    /// turn images on or off and limit the memory they take
-    pub fn configure_graphics(&self, enable: bool, max_memory_mb: usize) {
-        self.graphics
-            .lock()
-            .unwrap()
-            .configure(enable, max_memory_mb);
-        self.dirty.store(true, Ordering::Release);
-    }
-
-    /// images no longer shown, their textures should be freed
-    pub fn take_dropped_images(&self) -> Vec<Arc<gpui::RenderImage>> {
-        self.graphics.lock().unwrap().take_dropped()
-    }
-
     /// progress the running program reported, none when it reports nothing
     pub fn progress(&self) -> Option<Progress> {
         self.progress
@@ -425,7 +399,9 @@ impl Terminal {
             match event {
                 ScanEvent::PromptStart => {
                     typed_after(&mut self.typed_sources, at);
-                    self.at_prompt = true;
+                    // the line editor redraws the prompt with its marks, like on a resize, while
+                    // it still reads an entry the queue typed. the entry's result comes first
+                    self.at_prompt = !self.queue_typed;
                     self.prompt_mark = None;
                     // shells that never mark the prompt's end get the queue at its start,
                     // the line editor reads what was typed once it is up
@@ -436,14 +412,17 @@ impl Terminal {
                 ScanEvent::PromptEnd(mark) => {
                     typed_after(&mut self.typed_sources, at);
                     self.saw_prompt_end = true;
-                    self.at_prompt = true;
                     self.prompt_mark = mark;
-                    if self.run_queue() {
-                        events.push(Event::QueueChanged);
+                    if !self.queue_typed {
+                        self.at_prompt = true;
+                        if self.run_queue() {
+                            events.push(Event::QueueChanged);
+                        }
                     }
                 }
                 ScanEvent::CommandStart { prompt, output } => {
                     self.at_prompt = false;
+                    self.queue_typed = false;
                     self.prompt_mark = None;
                     self.hint_line = None;
                     self.command_started = Some(at);
@@ -464,6 +443,8 @@ impl Terminal {
                 }
                 ScanEvent::CommandLine(line) => self.blocks.command_line(line),
                 ScanEvent::CommandEnd(exit) => {
+                    // a typed entry cancelled at the prompt ends without starting
+                    self.queue_typed = false;
                     // a program killed mid way never takes its progress down
                     self.progress = None;
                     // an idle right before the end is the program finishing, not waiting
@@ -500,7 +481,6 @@ impl Terminal {
                     }
                     self.progress = progress;
                 }
-                ScanEvent::Reply(bytes) => self.write_to_pty(bytes),
             }
         }
         events
@@ -551,18 +531,13 @@ impl Terminal {
                 InternalEvent::Scroll(scroll) => term.scroll_display(scroll),
             }
         }
-        let graphics = self.graphics.lock().unwrap();
-        self.last_content
-            .refresh(&term, self.search.as_mut(), &graphics);
+        self.last_content.refresh(&term, self.search.as_mut());
     }
 }
 
 impl Drop for Terminal {
     fn drop(&mut self) {
         self.pty_tx.0.send(Msg::Shutdown).ok();
-        if self.incognito {
-            self.wipe();
-        }
     }
 }
 
@@ -571,32 +546,6 @@ impl Terminal {
     /// type `text` like the user at the keyboard
     pub(crate) fn type_text(&mut self, text: &[u8]) -> bool {
         self.input(InputSource::Keyboard, text.to_vec())
-    }
-}
-
-impl Terminal {
-    /// overwrite every cell of the history and screen, so the text is gone from memory
-    /// before it is freed. best effort: copies made earlier, like the snapshot, are wiped
-    /// where kuterm still holds them
-    fn wipe(&mut self) {
-        use alacritty_terminal::index::{Column, Line};
-        let mut term = self.term.lock();
-        let (top, bottom, columns) = (
-            term.topmost_line().0,
-            term.bottommost_line().0,
-            term.columns(),
-        );
-        let grid = term.grid_mut();
-        for line in top..=bottom {
-            for column in 0..columns {
-                grid[Line(line)][Column(column)] = Default::default();
-            }
-        }
-        grid.clear_history();
-        drop(term);
-        for cell in &mut self.last_content.cells {
-            cell.cell = Default::default();
-        }
     }
 }
 
@@ -686,17 +635,6 @@ mod tests {
             );
             std::thread::sleep(Duration::from_millis(50));
         }
-    }
-
-    #[test]
-    fn wipe_overwrites_history_and_screen() {
-        let mut builder = spawn_long_output(&TerminalSettings::default());
-        let terminal = &mut builder.terminal;
-        assert!(terminal.visible_screen_text(true).0.contains("line_0"));
-        terminal.wipe();
-        assert_eq!(terminal.visible_screen_text(true).0, "");
-        assert_eq!(terminal.history_size(), 0);
-        assert!(screen_text(terminal).trim().is_empty());
     }
 
     #[cfg(target_os = "linux")]
@@ -987,7 +925,7 @@ mod tests {
         terminal.sync();
 
         let buffer = terminal.last_content.cells.as_ptr();
-        // a clean sync must leave the snapshot alone, so a wiped one stays wiped
+        // a clean sync must leave the snapshot alone
         let cells = std::mem::take(&mut terminal.last_content.cells);
         terminal.sync();
         assert!(

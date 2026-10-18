@@ -115,9 +115,17 @@ impl Bridge {
     /// send a line to the shell of `conn`, false when it is gone or did not take it
     pub fn send(&self, conn: u64, line: &str) -> bool {
         let mut writers = self.shared.writers.lock().unwrap();
-        writers
-            .get_mut(&conn)
-            .is_some_and(|writer| writer.write_all(line.as_bytes()).is_ok())
+        let Some(writer) = writers.get_mut(&conn) else {
+            return false;
+        };
+        if writer.write_all(line.as_bytes()).is_ok() {
+            return true;
+        }
+        // part of the line may have gone out, the next one would join it, so the connection
+        // ends and the shell connects again
+        writer.shutdown(std::net::Shutdown::Both).ok();
+        writers.remove(&conn);
+        false
     }
 }
 
@@ -185,6 +193,22 @@ mod tests {
 
     fn next(events: &mut UnboundedReceiver<ShellEvent>) -> ShellEvent {
         futures::executor::block_on(events.next()).expect("bridge closed")
+    }
+
+    #[test]
+    fn a_reply_the_shell_does_not_take_ends_its_connection() {
+        let mut bridge = Bridge::new().unwrap();
+        let mut events = bridge.take_events().unwrap();
+        let mut shell = UnixStream::connect(bridge.path()).unwrap();
+        shell
+            .write_all(b"{\"v\":1,\"type\":\"hello\",\"shell\":\"zsh\"}\n")
+            .unwrap();
+        let conn = next(&mut events).conn;
+        // more than the socket holds, the shell reads nothing, so the write times out
+        let big = "x".repeat(16 << 20);
+        assert!(!bridge.send(conn, &big));
+        assert!(!bridge.send(conn, "1 accept 1 0 2 git \n"));
+        assert_eq!(next(&mut events).message, ShellMessage::Closed);
     }
 
     #[test]

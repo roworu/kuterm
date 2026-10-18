@@ -80,8 +80,9 @@ pub fn pty_modes(_pid: u32) -> Option<PtyModes> {
 pub struct StoppedJob {
     pub pid: u32,
     pub name: String,
-    /// job number `fg %n` takes, counted among the shell's children by age like `jobs`
-    pub job: usize,
+    /// what `fg` takes to resume it, empty for the shell's only job. the shell numbers its
+    /// jobs itself, so the name picks it, and a name two jobs share fails instead of guessing
+    pub job: String,
 }
 
 /// state letter of a process from its /proc stat line, like 'T' for stopped
@@ -99,12 +100,15 @@ pub fn stat_state(stat: &str) -> Option<char> {
 pub fn stopped_among(children: &[(u32, String, char)]) -> Vec<StoppedJob> {
     children
         .iter()
-        .enumerate()
-        .filter(|(_, (_, _, state))| *state == 'T')
-        .map(|(ix, (pid, name, _))| StoppedJob {
+        .filter(|(_, _, state)| *state == 'T')
+        .map(|(pid, name, _)| StoppedJob {
             pid: *pid,
             name: name.clone(),
-            job: ix + 1,
+            job: if children.len() == 1 {
+                String::new()
+            } else {
+                format!("%{name}")
+            },
         })
         .collect()
 }
@@ -372,15 +376,17 @@ pub(crate) mod tests {
                 StoppedJob {
                     pid: 11,
                     name: "vim".into(),
-                    job: 2
+                    job: "%vim".into()
                 },
                 StoppedJob {
                     pid: 12,
                     name: "less".into(),
-                    job: 3
+                    job: "%less".into()
                 },
             ]
         );
+        // the only job is the one plain `fg` takes
+        assert_eq!(stopped_among(&children[1..2])[0].job, "");
     }
 
     #[cfg(target_os = "linux")]
@@ -400,7 +406,7 @@ pub(crate) mod tests {
             let stopped = stopped_jobs(pid);
             if stopped.iter().any(|job| job.pid == first) {
                 assert_eq!(stopped[0].name, "sleep");
-                assert_eq!(stopped[0].job, 1);
+                assert_eq!(stopped[0].job, "%sleep");
                 break;
             }
             assert!(Instant::now() < deadline, "no stopped job");

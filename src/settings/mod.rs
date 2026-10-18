@@ -29,17 +29,20 @@ pub(crate) use config::DEFAULT_SETTINGS;
 pub(crate) use config::combine as config_combine;
 pub(crate) use config::defaults as bundled_settings;
 pub(crate) use config::merge;
+pub(crate) use config::resolve as resolve_path;
 pub use config::{Config, ConfigFiles};
-pub use files::{config_dir, create_default_file, load_json, save_json, state_dir};
+pub use files::{
+    config_dir, create_default_file, load_json, read_small_file, save_json, state_dir,
+};
 pub use fonts::parse_font_feature;
 pub use keybindings::Keybindings;
 pub use limits::MAX_HISTORY_LENGTH;
 pub use options::{
     BellTarget, ClipboardAccess, CompletionTrigger, ConfirmQuit, CursorBlink, CursorShape,
     CursorUnfocused, Decorations, FontSlant, LineHeight, LinkModifier, MarkSources, MemoryUnit,
-    MenuBarMode, NewTabButton, PatternAction, ProgramNotifications, RemoteControl, RestoreSession,
-    ScrollEasing, ScrollbarEnable, ScrollbarPlacement, SearchCase, Shell, StartupMode,
-    TabTitleAlign, TabTitleBlock, ThemeMode,
+    MenuBarMode, NewTabButton, PatternAction, ProgramNotifications, RemoteControl, ScrollEasing,
+    ScrollbarEnable, ScrollbarPlacement, SearchCase, Shell, StartupMode, TabTitleAlign,
+    TabTitleBlock, ThemeMode,
 };
 pub use pins::Pins;
 pub use status_bar_state::StatusBarState;
@@ -84,9 +87,7 @@ pub struct Settings {
     pub autocomplete: AutocompleteSettings,
     /// program and arguments the history is opened with, the file goes last
     pub scrollback_pager: Vec<String>,
-    pub restore_session: RestoreSession,
     pub remote_control: RemoteControl,
-    pub graphics: GraphicsSettings,
     pub status_bar: StatusBarSettings,
 }
 
@@ -100,14 +101,6 @@ pub struct StatusBarSettings {
     pub memory_unit: MemoryUnit,
     /// strftime format of clock blocks
     pub clock_format: String,
-}
-
-/// images programs show with kitty's graphics protocol
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
-pub struct GraphicsSettings {
-    pub enable: bool,
-    /// megabytes of decoded images each tab keeps, the oldest go first
-    pub max_memory_mb: usize,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
@@ -485,31 +478,6 @@ pub struct Profile {
     /// extra environment variables for the command
     #[serde(default)]
     pub env: HashMap<String, String>,
-    /// no shell history, no session restore and no remote reading of the tab
-    #[serde(default)]
-    pub incognito: bool,
-    /// run the shell with no network and writes only where allowed
-    #[serde(default)]
-    pub sandbox: Option<Sandbox>,
-}
-
-/// what a sandboxed profile's shell may do
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-pub struct Sandbox {
-    pub network: bool,
-    /// folders it may write, "cwd" for the one it starts in
-    pub write: Vec<String>,
-    pub tmp: SandboxTmp,
-}
-
-/// the /tmp a sandbox sees
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum SandboxTmp {
-    /// an empty one of its own
-    Private,
-    /// the system's, read only
-    Shared,
 }
 
 impl Global for Settings {}

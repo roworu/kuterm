@@ -19,7 +19,7 @@ use alacritty_terminal::{
 
 use super::{
     Terminal,
-    integration::{command_after_prompt, mark_cells},
+    integration::{command_after_prompt, mark_cells, output_lines},
     scanner::{OUTPUT_MARK, PROMPT_MARK},
     selection::select_range,
 };
@@ -225,9 +225,11 @@ impl Terminal {
 
     /// block whose output covers grid line `line`
     pub fn block_at(&self, line: Line) -> Option<u64> {
+        // one look at the grid for all blocks, not one per block
+        let lines = output_lines(&self.term.lock_unfair());
         self.blocks.list.iter().rev().find_map(|block| {
-            let (start, end) = self.output_range(block.id)?;
-            (start.line <= line && line <= end.line).then_some(block.id)
+            let (start, end) = lines.get(&block.mark)?;
+            (*start <= line && line <= *end).then_some(block.id)
         })
     }
 

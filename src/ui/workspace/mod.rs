@@ -20,12 +20,10 @@ mod notifications;
 mod overlays;
 mod palette;
 mod panes_view;
-mod private_tabs;
 mod remote_verbs;
 mod render;
 mod run_command;
 mod scroll_sync;
-mod session;
 mod source_marks;
 mod status_bar;
 mod system_notifications;
@@ -80,8 +78,8 @@ use crate::{
     cli::Cli,
     settings::{
         Command, CommandAction, CommandStep, Commands, Config, ConfigFiles, ConfirmQuit, Profile,
-        RestoreSession, Settings, Shell, Side, StatusBarState, TabIconSettings, TabIcons,
-        TabTitleBlock, Target, Values,
+        Settings, Shell, Side, StatusBarState, TabIconSettings, TabIcons, TabTitleBlock, Target,
+        Values,
     },
     terminal::{
         Event, InputSource, PaneContext, ProcessSampler, PtyState, Terminal, TerminalBounds,
@@ -184,6 +182,10 @@ struct Tab {
     color: Option<gpui::Hsla>,
     /// remote runs need no asking in this tab, the user allowed them all
     remote_allowed: bool,
+    /// it went to another window, where its pane lives on
+    moved: bool,
+    /// marks the agent waiting unless its command finishes first
+    idle_task: Task<()>,
     _subscriptions: [Subscription; 3],
 }
 
@@ -192,7 +194,9 @@ impl Drop for Tab {
         if let Some(path) = &self.temp_file {
             std::fs::remove_file(path).ok();
         }
-        EventBus::publish(BusEvent::PaneClosed { pane: self.pane_id });
+        if !self.moved {
+            EventBus::publish(BusEvent::PaneClosed { pane: self.pane_id });
+        }
     }
 }
 
@@ -401,12 +405,9 @@ impl Workspace {
     }
 
     /// spawn the shell of a new window's first tab before the window exists, so it starts
-    /// while gpu setup runs. none when the window brings the last session back instead
+    /// while gpu setup runs
     pub fn spawn_first_tab(window_size: Size<Pixels>, cx: &App) -> Option<TerminalBuilder> {
         let settings = Settings::get(cx);
-        if cx.windows().is_empty() && settings.restore_session == RestoreSession::Always {
-            return None;
-        }
         let bounds = window::startup_grid(window_size, cx);
         // the window id is not known yet. it only fills WINDOWID, and gpui's id is no x11 id
         spawn_profile(settings.default_profile(), bounds, 0, cx)
@@ -414,8 +415,8 @@ impl Workspace {
             .ok()
     }
 
-    /// create a workspace, its first tab in `folder` when given, else last session or a new
-    /// tab, running the `first` shell when one was spawned already
+    /// create a workspace, its first tab in `folder` when given, else a new tab, running the
+    /// `first` shell when one was spawned already
     pub fn with_start(
         folder: Option<PathBuf>,
         first: Option<TerminalBuilder>,
@@ -427,17 +428,12 @@ impl Workspace {
         if let Some(folder) = folder {
             this.open_folder(folder, window, cx);
         } else {
-            // only the first window brings the last session back, a window being built
-            // is not listed yet
-            let alone = cx.windows().is_empty();
-            if !(alone && this.open_session(window, cx)) {
-                match first {
-                    Some(builder) => {
-                        let profile = Settings::get(cx).default_profile().clone();
-                        this.add_builder_tab(this.focused, builder, &profile, true, window, cx);
-                    }
-                    None => this.add_tab(window, cx),
+            match first {
+                Some(builder) => {
+                    let profile = Settings::get(cx).default_profile().clone();
+                    this.add_builder_tab(this.focused, builder, &profile, true, window, cx);
                 }
+                None => this.add_tab(window, cx),
             }
         }
         // config problems from launch, printed before any window could show them
@@ -911,6 +907,8 @@ mod tests {
         let bar = search_bar(&ws, cx).expect("search bar opened");
         assert!(cx.debug_bounds("search-bar").is_some());
         cx.simulate_input("find_me");
+        cx.executor()
+            .advance_clock(crate::ui::search_bar::SEARCH_DELAY);
         cx.run_until_parked();
         let status = bar.read_with(cx, |bar, _| bar.status().clone()).unwrap();
         assert_eq!((status.count, status.active), (1, Some(0)));
@@ -929,12 +927,34 @@ mod tests {
     }
 
     #[gpui::test]
+    fn search_waits_for_typing_to_pause(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 1);
+        print_line(&ws, cx, "pause_here");
+        run_actions(&ws, cx, r#""search""#);
+        let bar = search_bar(&ws, cx).expect("palette action opens the bar");
+        let count = |cx: &mut VisualTestContext| {
+            bar.read_with(cx, |bar, _| bar.status().clone())
+                .unwrap()
+                .count
+        };
+        cx.simulate_input("pause_");
+        cx.run_until_parked();
+        assert_eq!(count(cx), 0);
+        // walking right away searches what was typed first
+        cx.simulate_keystrokes("enter");
+        cx.run_until_parked();
+        assert!(count(cx) > 0);
+    }
+
+    #[gpui::test]
     fn search_options_toggle_with_buttons(cx: &mut TestAppContext) {
         let (ws, cx) = open(cx, 1);
         print_line(&ws, cx, "Mixed mixed");
         run_actions(&ws, cx, r#""search""#);
         let bar = search_bar(&ws, cx).expect("palette action opens the bar");
         cx.simulate_input("mixed");
+        cx.executor()
+            .advance_clock(crate::ui::search_bar::SEARCH_DELAY);
         cx.run_until_parked();
         let count = |cx: &mut VisualTestContext| {
             bar.read_with(cx, |bar, _| bar.status().clone())
@@ -951,6 +971,8 @@ mod tests {
         click(cx, center, 1);
         release(cx, center);
         cx.simulate_input("(");
+        cx.executor()
+            .advance_clock(crate::ui::search_bar::SEARCH_DELAY);
         cx.run_until_parked();
         assert!(count(cx).is_err());
     }
@@ -962,6 +984,8 @@ mod tests {
         run_actions(&ws, cx, r#""search""#);
         let bar = search_bar(&ws, cx).expect("palette action opens the bar");
         cx.simulate_input("hit_");
+        cx.executor()
+            .advance_clock(crate::ui::search_bar::SEARCH_DELAY);
         cx.run_until_parked();
         let active = |cx: &mut VisualTestContext| {
             bar.read_with(cx, |bar, _| bar.status().clone())

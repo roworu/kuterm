@@ -72,12 +72,6 @@ impl Workspace {
                     self.add_tab(window, cx);
                     target = None;
                 }
-                CommandAction::NewIncognitoTab => {
-                    let mut profile = Settings::get(cx).default_profile().clone();
-                    profile.incognito = true;
-                    self.add_profile_tab(self.focused, &profile, true, window, cx);
-                    target = None;
-                }
                 CommandAction::NewTabWithProfile(name) => {
                     if self.add_named_profile_tab(self.focused, name, true, window, cx) {
                         target = None;
@@ -302,7 +296,7 @@ impl Workspace {
                 CommandAction::ResetFontSize => self.change_font_size(pane, ix, None, cx),
                 CommandAction::OpenSettings => self.open_settings(cx),
                 CommandAction::Type(text) => {
-                    self.input_to(pane, ix, InputSource::Macro, text.clone().into_bytes(), cx)
+                    self.input_to(pane, ix, InputSource::Macro, text.clone().into_bytes(), cx);
                 }
                 CommandAction::SendText(text) => {
                     let bytes = text.clone().into_bytes();
@@ -349,7 +343,7 @@ impl Workspace {
             Some(Target::AllPanes) => Some(StepTarget::AllPanes),
             Some(Target::NewWindow) => Some(StepTarget::NewWindow),
             Some(Target::NewSplit(side)) => {
-                let (pane, tab) = self.split_new_tab(self.focused, *side, window, cx);
+                let (pane, tab) = self.split_new_tab(self.focused, *side, window, cx)?;
                 Some(StepTarget::Tab(pane, tab))
             }
             Some(Target::Pane(spec)) => {

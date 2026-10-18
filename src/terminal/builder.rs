@@ -139,10 +139,6 @@ impl TerminalBuilder {
         if let Ok(exe) = std::env::current_exe() {
             env.insert("KUTERM_BIN".to_string(), exe.to_string_lossy().into_owned());
         }
-        if profile.incognito {
-            // the shell integration scripts keep no history when they see it
-            env.insert("KUTERM_INCOGNITO".to_string(), "1".to_string());
-        }
         // profile values go last, so they can override ours
         env.extend(profile.env.clone());
 
@@ -152,28 +148,7 @@ impl TerminalBuilder {
                 _ => dir.clone(),
             }
         });
-        let command = match &profile.sandbox {
-            Some(sandbox) => {
-                let cwd = match &working_directory {
-                    Some(dir) => dir.clone(),
-                    None => std::env::current_dir().context("no folder to sandbox")?,
-                };
-                // shell integration and kuterm itself stay readable under a private /tmp
-                let keep: Vec<PathBuf> = crate::settings::state_dir()
-                    .into_iter()
-                    .chain(
-                        std::env::current_exe()
-                            .ok()
-                            .and_then(|exe| Some(exe.parent()?.to_path_buf())),
-                    )
-                    .collect();
-                super::sandbox::sandboxed(&profile.command, sandbox, &cwd, &keep)
-                    .map_err(anyhow::Error::msg)?
-            }
-            None => profile.command.clone(),
-        };
-
-        let shell = match &command {
+        let shell = match &profile.command {
             Shell::System => None,
             Shell::Program(program) => Some(tty::Shell::new(program.clone(), Vec::new())),
             Shell::WithArguments { program, args } => {
@@ -206,20 +181,9 @@ impl TerminalBuilder {
             tty::new(&pty_options, bounds.into(), window_id).context("failed to open pty")?
         };
         let scan_events = super::scanner::ScanEvents::default();
-        // settings may change these right after, the bundled ones hold until then
-        let defaults = crate::settings::Settings::default().graphics;
-        let graphics = Arc::new(std::sync::Mutex::new(super::graphics::Graphics::new(
-            defaults.enable,
-            defaults.max_memory_mb,
-        )));
-        let cell_size = Arc::new(super::graphics::CellSize::default());
         #[cfg(unix)]
-        let pty = super::scanner::ScannedPty::new(
-            pty,
-            scan_events.clone(),
-            super::graphics::GraphicsParser::new(graphics.clone(), cell_size.clone()),
-        )
-        .context("failed to open pty")?;
+        let pty = super::scanner::ScannedPty::new(pty, scan_events.clone())
+            .context("failed to open pty")?;
         #[cfg(unix)]
         let shell_pid = pty.child_id();
         #[cfg(windows)]
@@ -250,8 +214,6 @@ impl TerminalBuilder {
             title: String::new(),
             shell_pid,
             pane_id,
-            incognito: profile.incognito,
-            sandboxed: profile.sandbox.is_some(),
             theme_settings: profile.theme.clone(),
             theme: None,
             clipboard: settings.clipboard,
@@ -270,6 +232,7 @@ impl TerminalBuilder {
             at_prompt: false,
             prompt_mark: None,
             saw_prompt_end: false,
+            queue_typed: false,
             hint_line: None,
             queue: Default::default(),
             queue_stop_on_failure: settings.queue_stop_on_failure,
@@ -279,8 +242,6 @@ impl TerminalBuilder {
             send_xoff: settings.send_xoff,
             last_output: std::time::Instant::now(),
             typed_sources: Default::default(),
-            graphics,
-            cell_size,
             #[cfg(unix)]
             completion: None,
             _event_loop_task: Task::ready(()),

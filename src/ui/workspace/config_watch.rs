@@ -184,9 +184,7 @@ impl Workspace {
         for tab in self.layout.panes().into_iter().flat_map(|pane| &pane.tabs) {
             let terminal = tab.view.read(cx).terminal().clone();
             terminal.update(cx, |terminal, _| {
-                terminal.apply_settings(&settings.terminal);
-                terminal
-                    .configure_graphics(settings.graphics.enable, settings.graphics.max_memory_mb);
+                terminal.apply_settings(&settings.terminal)
             });
         }
         cx.set_global(settings);

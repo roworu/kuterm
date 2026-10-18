@@ -161,19 +161,12 @@ impl Theme {
         serde_json_lenient::from_value(value)
     }
 
-    // relative paths start from the folder with settings.jsonc
-    pub(crate) fn resolve(path: &Path) -> PathBuf {
-        Settings::path()
-            .and_then(|settings| settings.parent().map(|dir| dir.join(path)))
-            .unwrap_or_else(|| path.to_path_buf())
-    }
-
     // a name with a slash or a json extension is a file, anything else names a theme in `themes`
     fn path_of(name: &str) -> Option<PathBuf> {
         let path = Path::new(name);
         let extension = path.extension().and_then(|extension| extension.to_str());
         let file = name.contains('/') || matches!(extension, Some("json" | "jsonc"));
-        file.then(|| Self::resolve(path))
+        file.then(|| crate::settings::resolve_path(path))
     }
 
     /// theme `name` from `settings.themes`, or from a file, the error tells what is wrong
@@ -201,7 +194,9 @@ impl Theme {
     fn folder_file(name: &str) -> Option<PathBuf> {
         ["jsonc", "json"]
             .into_iter()
-            .map(|extension| Self::resolve(Path::new(&format!("themes/{name}.{extension}"))))
+            .map(|extension| {
+                crate::settings::resolve_path(Path::new(&format!("themes/{name}.{extension}")))
+            })
             .find(|path| path.exists())
     }
 
@@ -223,7 +218,7 @@ impl Theme {
 
     /// read a theme file, the error tells what is wrong with it
     pub fn read(path: &Path, dark: bool) -> Result<Self, String> {
-        let json = std::fs::read_to_string(path)
+        let json = crate::settings::read_small_file(path)
             .map_err(|error| format!("failed to read theme {}: {error}", path.display()))?;
         Self::parse(&json, dark)
             .map_err(|error| format!("invalid theme in {}: {error}", path.display()))
@@ -343,6 +338,16 @@ mod tests {
     use gpui::Rgba;
 
     use super::*;
+
+    #[test]
+    fn theme_paths_start_at_home_with_a_tilde() {
+        let home = PathBuf::from(std::env::var_os("HOME").unwrap());
+        assert_eq!(
+            Theme::path_of("~/mine.jsonc"),
+            Some(home.join("mine.jsonc"))
+        );
+        assert_eq!(Theme::path_of("dark"), None);
+    }
 
     #[test]
     fn indexed_colors_match_xterm() {

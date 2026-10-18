@@ -142,7 +142,7 @@ pub fn run_msg(args: &[String]) -> i32 {
         }
     };
     if let Request::Subscribe { .. } = &request {
-        let result = subscribe(&request, |line| {
+        let result = subscribe(&request, None, |line| {
             use std::io::Write;
             let mut stdout = std::io::stdout();
             writeln!(stdout, "{line}")

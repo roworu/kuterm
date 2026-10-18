@@ -130,13 +130,13 @@ impl Workspace {
             buttons,
             _dismiss,
         });
-        if self.notifications.len() > NOTIFICATIONS_MAX {
-            // questions wait for an answer, so plain notifications go first
-            let oldest = self
+        // questions stay until answered, someone waits for the answer
+        if self.notifications.len() > NOTIFICATIONS_MAX
+            && let Some(oldest) = self
                 .notifications
                 .iter()
                 .position(|notification| notification.buttons.is_empty())
-                .unwrap_or(0);
+        {
             self.notifications.remove(oldest);
         }
         cx.notify();
@@ -650,6 +650,32 @@ mod tests {
             cx.read_from_clipboard().and_then(|item| item.text()),
             Some("from program".into())
         );
+    }
+
+    #[gpui::test]
+    fn questions_outlive_the_notification_cap(cx: &mut TestAppContext) {
+        let settings = Settings::parse(
+            r#"{"notifications": {"timeout": 0}, "terminal": {"clipboard": {"write": "ask"}}}"#,
+        )
+        .unwrap();
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        let terminal = terminal(&ws, cx, 0);
+        for ix in 0..super::NOTIFICATIONS_MAX + 1 {
+            terminal.update(cx, |terminal, cx| {
+                terminal.process_event(
+                    alacritty_terminal::event::Event::ClipboardStore(
+                        alacritty_terminal::term::ClipboardType::Clipboard,
+                        format!("copy{ix}"),
+                    ),
+                    cx,
+                )
+            });
+        }
+        run_actions(&ws, cx, r#"{"notify": "plain"}"#);
+        cx.run_until_parked();
+        let shown = notifications(&ws, cx);
+        assert_eq!(shown.len(), super::NOTIFICATIONS_MAX + 1);
+        assert!(shown.iter().all(|text| text.contains("wants to copy")));
     }
 
     #[gpui::test]

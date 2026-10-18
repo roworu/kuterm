@@ -9,7 +9,7 @@ import threading
 from pathlib import Path
 
 from harness import BIN, Session
-from kit import executable, listening, socket_of
+from kit import listening, socket_of
 
 FEATURE = "remote control clients"
 
@@ -179,19 +179,3 @@ def test_socket_answers_a_bad_request_with_its_error(app_factory):
         conn.sendall(b'{"cmd": "fly"}\n')
         reply = json.loads(conn.makefile().readline())
     assert reply["ok"] is False and reply["error"].startswith("bad request"), reply
-
-
-def test_sandbox_without_a_folder_starts_where_kuterm_runs(app_factory):
-    """a sandboxed profile with no working_directory is boxed in kuterm's own folder"""
-    stub = Path(tempfile.mkdtemp(prefix="e2e-bwrap-"))
-    executable(stub / "bwrap", '#!/bin/sh\nprintf "%s\\n" "$@" > "$T2_TMP/bwrap_args"\n'
-               'while [ "$1" != "--" ]; do shift; done; shift; exec "$@"\n')
-    profile = {"name": "box", "command": {"program": "/bin/sh"}, "env": {"PS1": "$ "},
-               "sandbox": {"network": True, "write": ["cwd"], "tmp": "shared"}}
-    app = app_factory({"theme": {"mode": "dark"}, "profiles": [profile]},
-                      env={"PATH": f"{stub}:/usr/bin:/bin"})
-    args = app.wait_file("bwrap_args").split("\n")
-    # the app runs from its home folder, so that is the folder of the box
-    at = args.index("--chdir")
-    assert args[at + 1] == str(app.home), args
-    assert f"--bind {app.home} {app.home}" in " ".join(args), args

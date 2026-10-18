@@ -21,7 +21,7 @@ pub fn socket_path() -> PathBuf {
 #[cfg(unix)]
 mod unix {
     use std::{
-        io::{BufRead, BufReader, Write},
+        io::{BufRead, BufReader, Read, Write},
         os::unix::{
             fs::PermissionsExt,
             net::{UnixListener, UnixStream},
@@ -92,9 +92,13 @@ mod unix {
         Err(NO_KUTERM.into())
     }
 
-    /// subscribe to events and give each json line to `line` until the connection ends or
-    /// `line` returns false
-    pub fn subscribe(request: &Request, mut line: impl FnMut(&str) -> bool) -> Result<(), String> {
+    /// subscribe to events and give each json line to `line` until the connection ends,
+    /// `line` returns false or no event came for `timeout`
+    pub fn subscribe(
+        request: &Request,
+        timeout: Option<Duration>,
+        mut line: impl FnMut(&str) -> bool,
+    ) -> Result<(), String> {
         for path in candidates() {
             let Ok((reply, reader)) = connect(&path, request) else {
                 continue;
@@ -102,6 +106,10 @@ mod unix {
             if !reply.ok {
                 return Err(reply.error.unwrap_or_else(|| "failed".into()));
             }
+            reader
+                .get_ref()
+                .set_read_timeout(timeout)
+                .map_err(|error| error.to_string())?;
             for text in reader.lines().map_while(Result::ok) {
                 if !line(text.trim_end()) {
                     break;
@@ -191,6 +199,10 @@ mod unix {
             return;
         }
         for event in futures::executor::block_on_stream(events) {
+            // only a write tells a client went away, and filtered events write nothing
+            if client_gone(&writer) {
+                return;
+            }
             if !names.is_empty() && !names.contains(&event.name()) {
                 continue;
             }
@@ -203,6 +215,21 @@ mod unix {
             }
         }
     }
+
+    // true when the client closed its end, it sends nothing after its request
+    fn client_gone(stream: &UnixStream) -> bool {
+        if stream.set_nonblocking(true).is_err() {
+            return true;
+        }
+        let gone = match (&*stream).read(&mut [0u8; 1]) {
+            Ok(read) => read == 0,
+            Err(error) => !matches!(
+                error.kind(),
+                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+            ),
+        };
+        stream.set_nonblocking(false).is_err() || gone
+    }
 }
 
 #[cfg(unix)]
@@ -214,6 +241,10 @@ pub fn send(_: &Request) -> Result<Reply, String> {
 }
 
 #[cfg(not(unix))]
-pub fn subscribe(_: &Request, _: impl FnMut(&str) -> bool) -> Result<(), String> {
+pub fn subscribe(
+    _: &Request,
+    _: Option<std::time::Duration>,
+    _: impl FnMut(&str) -> bool,
+) -> Result<(), String> {
     Err("remote control needs unix sockets".into())
 }

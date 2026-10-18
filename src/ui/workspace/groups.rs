@@ -628,7 +628,7 @@ impl Workspace {
         Some(self.group(id)?.hsla(Theme::get(cx)))
     }
 
-    /// group name and color of a tab kept by hand, for session restore
+    /// group name and color of a tab kept by hand, for a tab moving to another window
     pub(super) fn saved_group(&self, tab: &super::Tab) -> Option<(String, usize)> {
         let group = self.group(tab.group?)?;
         group

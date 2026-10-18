@@ -11,7 +11,7 @@ RUN apt-get update \
         sway grim wl-clipboard \
         dbus dbus-daemon python3 python3-pytest python3-pytest-xdist python3-pil python3-numpy python3-dbus python3-gi \
         bash zsh procps psmisc less \
-        git vim-tiny neovim bubblewrap \
+        git vim-tiny neovim \
     && rm -rf /var/lib/apt/lists/*
 
 # lavapipe is the only vulkan device, pin it so wgpu never waits for others

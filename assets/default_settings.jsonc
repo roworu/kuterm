@@ -21,7 +21,7 @@
 //   - colors are hex strings: "#rgb", "#rgba", "#rrggbb" or "#rrggbbaa".
 //   - "~/" in paths is the home folder, relative paths start from the folder of this file.
 //
-// files kuterm writes itself (window size, session, pinned commands) live in the state
+// files kuterm writes itself (window size, pinned commands) live in the state
 // folder, $XDG_STATE_HOME/kuterm (~/.local/state/kuterm by default), never here.
 {
   // other settings files read before this one, so values set here win over theirs. handy to
@@ -217,25 +217,6 @@
   // ---------------------------------------------------------------------------------------
   // behavior
   // ---------------------------------------------------------------------------------------
-
-  // open the tabs and splits of the last session on launch, each in the folder its shell
-  // was in, with the profile it was opened with. programs that ran in them, like vim or
-  // ssh, are not started again, and their output is not kept:
-  //   "always" - every launch
-  //   "ask"    - a notification asks
-  //   "never"  - start with one new tab
-  // the session is saved on quit, in session.json in the state folder
-  "restore_session": "never",
-
-  // images programs show with kitty's graphics protocol, like "kitten icat", yazi or ranger
-  // previews. they scroll with the text and are drawn over cell backgrounds
-  "graphics": {
-    // false ignores images programs send, the text around them still shows
-    "enable": true,
-    // megabytes of decoded images each tab keeps. past it the oldest images are dropped,
-    // so a long session with many previews can't eat all memory. from 1 to 4096
-    "max_memory_mb": 320,
-  },
 
   // let other programs and scripts drive kuterm:
   //   "off"    - no
@@ -593,7 +574,7 @@
     //              buttons at the right end of the top bar
     // with one tab and "hide_bar_for_one_tab", "client" shows an empty title bar with its
     // buttons, "none" keeps the tab bar unless the menu bar is shown. read when kuterm starts
-    "decorations": "client",
+    "decorations": "server",
     // menus drawn as a bar at the top of the window, macos always uses its system menu bar:
     //   "auto"   - shown on windows, hidden on linux
     //   "always" - shown
@@ -784,12 +765,30 @@
   // command action opens one by name.
   // "name" and "command" are required, the other keys can be left out.
   // changes to a profile apply to tabs opened after them.
-  // example of a second profile:
+  // examples of more profiles:
   //   {
   //     "name": "server",
   //     "command": { "with_arguments": { "program": "ssh", "args": ["me@example.com"] } },
   //     "theme": { "mode": "dark", "dark": "red" },
   //     "icon": "",
+  //   }
+  // a throwaway container for ai agents or scripts you don't trust yet, everything it
+  // did is gone once the tab closes:
+  //   {
+  //     "name": "throwaway",
+  //     "command": {
+  //       "with_arguments": { "program": "podman", "args": ["run", "--rm", "-it", "fedora", "bash"] },
+  //     },
+  //   }
+  // docker instead, offline, and of your files it sees only the folder the tab opened in:
+  //   {
+  //     "name": "boxed",
+  //     "command": {
+  //       "with_arguments": {
+  //         "program": "sh",
+  //         "args": ["-c", "exec docker run --rm -it --network none -v \"$PWD:/work\" -w /work ubuntu bash"],
+  //       },
+  //     },
   //   }
   "profiles": [
     {
@@ -815,21 +814,6 @@
       // extra environment variables for the program, added to the ones kuterm got,
       // like { "EDITOR": "vim" }
       "env": {},
-      // like a private browser window: the shell keeps no history (bash, zsh and fish
-      // with shell integration), the tab never comes back with the session, `kuterm msg
-      // get-text` and `query` (and mcp agents) can't read it, and its text is wiped from
-      // memory when it closes. it gets a purple frame. "new_incognito_tab" opens the
-      // default profile this way
-      "incognito": false,
-      // run the shell in a sandbox, for ai agents, scripts from the internet or a
-      // `curl | sh` you don't trust yet, like
-      //   { "network": false, "write": ["cwd", "~/.cache"], "tmp": "private" }
-      // "network" false cuts it off, "write" lists the only folders it may change ("cwd"
-      // is the folder it starts in, the rest is read only), "tmp" is "private" for an
-      // empty /tmp of its own or "shared" for the system's, read only. linux needs
-      // bubblewrap (bwrap) installed, the tab refuses to open without it; macos uses
-      // sandbox-exec. the tab shows a shield. null runs it as usual
-      "sandbox": null,
     },
   ],
 
@@ -910,9 +894,6 @@
     "pin_tab": null,
     // open a tab with the active tab's profile and folder next to it
     "duplicate_tab": null,
-    // open the default profile incognito: no shell history, no session restore, no
-    // remote reading, a purple frame
-    "new_incognito_tab": null,
     // put the active tab into a new group, see "tab_groups"
     "new_group": null,
     // put the active tab into the group of the tab next to it, or a new one
@@ -1059,7 +1040,6 @@
   //   "rename_tab"                       - type a title of its own for the active tab
   //   "pin_tab"                          - pin the active tab, or unpin it
   //   "duplicate_tab"                    - open a tab with the active tab's profile and folder
-  //   "new_incognito_tab"                - open the default profile incognito
   //   "copy_folder"                      - copy the active tab's folder to the clipboard
   //   "move_tab_to_new_window"           - move the active tab, its programs still running,
   //                                        into a window of its own
@@ -1171,7 +1151,6 @@
     { "name": "name for remote control", "category": "tabs", "actions": ["rename_pane"] },
     { "name": "pin or unpin", "category": "tabs", "actions": ["pin_tab"] },
     { "name": "duplicate", "category": "tabs", "actions": ["duplicate_tab"] },
-    { "name": "new incognito tab", "category": "tabs", "actions": ["new_incognito_tab"] },
     { "name": "copy folder path", "category": "tabs", "actions": ["copy_folder"] },
     { "name": "move to new window", "category": "tabs", "actions": ["move_tab_to_new_window"] },
     { "name": "split left", "category": "tabs", "actions": ["split_left"] },

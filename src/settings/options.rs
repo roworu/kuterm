@@ -442,16 +442,6 @@ pub enum ProgramNotifications {
     Never,
 }
 
-/// whether tabs of the last session open again on launch
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum RestoreSession {
-    Always,
-    Never,
-    /// a notification asks
-    Ask,
-}
-
 /// how other programs can drive kuterm
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]

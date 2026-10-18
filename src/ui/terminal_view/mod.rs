@@ -208,6 +208,11 @@ impl TerminalView {
             .unwrap_or(Settings::get(cx).terminal.font.size)
     }
 
+    /// font size set for this view only, none follows settings
+    pub fn custom_font_size(&self) -> Option<f32> {
+        self.font_size
+    }
+
     /// change font size of this view only, none goes back to settings
     pub fn set_font_size(&mut self, size: Option<f32>, cx: &mut Context<Self>) {
         self.font_size = size.map(Settings::clamp_font_size);
@@ -564,10 +569,6 @@ impl Render for TerminalView {
             term.sync();
             term.last_content.history_size
         });
-        // textures of images the program dropped go with them
-        for image in self.terminal.read(cx).take_dropped_images() {
-            cx.drop_image(image, Some(window));
-        }
         // output pushing lines into history scrolls the view too
         if history_size > self.history_size {
             self.show_scrollbar(cx);

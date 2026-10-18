@@ -17,7 +17,14 @@ impl Workspace {
 
     /// true when scrolling `pane` scrolls others too
     pub(super) fn scroll_synced(&self, pane: usize) -> bool {
-        self.scroll_sync.contains(&pane) && self.scroll_sync.len() > 1
+        // closed panes stay in the set until the next scroll, only the live ones count
+        self.scroll_sync.contains(&pane)
+            && self
+                .scroll_sync
+                .iter()
+                .filter(|&&id| self.pane(id).is_some())
+                .count()
+                > 1
     }
 
     /// `view` scrolled `delta` lines, the active tabs of the other joined panes follow
@@ -45,6 +52,20 @@ impl Workspace {
 mod tests {
 
     use crate::ui::workspace::test_support::*;
+
+    #[gpui::test]
+    fn a_pane_left_alone_is_not_marked_synced(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 2);
+        let first = ws.update(cx, |ws, cx| {
+            ws.toggle_scroll_sync(cx);
+            ws.focused
+        });
+        split_pane(&ws, cx, DropSide::Right);
+        ws.update(cx, |ws, cx| ws.toggle_scroll_sync(cx));
+        assert!(ws.update(cx, |ws, _| ws.scroll_synced(first)));
+        run_actions(&ws, cx, r#""close_pane""#);
+        assert!(!ws.update(cx, |ws, _| ws.scroll_synced(first)));
+    }
 
     #[gpui::test]
     fn synced_panes_follow_each_delta_clamped_to_their_history(cx: &mut TestAppContext) {

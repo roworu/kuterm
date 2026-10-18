@@ -583,7 +583,7 @@ mod tests {
         start_program(&ws, cx);
         cx.simulate_click(close.center(), Modifiers::none());
         cx.run_until_parked();
-        assert_eq!(dialog(&ws, cx).map(|d| d.0), Some(CloseTarget::Window));
+        assert_eq!(dialog(&ws, cx).map(|d| d.0), Some(CloseTarget::Quit));
     }
 
     #[cfg(not(target_os = "macos"))]

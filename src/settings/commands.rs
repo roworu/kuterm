@@ -196,8 +196,6 @@ pub enum CommandAction {
     PinTab,
     /// open a tab with the active tab's profile and folder right next to it
     DuplicateTab,
-    /// open the default profile incognito
-    NewIncognitoTab,
     /// copy the active tab's folder to the clipboard
     CopyFolder,
     /// move the active tab with its running programs into a window of its own

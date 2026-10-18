@@ -18,7 +18,9 @@ pub(super) fn toggle_all(
     panes: &[usize],
 ) -> Option<BTreeSet<usize>> {
     let all: BTreeSet<usize> = panes.iter().copied().collect();
-    (current != Some(&all)).then_some(all)
+    // closed panes stay in the set, only the live ones count
+    let joined: Option<BTreeSet<usize>> = current.map(|current| &all & current);
+    (joined.as_ref() != Some(&all)).then_some(all)
 }
 
 /// `pane` joined, or left out when it was in, none once no pane is left
@@ -102,6 +104,8 @@ mod tests {
             toggle_all(Some(&some), &[1, 2, 3]),
             Some(BTreeSet::from([1, 2, 3]))
         );
+        // pane 3 closed while joined, one press still stops it
+        assert_eq!(toggle_all(all.as_ref(), &[1, 2]), None);
     }
 
     #[test]

@@ -72,6 +72,8 @@ impl Terminal {
         let term = self.term.lock_unfair();
         let offset = term.grid().display_offset() as i32;
         let mut shown = Vec::new();
+        // a prompt over several lines gets one mark, two prompts with equal marks get one each
+        let mut last_prompt = None;
         for row in 0..term.screen_lines() {
             let line = &term.grid()[Line(row as i32 - offset)];
             // a prompt mark starts at the first cell of its line, or soon after
@@ -79,11 +81,11 @@ impl Terminal {
                 let link = line[Column(column)].hyperlink()?;
                 link.id().strip_prefix(PROMPT_MARK)?.parse::<usize>().ok()
             });
-            if let Some(mark) = mark.and_then(|mark| by_prompt.get(&mark))
-                && shown
-                    .last()
-                    .is_none_or(|(_, last): &(usize, GutterMark)| last != *mark)
+            if let Some(prompt) = mark
+                && last_prompt != Some(prompt)
+                && let Some(mark) = by_prompt.get(&prompt)
             {
+                last_prompt = Some(prompt);
                 shown.push((row, (*mark).clone()));
             }
         }
@@ -121,6 +123,9 @@ mod tests {
         };
         terminal.decorate(|decorations| decorations.gutter.insert(ids[1], mark.clone()));
         // the second prompt is the third screen row, after "$ " and "o"
-        assert_eq!(terminal.visible_gutter(), [(2, mark)]);
+        assert_eq!(terminal.visible_gutter(), [(2, mark.clone())]);
+        // an equal mark on the block before still shows
+        terminal.decorate(|decorations| decorations.gutter.insert(ids[0], mark.clone()));
+        assert_eq!(terminal.visible_gutter(), [(0, mark.clone()), (2, mark)]);
     }
 }

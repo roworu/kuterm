@@ -126,7 +126,7 @@ impl Workspace {
             };
             match open {
                 EditorOpen::Keys(keys) => {
-                    self.input_to(pane, ix, InputSource::Automation, keys.into_bytes(), cx)
+                    self.input_to(pane, ix, InputSource::Automation, keys.into_bytes(), cx);
                 }
                 EditorOpen::NvimRemote { socket, keys } => {
                     let sent = std::process::Command::new("nvim")

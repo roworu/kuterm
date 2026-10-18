@@ -171,7 +171,7 @@ impl Workspace {
         if self.confirm_close.is_some() {
             return;
         }
-        if !self.ask_before_quit(window, cx) {
+        if !self.ask_before_quit(CloseTarget::Quit, window, cx) {
             self.quit(cx);
         }
     }
@@ -186,15 +186,16 @@ impl Workspace {
             return true;
         }
         // a second close while asked keeps the dialog up
-        let close = self.confirm_close.is_none() && !self.ask_before_quit(window, cx);
-        if close {
-            self.save_session(cx);
-        }
-        close
+        self.confirm_close.is_none() && !self.ask_before_quit(CloseTarget::Window, window, cx)
     }
 
     /// open the quit dialog when `confirm_quit` asks for it, true when it opened
-    pub(super) fn ask_before_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+    pub(super) fn ask_before_quit(
+        &mut self,
+        target: CloseTarget,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         let confirm = Settings::get(cx).confirm_quit;
         if confirm == ConfirmQuit::Never {
             return false;
@@ -209,7 +210,7 @@ impl Workspace {
         if names.is_empty() && confirm != ConfirmQuit::Always {
             return false;
         }
-        self.open_confirm(quit_message(&names), CloseTarget::Window, window, cx);
+        self.open_confirm(quit_message(&names), target, window, cx);
         true
     }
 
@@ -230,17 +231,25 @@ impl Workspace {
                 match &target {
                     // tabs may have moved or closed while the dialog was open
                     CloseTarget::Tabs(ids) => this.close_tabs(ids, window, cx),
-                    CloseTarget::Window => this.quit(cx),
+                    CloseTarget::Window => this.close_window(window, cx),
+                    CloseTarget::Quit => this.quit(cx),
                 }
             },
         ));
         self.confirm_close = Some(confirm);
     }
 
-    pub(super) fn quit(&mut self, cx: &mut Context<Self>) {
-        if !self.quitting {
-            self.save_session(cx);
+    // other windows stay, only the last one quits
+    fn close_window(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if cx.windows().len() > 1 {
+            self.quitting = true;
+            window.remove_window();
+        } else {
+            self.quit(cx);
         }
+    }
+
+    pub(super) fn quit(&mut self, cx: &mut Context<Self>) {
         self.quitting = true;
         cx.quit();
     }
@@ -252,7 +261,11 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let old_active = self.pane(pane_id).map(|pane| pane.active);
+        let active_view = |this: &Self| {
+            let pane = this.pane(pane_id)?;
+            Some(pane.tabs.get(pane.active)?.view.entity_id())
+        };
+        let old_active = active_view(self);
         let Some((closed_tab, empty)) = self.take_tab(pane_id, ix) else {
             return;
         };
@@ -295,8 +308,9 @@ impl Workspace {
             return;
         }
         let active = self.pane(pane_id).expect("pane from take_tab").active;
-        // a dialog that still asks about a remaining tab keeps focus and stays up
-        if self.confirm_close.is_some() && Some(active) == old_active {
+        // a dialog that still asks about a remaining tab keeps focus and stays up, the tab
+        // in front is the same even when one left of it closed
+        if self.confirm_close.is_some() && active_view(self) == old_active {
             self.refresh_titles();
             cx.notify();
         } else if self.focused == pane_id {
@@ -518,7 +532,7 @@ mod tests {
         start_program(&ws, cx);
         run_actions(&ws, cx, r#""quit""#);
         let (target, message) = dialog(&ws, cx).expect("quit asked nothing");
-        assert_eq!(target, CloseTarget::Window);
+        assert_eq!(target, CloseTarget::Quit);
         assert_eq!(message, "1 tab is still running a program: sleep");
         assert!(!quitting(&ws, cx));
 
@@ -553,7 +567,7 @@ mod tests {
         let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
         run_actions(&ws, cx, r#""quit""#);
         let (target, message) = dialog(&ws, cx).expect("quit asked nothing");
-        assert_eq!(target, CloseTarget::Window);
+        assert_eq!(target, CloseTarget::Quit);
         assert_eq!(message, "quit kuterm?");
         type_keys(cx, "escape");
         assert!(!quitting(&ws, cx));
@@ -599,6 +613,24 @@ mod tests {
             cx2.simulate_close(),
             "confirmed quit still blocks the close"
         );
+    }
+
+    #[gpui::test]
+    fn confirmed_window_close_keeps_other_windows(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 2);
+        run_actions(&ws, cx, r#"{"activate_tab": 2}, "move_tab_to_new_window""#);
+        assert_eq!(workspaces(cx).len(), 2);
+        start_program(&ws, cx);
+        assert!(!cx.simulate_close(), "busy window closed without asking");
+        type_keys(cx, "enter");
+        cx.run_until_parked();
+        let left = workspaces(cx);
+        assert_eq!(left.len(), 1, "the other window closed too");
+        let other_quits = cx
+            .cx
+            .update(|cx| left[0].read_with(cx, |ws, _| ws.quitting))
+            .unwrap();
+        assert!(!other_quits);
     }
 
     #[gpui::test]
@@ -756,17 +788,29 @@ mod tests {
     }
 
     #[gpui::test]
+    fn quit_dialog_stays_when_a_tab_left_of_the_active_one_exits(cx: &mut TestAppContext) {
+        let settings = Settings::parse(r#"{"confirm_quit": "always"}"#).unwrap();
+        let (ws, cx) = open_with_settings(cx, 2, "{}", settings);
+        run_actions(&ws, cx, r#""quit""#);
+        assert_eq!(dialog(&ws, cx).map(|d| d.0), Some(CloseTarget::Quit));
+        terminal(&ws, cx, 0).update(cx, |terminal, _| terminal.type_text(b"exit\n"));
+        wait_until(cx, "tab never exited", |cx| views(&ws, cx).len() == 1);
+        cx.run_until_parked();
+        assert_eq!(dialog(&ws, cx).map(|d| d.0), Some(CloseTarget::Quit));
+    }
+
+    #[gpui::test]
     fn quit_dialog_stays_when_a_tab_exits(cx: &mut TestAppContext) {
         let settings = Settings::parse(r#"{"confirm_quit": "always"}"#).unwrap();
         let (ws, cx) = open_with_settings(cx, 2, "{}", settings);
         activate(&ws, cx, 0);
         run_actions(&ws, cx, r#""quit""#);
-        assert_eq!(dialog(&ws, cx).map(|d| d.0), Some(CloseTarget::Window));
+        assert_eq!(dialog(&ws, cx).map(|d| d.0), Some(CloseTarget::Quit));
         terminal(&ws, cx, 1).update(cx, |terminal, _| terminal.type_text(b"exit\n"));
         wait_until(cx, "tab never exited", |cx| views(&ws, cx).len() == 1);
         cx.run_until_parked();
         // the window is still asked about
-        assert_eq!(dialog(&ws, cx).map(|d| d.0), Some(CloseTarget::Window));
+        assert_eq!(dialog(&ws, cx).map(|d| d.0), Some(CloseTarget::Quit));
         type_keys(cx, "enter");
         assert!(quitting(&ws, cx));
     }

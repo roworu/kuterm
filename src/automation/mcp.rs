@@ -4,7 +4,6 @@
 
 use std::{
     io::{BufRead, Write},
-    sync::mpsc,
     time::Duration,
 };
 
@@ -114,19 +113,18 @@ fn reply_text(reply: &Reply) -> String {
 
 /// the next event named in `names` within `seconds`, as json
 fn next_event(names: Vec<String>, seconds: u64) -> Result<String, String> {
-    let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        let request = Request::Subscribe { events: names };
-        let result = socket::subscribe(&request, |line| {
-            tx.send(Ok(line.to_string())).ok();
+    let request = Request::Subscribe { events: names };
+    let mut event = None;
+    // the connection closes on return, so kuterm drops the subscription too
+    socket::subscribe(
+        &request,
+        Some(Duration::from_secs(seconds.max(1))),
+        |line| {
+            event = Some(line.to_string());
             false
-        });
-        if let Err(error) = result {
-            tx.send(Err(error)).ok();
-        }
-    });
-    rx.recv_timeout(Duration::from_secs(seconds))
-        .unwrap_or_else(|_| Ok(format!("no event in {seconds} seconds")))
+        },
+    )?;
+    Ok(event.unwrap_or_else(|| format!("no event in {seconds} seconds")))
 }
 
 /// the answer to one json-rpc message, none for notifications. `send` reaches kuterm

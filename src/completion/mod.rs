@@ -116,7 +116,9 @@ pub fn complete(request: &Request, specs: &Specs) -> Completions {
             .cmp(&(b.score, std::cmp::Reverse(b.priority), b.kind))
             .then_with(|| a.label.to_lowercase().cmp(&b.label.to_lowercase()))
     });
-    candidates.dedup_by(|a, b| a.insert == b.insert);
+    // two sources may offer the same text with different scores, the best one stays
+    let mut seen = std::collections::HashSet::new();
+    candidates.retain(|candidate| seen.insert(candidate.insert.clone()));
     candidates.truncate(MAX_CANDIDATES);
     Completions {
         start: context.start,
