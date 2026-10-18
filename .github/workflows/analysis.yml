@@ -1,0 +1,148 @@
+name: Analysis
+
+on:
+  # static checks never gate a merge, so once a week is enough
+  schedule:
+    - cron: "0 6 * * 1"
+  # lets changes to this file be tried without waiting for the schedule
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+
+    runs-on: ubuntu-26.04
+
+    steps:
+
+    - uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          clang cmake pkg-config \
+          libfontconfig-dev libfreetype-dev libxkbcommon-dev libxkbcommon-x11-dev \
+          libwayland-dev libx11-xcb-dev libxcb1-dev libvulkan-dev \
+          libasound2-dev libssl-dev libzstd-dev
+
+    - uses: Swatinem/rust-cache@v2
+
+    - name: Add format and lint components
+      run: rustup component add rustfmt clippy
+
+    - name: Format
+      run: cargo fmt --check
+
+    - name: Clippy
+      run: cargo clippy --all-targets -- -D warnings
+
+  deny:
+
+    runs-on: ubuntu-26.04
+
+    steps:
+
+    - uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+
+    - name: Check advisories, licenses, bans and sources
+      uses: EmbarkStudios/cargo-deny-action@v2
+
+  zizmor:
+
+    runs-on: ubuntu-26.04
+
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+
+    - uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+
+    - name: Audit workflows
+      uses: zizmorcore/zizmor-action@v0.6.4
+
+  gitleaks:
+
+    runs-on: ubuntu-26.04
+
+    env:
+      GITLEAKS_VERSION: 8.30.1
+
+    steps:
+
+    - uses: actions/checkout@v7
+      with:
+        # scan the whole history, not just the last commit
+        fetch-depth: 0
+        persist-credentials: false
+
+    - name: Scan for secrets
+      run: |
+        base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+        curl -fsSLo "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" "$base/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+        curl -fsSLo gitleaks_checksums.txt "$base/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+        grep "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" gitleaks_checksums.txt | sha256sum -c -
+        tar xzf "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" gitleaks
+        ./gitleaks git --redact --verbose
+
+  codeql:
+
+    runs-on: ubuntu-26.04
+
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+
+    - uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v4
+      with:
+        languages: rust
+        build-mode: none
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v4
+      with:
+        category: "/language:rust"
+
+  scorecard:
+
+    runs-on: ubuntu-26.04
+
+    permissions:
+      contents: read
+      security-events: write
+      id-token: write
+
+    steps:
+
+    - uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+
+    - name: Run scorecard
+      uses: ossf/scorecard-action@v2.4.4
+      with:
+        results_file: results.sarif
+        results_format: sarif
+        publish_results: true
+
+    - name: Upload to code scanning
+      uses: github/codeql-action/upload-sarif@v4
+      with:
+        sarif_file: results.sarif
