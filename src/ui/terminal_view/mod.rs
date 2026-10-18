@@ -255,9 +255,11 @@ impl TerminalView {
         if !text.is_empty() {
             self.forward_popup_keys(cx);
             self.input_happened(cx);
-            self.terminal.update(cx, |term, _| {
+            if self.terminal.update(cx, |term, _| {
                 term.input(InputSource::Keyboard, text.to_string().into_bytes())
-            });
+            }) {
+                self.completions.typed();
+            }
             #[cfg(test)]
             cx.emit(TypedInput::Text(text.to_string()));
         }
@@ -489,6 +491,7 @@ impl TerminalView {
         if sent {
             // input jumps to the bottom, a running glide would pull the view back up
             self.input_happened(cx);
+            self.completions.typed();
             #[cfg(test)]
             cx.emit(TypedInput::Key(keystroke.clone(), kind));
         }

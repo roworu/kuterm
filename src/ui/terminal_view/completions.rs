@@ -90,6 +90,9 @@ pub(super) struct CompletionMenu {
     keystroke: Option<Keystroke>,
     /// accept the shell has not answered, keys after it wait for the line it makes
     accept: Option<SentAccept>,
+    /// keys went to the pty after the line was reported. an accept on the socket could
+    /// reach the shell before them, so it waits for the line they make
+    typed_ahead: bool,
     /// popup keys typed while candidates or an answer were on the way
     queued: VecDeque<(PopupKey, Option<Keystroke>)>,
     /// stops waiting when the shell takes too long
@@ -120,6 +123,11 @@ impl CompletionMenu {
     /// popup keys have to wait: for candidates, or for the shell to answer an accept
     fn busy(&self) -> bool {
         self.line.is_some() && (self.accept.is_some() || self.finding())
+    }
+
+    /// keys were sent to the shell, the line it reported last is behind them
+    pub(super) fn typed(&mut self) {
+        self.typed_ahead = true;
     }
 
     /// remember the keystroke being dispatched, its popup key may pass it on later
@@ -175,6 +183,7 @@ impl TerminalView {
                     .take(line.cursor)
                     .all(char::is_whitespace);
                 menu.line = Some(line);
+                menu.typed_ahead = false;
                 let auto = settings.trigger == CompletionTrigger::Auto;
                 // auto shows nothing on an empty line, the key lists commands there too.
                 // moving through history shows nothing either, so the next up or down
@@ -320,6 +329,7 @@ impl TerminalView {
                     .is_none_or(|sent| seq.is_some_and(|seq| seq > sent))
         };
         if !menu.finding()
+            && !menu.typed_ahead
             && let Some(accept) = menu.accept.take_if(newer)
         {
             self.redo_accept(accept, cx);
@@ -342,8 +352,22 @@ impl TerminalView {
         } else if ran || menu.wait_timeout.is_none() {
             menu.wait_timeout = Some(cx.spawn(async move |this, cx| {
                 cx.background_executor().timer(KEY_WAIT).await;
-                this.update(cx, |this, cx| this.stop_waiting(cx)).ok();
+                this.update(cx, |this, cx| this.waited_too_long(cx)).ok();
             }));
+        }
+    }
+
+    /// nothing came in time. typed keys that brought no new line changed nothing, so an
+    /// accept waiting for them is done on the line there is
+    fn waited_too_long(&mut self, cx: &mut Context<Self>) {
+        let menu = &mut self.completions;
+        if std::mem::take(&mut menu.typed_ahead)
+            && menu.accept.as_ref().is_some_and(|accept| accept.seq.is_none())
+        {
+            menu.wait_timeout = None;
+            self.run_popup_keys(cx);
+        } else {
+            self.stop_waiting(cx);
         }
     }
 
@@ -442,13 +466,16 @@ impl TerminalView {
         let picked = menu.moved.then(|| candidate.label.clone());
         menu.open = false;
         // the shell would turn an answer to an older line down, so it waits for the fresh one
-        if *seq != line.seq {
+        if *seq != line.seq || menu.typed_ahead {
             menu.accept = Some(SentAccept {
                 seq: None,
                 rejected: true,
                 picked,
                 keystroke,
             });
+            if menu.typed_ahead {
+                self.run_popup_keys(cx);
+            }
             return;
         }
         let message =
@@ -1285,16 +1312,15 @@ mod tests {
         let (view, cx, mut shell) = with_shell("ahead", AUTO, cx);
         type_line(&view, cx, &shell, 1, "cat al");
         assert!(!shown(&view, cx).is_empty());
-        // "p" went to the shell before tab, so the shell turns the accept for "cat al" down,
-        // and it is done again on the line with the "p"
+        // "p" went to the pty before tab, an accept for "cat al" on the socket could pass it,
+        // so tab waits for the line with the "p"
         cx.simulate_keystrokes("p tab");
-        assert_eq!(shell.received(), "1 accept 1 4 6 alpine/\n");
         type_line(&view, cx, &shell, 2, "cat alp");
-        answer(&view, cx, &shell, 1, false);
         assert_eq!(shell.received(), "1 accept 2 4 7 alpine/\n");
 
-        // the selection moved to a candidate stays on it, and one the newer line has
-        // nothing for goes to the shell as the key it was
+        // keys the shell got some other way make it turn the accept down. the selection
+        // moved to a candidate stays on it, and one the newer line has nothing for goes to
+        // the shell as the key it was
         let (keys, _subscription) = sent_keys(&view, cx);
         answer(&view, cx, &shell, 2, true);
         type_line(&view, cx, &shell, 3, "cat al");
@@ -1310,6 +1336,17 @@ mod tests {
         type_line(&view, cx, &shell, 6, "cat alx");
         answer(&view, cx, &shell, 5, false);
         assert_eq!(*keys.borrow(), ["tab"]);
+    }
+
+    #[gpui::test]
+    fn tab_after_a_key_that_changed_nothing_accepts_on_the_line(cx: &mut TestAppContext) {
+        let (view, cx, mut shell) = with_shell("still", AUTO, cx);
+        type_line(&view, cx, &shell, 1, "cat al");
+        // the shell reports no new line after the key, so the accept goes on the one there is
+        cx.simulate_keystrokes("p tab");
+        cx.executor().advance_clock(KEY_WAIT);
+        cx.run_until_parked();
+        assert_eq!(shell.received(), "1 accept 1 4 6 alpine/\n");
     }
 
     #[gpui::test]

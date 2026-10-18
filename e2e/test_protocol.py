@@ -8,15 +8,18 @@ FEATURE = "terminal protocol"
 
 DARK = bundled_theme(True)
 
+# every query here is answered: the first byte may be slow on a busy runner, the rest of the
+# reply comes with it
 QUERY = (
     "stty raw -echo; printf '{sequence}'; "
-    'timeout --foreground 1 cat > "$T2_TMP/got"; stty sane; touch "$T2_TMP/done"'
+    'timeout --foreground 10 head -c 1 > "$T2_TMP/got"; '
+    'timeout --foreground 1 cat >> "$T2_TMP/got"; stty sane; touch "$T2_TMP/done"'
 )
 
 
 def reply(app_factory, report_note, sequence: str, **settings) -> str:
     app: App = app_factory({"theme": {"mode": "dark"}, **settings}, script=QUERY.format(sequence=sequence))
-    app.wait_file("done", timeout=10)
+    app.wait_file("done", timeout=15)
     got = app.file("got").read_text(errors="replace")
     report_note(f"reply to {sequence}", repr(got))
     return got

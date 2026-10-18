@@ -125,8 +125,10 @@ def test_palette_leaves_the_bars_uncovered(app_factory, layout):
 @pytest.mark.parametrize("layout", [name for name, layout in LAYOUTS.items() if "status_bar" in layout])
 def test_notification_leaves_the_status_bar_uncovered(app_factory, layout):
     """notifications stack above the status bar instead of over it"""
-    # blocks that never change, so only a notification could change the bar
-    settings = {"status_bar": {"left": [{"text": "left"}], "right": [{"text": "right"}]}}
+    # blocks that never change, so only a notification could change the bar. it stays until
+    # clicked, on a slow runner the 5s default can run out before the palette is gone
+    settings = {"status_bar": {"left": [{"text": "left"}], "right": [{"text": "right"}]},
+                "notifications": {"timeout": 0}}
     app = layout_app(app_factory, layout, settings,
                      commands={"commands": [{"name": "say hi", "actions": [{"notify": "hi from e2e"}]}]})
     app.pty_size()
@@ -136,8 +138,11 @@ def test_notification_leaves_the_status_bar_uncovered(app_factory, layout):
     app.palette("say hi")
     changed = lambda: np.abs(app.shot().astype(int) - before.astype(int)).max(axis=-1) > 0
     # the palette is gone and the notification is up in the bottom right corner
-    app.wait(lambda: changed()[:, 600:].sum() > 3000 and not changed()[: app.size()[1] // 2].any(),
-             msg="notification")
+    def notified() -> bool:
+        mask = changed()
+        return mask[:, 600:].sum() > 3000 and not mask[: mask.shape[0] // 2].any()
+
+    app.wait(notified, msg="notification")
     app.snap("notification with the status bar")
     # its shadow may darken the bar a little, the notification itself must not cover it
     covered = mask_bbox(np.abs(app.shot().astype(int) - before.astype(int))[-status:].max(axis=-1) > 40)
