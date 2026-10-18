@@ -15,6 +15,8 @@ previewed in the command palette:
 
 ![kuterm showcase](assets/showcase/showcase.webp)
 
+ready presets with videos, from minimal to everything turned on: [examples/presets](examples/presets)
+
 ## installation
 
 download binaries for linux, macos or windows from [releases](https://github.com/roworu/kuterm/releases).
@@ -38,14 +40,6 @@ each option described in file with comments, you don't need any external docs to
 partial changes work, missing values use defaults. you can just override things you need and remove others, to accept defaults.
 
 you can check default settings used by terminal inside that repo: [Settings](https://github.com/roworu/kuterm/tree/main/assets)
-
-ready presets with videos, from minimal to everything turned on: [examples/presets](examples/presets)
-
-## screenshots
-
-![tabs](assets/screenshots/2.png)
-
-![dark theme](assets/screenshots/3.png)
 
 ## development
 
