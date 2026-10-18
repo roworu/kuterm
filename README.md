@@ -8,11 +8,14 @@ highly configurable, gpu accelerated terminal
 
 <br clear="right">
 
-## tour
+## showcase
 
-showcase of going from none enabled features, to all at once:
+tabs grouped by project, splits with live cpu, memory and port metrics, completions, and themes
+previewed in the command palette:
 
-[![kuterm tour](assets/tour/tour.png)](assets/tour/tour.mp4)
+![kuterm showcase](assets/showcase/showcase.webp)
+
+ready presets with videos, from minimal to everything turned on: [examples/presets](examples/presets)
 
 ## installation
 
@@ -37,14 +40,6 @@ each option described in file with comments, you don't need any external docs to
 partial changes work, missing values use defaults. you can just override things you need and remove others, to accept defaults.
 
 you can check default settings used by terminal inside that repo: [Settings](https://github.com/roworu/kuterm/tree/main/assets)
-
-ready presets with videos, from minimal to everything turned on: [examples/presets](examples/presets)
-
-## screenshots
-
-![tabs](assets/screenshots/2.png)
-
-![dark theme](assets/screenshots/3.png)
 
 ## development
 

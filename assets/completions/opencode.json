@@ -1,0 +1,805 @@
+{
+ "name": "opencode",
+ "description": "AI coding agent for the terminal",
+ "options": [
+  {
+   "name": [
+    "-h",
+    "--help"
+   ],
+   "description": "Show help",
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-v",
+    "--version"
+   ],
+   "description": "Show version number",
+   "isPersistent": true
+  },
+  {
+   "name": "--print-logs",
+   "description": "Print logs to stderr",
+   "isPersistent": true
+  },
+  {
+   "name": "--log-level",
+   "description": "Log level",
+   "args": {
+    "name": "log-level",
+    "suggestions": [
+     "DEBUG",
+     "INFO",
+     "WARN",
+     "ERROR"
+    ]
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--pure",
+   "description": "Run without external plugins",
+   "isPersistent": true
+  },
+  {
+   "name": "--port",
+   "description": "Port to listen on",
+   "args": {
+    "name": "port"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--hostname",
+   "description": "Hostname to listen on",
+   "args": {
+    "name": "hostname"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--mdns",
+   "description": "Enable mDNS service discovery (defaults hostname to 0.0.0.0)",
+   "isPersistent": true
+  },
+  {
+   "name": "--mdns-domain",
+   "description": "Custom domain name for mDNS service (default: opencode.local)",
+   "args": {
+    "name": "mdns-domain"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--cors",
+   "description": "Additional domains to allow for CORS",
+   "args": {
+    "name": "cors"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-m",
+    "--model"
+   ],
+   "description": "Model to use in the format of provider/model",
+   "args": {
+    "name": "model"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-c",
+    "--continue"
+   ],
+   "description": "Continue the last session",
+   "isPersistent": true
+  },
+  {
+   "name": [
+    "-s",
+    "--session"
+   ],
+   "description": "Session id to continue",
+   "args": {
+    "name": "session"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--fork",
+   "description": "Fork the session when continuing (use with --continue or --session)",
+   "isPersistent": true
+  },
+  {
+   "name": "--prompt",
+   "description": "Prompt to use",
+   "args": {
+    "name": "prompt"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--agent",
+   "description": "Agent to use",
+   "args": {
+    "name": "agent"
+   },
+   "isPersistent": true
+  },
+  {
+   "name": "--auto",
+   "description": "Auto-approve permissions that are not explicitly denied (dangerous!)",
+   "isPersistent": true
+  },
+  {
+   "name": "--mini",
+   "description": "Start the minimal interactive interface",
+   "isPersistent": true
+  },
+  {
+   "name": "--no-replay",
+   "description": "Disable mini session history replay on resume and after resize",
+   "isPersistent": true
+  },
+  {
+   "name": "--replay-limit",
+   "description": "Cap visible mini replay to the newest N messages",
+   "args": {
+    "name": "replay-limit"
+   },
+   "isPersistent": true
+  }
+ ],
+ "args": {
+  "name": "project",
+  "template": "folders",
+  "isOptional": true
+ },
+ "subcommands": [
+  {
+   "name": "completion",
+   "description": "Generate shell completion script"
+  },
+  {
+   "name": "acp",
+   "description": "Start ACP (Agent Client Protocol) server",
+   "options": [
+    {
+     "name": "--cwd",
+     "description": "Working directory",
+     "args": {
+      "name": "cwd"
+     }
+    }
+   ]
+  },
+  {
+   "name": "mcp",
+   "description": "Manage MCP (Model Context Protocol) servers",
+   "subcommands": [
+    {
+     "name": "add",
+     "description": "Add an MCP server",
+     "args": {
+      "name": "name",
+      "isOptional": true
+     },
+     "options": [
+      {
+       "name": "--url",
+       "description": "URL for a remote MCP server",
+       "args": {
+        "name": "url"
+       }
+      },
+      {
+       "name": "--env",
+       "description": "Environment variable for a local MCP server (KEY=VALUE)",
+       "args": {
+        "name": "env"
+       }
+      },
+      {
+       "name": "--header",
+       "description": "HTTP header for a remote MCP server (KEY=VALUE)",
+       "args": {
+        "name": "header"
+       }
+      }
+     ]
+    },
+    {
+     "name": [
+      "list",
+      "ls"
+     ],
+     "description": "List MCP servers and their status"
+    },
+    {
+     "name": "auth",
+     "description": "Authenticate with an OAuth-enabled MCP server",
+     "args": {
+      "name": "name",
+      "isOptional": true
+     }
+    },
+    {
+     "name": "logout",
+     "description": "Remove OAuth credentials for an MCP server",
+     "args": {
+      "name": "name",
+      "isOptional": true
+     }
+    },
+    {
+     "name": "debug",
+     "description": "Debug OAuth connection for an MCP server",
+     "args": {
+      "name": "name"
+     }
+    }
+   ],
+   "priority": 76
+  },
+  {
+   "name": "attach",
+   "description": "Attach to a running opencode server",
+   "args": {
+    "name": "url"
+   },
+   "options": [
+    {
+     "name": "--dir",
+     "description": "Directory to run in",
+     "args": {
+      "name": "dir"
+     }
+    },
+    {
+     "name": [
+      "-p",
+      "--password"
+     ],
+     "description": "Basic auth password (defaults to OPENCODE_SERVER_PASSWORD)",
+     "args": {
+      "name": "password"
+     }
+    },
+    {
+     "name": [
+      "-u",
+      "--username"
+     ],
+     "description": "Basic auth username (defaults to OPENCODE_SERVER_USERNAME or 'opencode')",
+     "args": {
+      "name": "username"
+     }
+    }
+   ]
+  },
+  {
+   "name": "run",
+   "description": "Run opencode with a message",
+   "args": {
+    "name": "message",
+    "isOptional": true,
+    "isVariadic": true
+   },
+   "options": [
+    {
+     "name": "--command",
+     "description": "The command to run, use message for args",
+     "args": {
+      "name": "command"
+     }
+    },
+    {
+     "name": "--format",
+     "description": "Format: default (formatted) or json (raw JSON events)",
+     "args": {
+      "name": "format",
+      "suggestions": [
+       "default",
+       "json"
+      ]
+     }
+    },
+    {
+     "name": [
+      "-f",
+      "--file"
+     ],
+     "description": "File(s) to attach to message",
+     "args": {
+      "name": "file"
+     }
+    },
+    {
+     "name": "--title",
+     "description": "Title for the session (uses truncated prompt if no value provided)",
+     "args": {
+      "name": "title"
+     }
+    },
+    {
+     "name": "--attach",
+     "description": "Attach to a running opencode server (e.g., http://localhost:4096)",
+     "args": {
+      "name": "attach"
+     }
+    },
+    {
+     "name": [
+      "-p",
+      "--password"
+     ],
+     "description": "Basic auth password (defaults to OPENCODE_SERVER_PASSWORD)",
+     "args": {
+      "name": "password"
+     }
+    },
+    {
+     "name": [
+      "-u",
+      "--username"
+     ],
+     "description": "Basic auth username (defaults to OPENCODE_SERVER_USERNAME or 'opencode')",
+     "args": {
+      "name": "username"
+     }
+    },
+    {
+     "name": "--dir",
+     "description": "Directory to run in, path on remote server if attaching",
+     "args": {
+      "name": "dir"
+     }
+    },
+    {
+     "name": "--variant",
+     "description": "Model variant (provider-specific reasoning effort, e.g., high, max, minimal)",
+     "args": {
+      "name": "variant"
+     }
+    },
+    {
+     "name": "--thinking",
+     "description": "Show thinking blocks"
+    },
+    {
+     "name": [
+      "-i",
+      "--interactive"
+     ],
+     "description": "Run in direct interactive split-footer mode"
+    }
+   ],
+   "priority": 80
+  },
+  {
+   "name": "debug",
+   "description": "Debugging and troubleshooting tools",
+   "subcommands": [
+    {
+     "name": "config",
+     "description": "Show resolved configuration"
+    },
+    {
+     "name": "lsp",
+     "description": "LSP debugging utilities"
+    },
+    {
+     "name": "rg",
+     "description": "Ripgrep debugging utilities"
+    },
+    {
+     "name": "file",
+     "description": "File system debugging utilities"
+    },
+    {
+     "name": "scrap",
+     "description": "List all known projects"
+    },
+    {
+     "name": "skill",
+     "description": "List all available skills"
+    },
+    {
+     "name": "snapshot",
+     "description": "Snapshot debugging utilities"
+    },
+    {
+     "name": "startup",
+     "description": "Print startup timing"
+    },
+    {
+     "name": "agent",
+     "description": "Show agent configuration details",
+     "args": {
+      "name": "name"
+     },
+     "options": [
+      {
+       "name": "--tool",
+       "description": "Tool id to execute",
+       "args": {
+        "name": "tool"
+       }
+      },
+      {
+       "name": "--params",
+       "description": "Tool params as JSON or a JS object literal",
+       "args": {
+        "name": "params"
+       }
+      }
+     ]
+    },
+    {
+     "name": "v2",
+     "description": "Debug v2 catalog and built-in plugins"
+    },
+    {
+     "name": "info",
+     "description": "Show debug information"
+    },
+    {
+     "name": "paths",
+     "description": "Show global paths (data, config, cache, state)"
+    },
+    {
+     "name": "wait",
+     "description": "Wait indefinitely (for debugging)"
+    }
+   ]
+  },
+  {
+   "name": [
+    "providers",
+    "auth"
+   ],
+   "description": "Manage AI providers and credentials",
+   "subcommands": [
+    {
+     "name": [
+      "list",
+      "ls"
+     ],
+     "description": "List providers and credentials"
+    },
+    {
+     "name": "login",
+     "description": "Log in to a provider",
+     "args": {
+      "name": "url",
+      "isOptional": true
+     },
+     "options": [
+      {
+       "name": [
+        "-p",
+        "--provider"
+       ],
+       "description": "Provider id or name to log in to (skips provider selection)",
+       "args": {
+        "name": "provider"
+       }
+      }
+     ]
+    },
+    {
+     "name": "logout",
+     "description": "Log out from a configured provider",
+     "args": {
+      "name": "provider",
+      "isOptional": true
+     }
+    }
+   ],
+   "priority": 76
+  },
+  {
+   "name": "agent",
+   "description": "Manage agents",
+   "subcommands": [
+    {
+     "name": "create",
+     "description": "Create a new agent",
+     "options": [
+      {
+       "name": "--path",
+       "description": "Directory path to generate the agent file",
+       "args": {
+        "name": "path"
+       }
+      },
+      {
+       "name": "--description",
+       "description": "What the agent should do",
+       "args": {
+        "name": "description"
+       }
+      },
+      {
+       "name": "--mode",
+       "description": "Agent mode",
+       "args": {
+        "name": "mode",
+        "suggestions": [
+         "all",
+         "primary",
+         "subagent"
+        ]
+       }
+      },
+      {
+       "name": [
+        "--permissions",
+        "--tools"
+       ],
+       "description": "Comma-separated list of permissions to allow (default: all)"
+      }
+     ]
+    },
+    {
+     "name": "list",
+     "description": "List all available agents"
+    }
+   ],
+   "priority": 75
+  },
+  {
+   "name": "upgrade",
+   "description": "Upgrade opencode to the latest or a specific version",
+   "args": {
+    "name": "target",
+    "isOptional": true
+   },
+   "options": [
+    {
+     "name": "--major",
+     "description": "Upgrade to OpenCode 2 and remove OpenCode 1"
+    }
+   ]
+  },
+  {
+   "name": "uninstall",
+   "description": "Uninstall opencode and remove all related files",
+   "options": [
+    {
+     "name": [
+      "-d",
+      "--keep-data"
+     ],
+     "description": "Keep session data and snapshots"
+    },
+    {
+     "name": "--dry-run",
+     "description": "Show what would be removed without removing"
+    },
+    {
+     "name": [
+      "-f",
+      "--force"
+     ],
+     "description": "Skip confirmation prompts"
+    }
+   ]
+  },
+  {
+   "name": "serve",
+   "description": "Starts a headless opencode server"
+  },
+  {
+   "name": "web",
+   "description": "Start opencode server and open web interface"
+  },
+  {
+   "name": "models",
+   "description": "List all available models",
+   "args": {
+    "name": "provider",
+    "isOptional": true
+   },
+   "options": [
+    {
+     "name": "--verbose",
+     "description": "Use more verbose model output (includes metadata like costs)"
+    },
+    {
+     "name": "--refresh",
+     "description": "Refresh the models cache from models.dev"
+    }
+   ],
+   "priority": 75
+  },
+  {
+   "name": "stats",
+   "description": "Show token usage and cost statistics",
+   "options": [
+    {
+     "name": "--days",
+     "description": "Show stats for the last N days (default: all time)",
+     "args": {
+      "name": "days"
+     }
+    },
+    {
+     "name": "--tools",
+     "description": "Number of tools to show (default: all)",
+     "args": {
+      "name": "tools"
+     }
+    },
+    {
+     "name": "--models",
+     "description": "Show model statistics (default: hidden)"
+    },
+    {
+     "name": "--project",
+     "description": "Filter by project (default: all projects, empty string: current project)",
+     "args": {
+      "name": "project"
+     }
+    }
+   ]
+  },
+  {
+   "name": "export",
+   "description": "Export session data as JSON",
+   "args": {
+    "name": "sessionID",
+    "isOptional": true
+   },
+   "options": [
+    {
+     "name": "--sanitize",
+     "description": "Redact sensitive transcript and file data"
+    }
+   ]
+  },
+  {
+   "name": "import",
+   "description": "Import session data from JSON file",
+   "args": {
+    "name": "file",
+    "template": "filepaths"
+   }
+  },
+  {
+   "name": "github",
+   "description": "Manage GitHub agent",
+   "subcommands": [
+    {
+     "name": "install",
+     "description": "Install the GitHub agent"
+    },
+    {
+     "name": "run",
+     "description": "Run the GitHub agent",
+     "options": [
+      {
+       "name": "--event",
+       "description": "GitHub mock event to run the agent for",
+       "args": {
+        "name": "event"
+       }
+      },
+      {
+       "name": "--token",
+       "description": "GitHub personal access token (github_pat_********)",
+       "args": {
+        "name": "token"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "pr",
+   "description": "Fetch and checkout a GitHub PR branch, then run opencode",
+   "args": {
+    "name": "number"
+   }
+  },
+  {
+   "name": "session",
+   "description": "Manage sessions",
+   "subcommands": [
+    {
+     "name": "list",
+     "description": "List sessions",
+     "options": [
+      {
+       "name": [
+        "-n",
+        "--max-count"
+       ],
+       "description": "Limit to N most recent sessions",
+       "args": {
+        "name": "max-count"
+       }
+      },
+      {
+       "name": "--format",
+       "description": "Output format",
+       "args": {
+        "name": "format",
+        "suggestions": [
+         "table",
+         "json"
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "name": "delete",
+     "description": "Delete a session",
+     "args": {
+      "name": "sessionID"
+     }
+    }
+   ],
+   "priority": 75
+  },
+  {
+   "name": [
+    "plugin",
+    "plug"
+   ],
+   "description": "Install plugin and update config",
+   "args": {
+    "name": "module"
+   },
+   "options": [
+    {
+     "name": [
+      "-g",
+      "--global"
+     ],
+     "description": "Install in global config"
+    },
+    {
+     "name": [
+      "-f",
+      "--force"
+     ],
+     "description": "Replace existing plugin version"
+    }
+   ]
+  },
+  {
+   "name": "db",
+   "description": "Database tools",
+   "options": [
+    {
+     "name": "--format",
+     "description": "Output format",
+     "args": {
+      "name": "format",
+      "suggestions": [
+       "json",
+       "tsv"
+      ]
+     }
+    }
+   ],
+   "args": {
+    "name": "query",
+    "isOptional": true
+   },
+   "subcommands": [
+    {
+     "name": "path",
+     "description": "Print the database path"
+    }
+   ]
+  }
+ ]
+}

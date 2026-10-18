@@ -1,7 +1,7 @@
 #!/bin/sh
 # regenerate bundled completion specs from the programs themselves, inside a throwaway
 # container, so nothing a recipe runs touches the host. writes into assets/completions.
-#   sh tools/completions/generate.sh <ubuntu|fedora|arch|opensuse|alpine> [command...]
+#   sh tools/completions/generate.sh <ubuntu|fedora|arch|opensuse|alpine|node> [command...]
 #   sh tools/completions/generate.sh aws
 set -e
 dir=$(cd "$(dirname "$0")" && pwd)

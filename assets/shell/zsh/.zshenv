@@ -131,11 +131,14 @@ if [[ -o interactive ]]; then
       [[ "$CURSOR:$BUFFER" == "$__kuterm_csent" ]] && return
       __kuterm_csent="$CURSOR:$BUFFER"
       (( ++__kuterm_cseq ))
-      local buffer
+      local buffer hist=
+      # moving through history must not pop completions over the recalled line, the next
+      # up or down has to scroll the history again
+      [[ $LASTWIDGET == *history* || $LASTWIDGET == *-line-or-search ]] && hist=,"history":true
       __kuterm_cjson "$BUFFER"
       buffer=$REPLY
       __kuterm_cjson "$PWD"
-      __kuterm_csend "{\"v\":1,\"type\":\"line\",\"seq\":$__kuterm_cseq,\"cursor\":$CURSOR,\"buffer\":$buffer,\"cwd\":$REPLY}"
+      __kuterm_csend "{\"v\":1,\"type\":\"line\",\"seq\":$__kuterm_cseq,\"cursor\":$CURSOR,\"buffer\":$buffer,\"cwd\":$REPLY$hist}"
     }
 
     __kuterm_cfinish() {

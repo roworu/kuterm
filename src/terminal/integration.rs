@@ -395,16 +395,35 @@ fn scripts_dir() -> Option<PathBuf> {
     Some(dir)
 }
 
+/// the program a profile runs, none when it brings arguments of its own
+fn shell_program(profile: &Profile) -> Option<String> {
+    match &profile.command {
+        Shell::System => std::env::var("SHELL").ok(),
+        Shell::Program(program) => Some(program.clone()),
+        Shell::WithArguments { .. } => None,
+    }
+}
+
+/// true when `profile` already went through `with_shell_integration` and runs zsh with
+/// kuterm's script, the only shell that speaks the completion protocol
+pub fn has_zsh_completion(profile: &Profile) -> bool {
+    let is_zsh = shell_program(profile)
+        .as_deref()
+        .and_then(|program| Path::new(program).file_name())
+        .is_some_and(|name| name == "zsh");
+    // ZDOTDIR and the script the shell sources are written together
+    is_zsh
+        && profile
+            .env
+            .get("ZDOTDIR")
+            .is_some_and(|dir| Path::new(dir).join(".zshenv").is_file())
+}
+
 /// `profile` changed to load kuterm's shell integration into bash, zsh or fish. a command
 /// with its own arguments is left alone, it may not be a shell at all
 pub fn with_shell_integration(profile: &Profile) -> Profile {
     let mut profile = profile.clone();
-    let program = match &profile.command {
-        Shell::System => std::env::var("SHELL").ok(),
-        Shell::Program(program) => Some(program.clone()),
-        Shell::WithArguments { .. } => None,
-    };
-    let Some(program) = program else {
+    let Some(program) = shell_program(&profile) else {
         return profile;
     };
     let name = Path::new(&program)
@@ -467,7 +486,7 @@ mod tests {
 
     use alacritty_terminal::index::{Column, Line, Point as AlacPoint};
 
-    use super::{arrows_to, file_line, with_shell_integration};
+    use super::{arrows_to, file_line, has_zsh_completion, with_shell_integration};
     use crate::{
         settings::{Shell, TerminalSettings},
         terminal::{
@@ -860,6 +879,26 @@ mod tests {
             args: vec!["-l".into()],
         });
         assert_eq!(with_shell_integration(&args), args);
+    }
+
+    #[test]
+    fn only_injected_zsh_speaks_completions() {
+        let zsh = with_shell_integration(&profile(Shell::Program("/usr/bin/zsh".into())));
+        assert!(has_zsh_completion(&zsh));
+        // without the injection there is no script to connect to the socket
+        assert!(!has_zsh_completion(&profile(Shell::Program(
+            "/usr/bin/zsh".into()
+        ))));
+        for program in ["/bin/bash", "fish", "/bin/sh"] {
+            let injected = with_shell_integration(&profile(Shell::Program(program.into())));
+            assert!(!has_zsh_completion(&injected), "{program}");
+        }
+        // a command with its own arguments is never pointed at the script
+        let args = profile(Shell::WithArguments {
+            program: "zsh".into(),
+            args: vec!["-l".into()],
+        });
+        assert!(!has_zsh_completion(&with_shell_integration(&args)));
     }
 
     #[test]

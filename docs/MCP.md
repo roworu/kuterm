@@ -71,3 +71,6 @@ for line in sys.stdin:
 ```
 
 commands run this way show `"remote"` as their source in `query`.
+
+a fuller server, with socket discovery, every request as a tool and a `wait_for_event` tool,
+is in `examples/mcp/kuterm_mcp.py`, with setup in `examples/mcp/README.md`.

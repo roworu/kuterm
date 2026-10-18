@@ -1,0 +1,36 @@
+// compact: for small screens, laptops and tiling window managers. small ui and text, thin
+// padding, narrow numbered tabs, no status bar and a slim scrollbar. splits are on
+// ctrl-shift-r / d, moving between panes on ctrl-alt-h j k l
+{
+  "ui_font_size": 13,
+  "hide_bar_for_one_tab": true,
+  "expand_tabs": false,
+  "tab_width": 150,
+  "tab_title": ["number", { "text": " " }, "folder"],
+  "show_tab_close_button": false,
+  "new_tab_button": "right",
+  "status_bar": { "enable": false },
+  "theme": { "mode": "dark", "dark": "dracula", "light": "light" },
+  "window": {
+    "decorations": "none",
+    "padding": { "x": 3, "y": 2 },
+    "columns": 100,
+    "rows": 30,
+  },
+  "terminal": {
+    "font": { "size": 13 },
+    "line_height": "standard",
+    "cursor_shape": "block",
+    "scrollbar": { "enable": "dynamic", "width": 3, "auto_hide": 2 },
+    "smooth_scroll": { "enable": false },
+  },
+  "keybindings": {
+    "split_right": "ctrl-shift-r",
+    "split_down": "ctrl-shift-d",
+    "focus_pane_left": "ctrl-alt-h",
+    "focus_pane_right": "ctrl-alt-l",
+    "focus_pane_up": "ctrl-alt-k",
+    "focus_pane_down": "ctrl-alt-j",
+    "zoom_pane": "ctrl-shift-z",
+  },
+}

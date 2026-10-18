@@ -33,7 +33,7 @@
       { "regex": "(?-u:\\b)KT-[0-9]+(?-u:\\b)", "action": { "exec": "xdg-open \"https://tracker.example.com/browse/$KUTERM_MATCH\"" } },
     ],
   },
-  "theme": { "mode": "dark", "dark": "catppuccin-mocha", "light": "catppuccin-latte" },
+  "theme": { "mode": "light", "dark": "catppuccin-mocha", "light": "catppuccin-latte" },
   "window": {
     "decorations": "client",
     "padding": { "x": 10, "y": 8 },

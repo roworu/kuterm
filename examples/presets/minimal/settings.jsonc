@@ -6,6 +6,7 @@
   "window_title": ["folder"],
   "show_tab_close_button": false,
   "new_tab_button": "right",
+  "theme": { "mode": "dark", "dark": "dark", "light": "light" },
   "command_palette": { "show_recent": false },
   "notifications": {
     "copy": false,

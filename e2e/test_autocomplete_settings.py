@@ -93,7 +93,15 @@ def popup_of(app: App, rows: int):
 
 
 def popup_rows(app: App, box: tuple) -> int:
-    """rows the popup shows, it is that many line heights tall plus its padding"""
+    """rows the popup shows, it is that many line heights tall plus its padding. the whole
+    description of the selected candidate sits under a border below the rows, when it shows"""
+    img = app.shot()[box[1]:box[3], box[0]:box[2]]
+    border = near(img, C["border"])
+    divider = next((y for y in range(border.shape[0]) if border[y].sum() > border.shape[1] * 0.5),
+                   None)
+    if divider is not None:
+        # the popup's bottom padding and the gap above the border
+        return round((divider - 6) / app.line_height())
     return round((box[3] - box[1] - 6) / app.line_height())
 
 
@@ -155,6 +163,8 @@ def test_trigger_key_needs_the_complete_key(app_factory, tmp_path):
     """with "trigger": "key" typing opens nothing, only the complete key does, again after escape"""
     app = zsh_app(app_factory, tmp_path, {"trigger": "key"})
     app.type("ls al")
+    # the complete key only opens the popup once zsh has reported a line
+    app.wait(lambda: line_cells(app) >= len("$ ls al"), msg="the typed line")
     app.wait_still()
     assert popup(app) is None, "the popup showed while typing"
     app.snap("typing with the key trigger, nothing shows")

@@ -80,3 +80,28 @@ def test_tab_right_after_typing_completes(app_factory, tmp_path):
     app.snap("tab right after typing put alpha_file.txt into the line")
     app.key("Return")
     app.wait_line(1, len("alpha_file.txt"))
+
+
+def test_history_arrows_do_not_open_the_popup(app_factory, tmp_path):
+    """up and down move through history without the popup taking the next key over"""
+    history = tmp_path / "history"
+    history.write_text("ls alpha_file.txt\ngit st\n")
+    app = zsh_app(app_factory, tmp_path,
+                  zshrc=f"HISTFILE={history}\nHISTSIZE=100\nSAVEHIST=100\n")
+    # "git st" has completions, but recalling it with up must not show them
+    app.key("Up")
+    app.wait(lambda: line_cells(app) == len("$ git st"), msg="first history entry")
+    app.wait_still()
+    assert popup(app) is None, "history opened the popup"
+    app.snap("history recalled with up, the popup stays away")
+    # the next up scrolls the history again instead of the popup
+    app.key("Up")
+    app.wait(lambda: line_cells(app) == len("$ ls alpha_file.txt"), msg="second history entry")
+    app.wait_still()
+    assert popup(app) is None, "the popup took the second up"
+    # typing on a recalled line brings completions back
+    app.key("Down")
+    app.wait(lambda: line_cells(app) == len("$ git st"), msg="back to the newer entry")
+    app.type("a")
+    app.wait(lambda: popup(app), msg="popup after typing on the recalled line")
+    app.snap("typing on a recalled line shows the popup again")

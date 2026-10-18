@@ -76,8 +76,8 @@ use crate::{
     },
     terminal::{
         Event, InputSource, PaneContext, ProcessSampler, PtyState, Terminal, TerminalBounds,
-        TerminalBuilder, TreeSample, foreground_process, pty_modes, stopped_jobs,
-        with_shell_integration,
+        TerminalBuilder, TreeSample, foreground_process, has_zsh_completion, pty_modes,
+        stopped_jobs, with_shell_integration,
     },
     theme,
     ui::{

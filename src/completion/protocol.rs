@@ -31,6 +31,10 @@ pub enum ShellMessage {
         /// in chars
         cursor: usize,
         cwd: PathBuf,
+        /// the change came from moving through history, like the up arrow, so the popup
+        /// stays out of the way of scrolling it
+        #[serde(default)]
+        history: bool,
     },
     /// what the shell did with the accept for line `seq`: not applied when its line had
     /// changed since
@@ -97,9 +101,17 @@ mod tests {
                 seq: 3,
                 buffer: "gé x".into(),
                 cursor: 2,
-                cwd: "/tmp".into()
+                cwd: "/tmp".into(),
+                history: false,
             })
         );
+        // a shell that moves through history says so, others leave it out
+        assert!(matches!(
+            parse(
+                r#"{"v":1,"type":"line","seq":4,"cursor":6,"buffer":"cat al","cwd":"/","history":true}"#
+            ),
+            Ok(ShellMessage::Line { history: true, .. })
+        ));
         // the cursor counts chars, so it can be at the end of a line with multibyte chars
         assert!(
             parse(r#"{"v":1,"type":"line","seq":1,"cursor":2,"buffer":"éé","cwd":"/"}"#).is_ok()

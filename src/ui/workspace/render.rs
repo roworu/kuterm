@@ -7,10 +7,7 @@ use gpui::{
 };
 
 use super::{Workspace, tab_bar::*, window::client_frame};
-use crate::{
-    settings::{BellTarget, Settings},
-    theme::Theme,
-};
+use crate::settings::{BellTarget, Settings};
 
 // gpui leaves the window in keyboard mode when a file is dragged in after typing, so nothing
 // counts as hovered and the drop is ignored. a mouse move puts it back in mouse mode
@@ -76,7 +73,6 @@ impl Render for Workspace {
             self.refresh_titles();
         }
         let settings = Settings::get(cx);
-        let theme = Theme::get(cx);
         // ui scales in rems of the ui font size
         window.set_rem_size(px(settings.ui_font_size));
         let layout = match self.zoomed.and_then(|id| self.pane(id)) {
@@ -153,7 +149,6 @@ impl Render for Workspace {
             .size_full()
             .flex()
             .flex_col()
-            .bg(theme.terminal_background.opacity(settings.window.opacity))
             .font_family(settings.ui_font_family.clone())
             .text_size(rems(TEXT_SIZE))
             .when(self.shows_top_row(cx), |workspace| {

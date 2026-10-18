@@ -54,7 +54,7 @@ pub use content::{Content, IndexedCell};
 pub use context::{PaneContext, git_root};
 pub use decorations::{Decorations, Popover};
 pub use file_links::{FileLine, parse_file_line, resolve as resolve_file, snippet};
-pub use integration::with_shell_integration;
+pub use integration::{has_zsh_completion, with_shell_integration};
 pub use links::{Link, TextPatterns};
 pub use mouse::{MouseAction, MouseButton};
 #[cfg(test)]

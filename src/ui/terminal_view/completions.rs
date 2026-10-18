@@ -23,9 +23,16 @@ struct CompletionSpecs(Arc<Specs>);
 
 impl Global for CompletionSpecs {}
 
-// widest label and description shown, in cells, longer ones end in an ellipsis
+// widest label shown, in cells, longer ones end in an ellipsis
 const MAX_LABEL_CELLS: usize = 40;
-const MAX_DESCRIPTION_CELLS: usize = 50;
+// widest description shown next to its label, the selected one is also shown in full below
+const MAX_DESCRIPTION_CELLS: usize = 32;
+// descriptions are smaller than labels, so more of them fits in the popup
+const DESCRIPTION_SCALE: f32 = 0.85;
+// longest the full description below the list grows before it is cut off
+const MAX_DETAIL_LINES: usize = 3;
+// gpui's default line height, a multiple of the font size
+const LINE_HEIGHT_RATIO: f32 = 1.618;
 
 // popup keys and accepts stop waiting for the shell after this, one that never answers, like
 // a nested zsh of an older kuterm, or a slow folder must not eat them
@@ -83,6 +90,9 @@ pub(super) struct CompletionMenu {
     keystroke: Option<Keystroke>,
     /// accept the shell has not answered, keys after it wait for the line it makes
     accept: Option<SentAccept>,
+    /// keys went to the pty after the line was reported. an accept on the socket could
+    /// reach the shell before them, so it waits for the line they make
+    typed_ahead: bool,
     /// popup keys typed while candidates or an answer were on the way
     queued: VecDeque<(PopupKey, Option<Keystroke>)>,
     /// stops waiting when the shell takes too long
@@ -113,6 +123,11 @@ impl CompletionMenu {
     /// popup keys have to wait: for candidates, or for the shell to answer an accept
     fn busy(&self) -> bool {
         self.line.is_some() && (self.accept.is_some() || self.finding())
+    }
+
+    /// keys were sent to the shell, the line it reported last is behind them
+    pub(super) fn typed(&mut self) {
+        self.typed_ahead = true;
     }
 
     /// remember the keystroke being dispatched, its popup key may pass it on later
@@ -149,6 +164,7 @@ impl TerminalView {
                 buffer,
                 cursor,
                 cwd,
+                history,
             } => {
                 let line = Line {
                     conn: event.conn,
@@ -167,9 +183,12 @@ impl TerminalView {
                     .take(line.cursor)
                     .all(char::is_whitespace);
                 menu.line = Some(line);
+                menu.typed_ahead = false;
                 let auto = settings.trigger == CompletionTrigger::Auto;
-                // auto shows nothing on an empty line, the key lists commands there too
-                if settings.enable && ((auto && !blank) || (!auto && menu.open)) {
+                // auto shows nothing on an empty line, the key lists commands there too.
+                // moving through history shows nothing either, so the next up or down
+                // scrolls the history instead of the popup; the complete key still opens it
+                if settings.enable && ((auto && !blank && !*history) || (!auto && menu.open)) {
                     self.update_completions(cx);
                 } else {
                     menu.open = false;
@@ -310,6 +329,7 @@ impl TerminalView {
                     .is_none_or(|sent| seq.is_some_and(|seq| seq > sent))
         };
         if !menu.finding()
+            && !menu.typed_ahead
             && let Some(accept) = menu.accept.take_if(newer)
         {
             self.redo_accept(accept, cx);
@@ -332,8 +352,25 @@ impl TerminalView {
         } else if ran || menu.wait_timeout.is_none() {
             menu.wait_timeout = Some(cx.spawn(async move |this, cx| {
                 cx.background_executor().timer(KEY_WAIT).await;
-                this.update(cx, |this, cx| this.stop_waiting(cx)).ok();
+                this.update(cx, |this, cx| this.waited_too_long(cx)).ok();
             }));
+        }
+    }
+
+    /// nothing came in time. typed keys that brought no new line changed nothing, so an
+    /// accept waiting for them is done on the line there is
+    fn waited_too_long(&mut self, cx: &mut Context<Self>) {
+        let menu = &mut self.completions;
+        if std::mem::take(&mut menu.typed_ahead)
+            && menu
+                .accept
+                .as_ref()
+                .is_some_and(|accept| accept.seq.is_none())
+        {
+            menu.wait_timeout = None;
+            self.run_popup_keys(cx);
+        } else {
+            self.stop_waiting(cx);
         }
     }
 
@@ -432,13 +469,16 @@ impl TerminalView {
         let picked = menu.moved.then(|| candidate.label.clone());
         menu.open = false;
         // the shell would turn an answer to an older line down, so it waits for the fresh one
-        if *seq != line.seq {
+        if *seq != line.seq || menu.typed_ahead {
             menu.accept = Some(SentAccept {
                 seq: None,
                 rejected: true,
                 picked,
                 keystroke,
             });
+            if menu.typed_ahead {
+                self.run_popup_keys(cx);
+            }
             return;
         }
         let message =
@@ -534,7 +574,29 @@ impl TerminalView {
         let pad = px(6.);
         let width = (cell * (label_cells + description_cells) as f32 + pad * 2.)
             .min(bounds.bounds.size.width);
-        let height = line_height * shown.len().max(1) as f32 + px(6.);
+        let description_size = font_size * DESCRIPTION_SCALE;
+        let description_line = description_size * LINE_HEIGHT_RATIO;
+        // the selected candidate's description is shown whole under the list: rows have
+        // room for only so much of it
+        let detail = descriptions
+            .then(|| candidates.get(menu.selected))
+            .flatten()
+            .and_then(|candidate| candidate.description.as_deref());
+        let detail_lines = detail.map_or(0, |text| {
+            let per_line = ((width - pad * 2.) / (cell * DESCRIPTION_SCALE))
+                .floor()
+                .max(1.) as usize;
+            unicode_width::UnicodeWidthStr::width(text)
+                .div_ceil(per_line)
+                .min(MAX_DETAIL_LINES)
+        });
+        let detail_height = if detail_lines > 0 {
+            // the gap and border around the description, then its lines
+            description_line * detail_lines as f32 + px(7.)
+        } else {
+            px(0.)
+        };
+        let height = line_height * shown.len().max(1) as f32 + px(6.) + detail_height;
         // shifted left to stay inside its own pane, the window clamp lets it cross a divider
         let x = x
             .min(bounds.bounds.origin.x + bounds.bounds.size.width - width)
@@ -568,6 +630,7 @@ impl TerminalView {
                         &theme,
                         cell * label_cells as f32,
                         descriptions,
+                        description_size,
                         line_height,
                         pad,
                     )
@@ -596,6 +659,25 @@ impl TerminalView {
                 .rounded_sm()
                 .bg(theme.scrollbar)
         });
+        // the whole description of the selected completion, below the list so the rows
+        // above keep their height while the selection moves
+        let details = detail.map(|text| {
+            div()
+                .id("completion-details")
+                .debug_selector(|| "completion-details".into())
+                .mx(pad)
+                .mt(px(3.))
+                .pt(px(3.))
+                .border_t_1()
+                .border_color(theme.border)
+                .text_size(description_size)
+                .line_height(description_line)
+                .text_color(theme.text_muted)
+                .whitespace_normal()
+                .max_h(description_line * MAX_DETAIL_LINES as f32)
+                .overflow_hidden()
+                .child(text.to_string())
+        });
         let popup = div()
             .id("completions")
             .debug_selector(|| "completions".into())
@@ -618,6 +700,7 @@ impl TerminalView {
                 this.completion_wheel(event, cx);
             }))
             .children(items)
+            .children(details)
             .children(scrollbar);
         Some(
             deferred(
@@ -646,12 +729,14 @@ fn kind_color(kind: Kind, theme: &Theme) -> gpui::Hsla {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn completion_row(
     candidate: &Candidate,
     selected: bool,
     theme: &Theme,
     label_width: Pixels,
     descriptions: bool,
+    description_size: Pixels,
     height: Pixels,
     pad: Pixels,
 ) -> gpui::Div {
@@ -679,6 +764,7 @@ fn completion_row(
                         .min_w_0()
                         .pl(height * 0.5)
                         .truncate()
+                        .text_size(description_size)
                         .text_color(theme.text_muted)
                         .child(description),
                 )
@@ -770,8 +856,18 @@ mod tests {
                 buffer: buffer.into(),
                 cursor: buffer.chars().count(),
                 cwd: shell.cwd.clone(),
+                history: false,
             },
         }
+    }
+
+    /// like `line_event`, for a line the shell got by moving through history
+    fn history_line_event(shell: &FakeShell, seq: u64, buffer: &str) -> ShellEvent {
+        let mut event = line_event(shell, seq, buffer);
+        if let ShellMessage::Line { history, .. } = &mut event.message {
+            *history = true;
+        }
+        event
     }
 
     /// the shell reports `buffer` with the cursor at its end
@@ -858,6 +954,95 @@ mod tests {
         cx.simulate_keystrokes("escape");
         cx.simulate_keystrokes("ctrl-space");
         assert_eq!(shown(&view, cx), ["alpine/", "alpha.txt"]);
+    }
+
+    #[gpui::test]
+    fn history_moves_without_opening_the_popup(cx: &mut TestAppContext) {
+        let (view, cx, shell) = with_shell("history", AUTO, cx);
+        let recalled = history_line_event(&shell, 1, "cat al");
+        view.update(cx, |view, cx| view.shell_event(&recalled, cx));
+        cx.run_until_parked();
+        assert!(shown(&view, cx).is_empty(), "history opened the popup");
+
+        // the complete key still asks for the recalled line
+        cx.simulate_keystrokes("ctrl-space");
+        assert_eq!(shown(&view, cx), ["alpine/", "alpha.txt"]);
+
+        // typing on the line keeps the popup following it
+        type_line(&view, cx, &shell, 2, "cat alp");
+        assert_eq!(shown(&view, cx), ["alpine/", "alpha.txt"]);
+
+        // scrolling past this word again hides what was shown for it
+        let recalled = history_line_event(&shell, 3, "cat al");
+        view.update(cx, |view, cx| view.shell_event(&recalled, cx));
+        cx.run_until_parked();
+        assert!(shown(&view, cx).is_empty());
+        type_line(&view, cx, &shell, 4, "cat alp");
+        assert_eq!(shown(&view, cx), ["alpine/", "alpha.txt"]);
+    }
+
+    #[gpui::test]
+    fn the_selected_completion_shows_its_whole_description_below(cx: &mut TestAppContext) {
+        let (view, cx, shell) = with_shell("details", AUTO, cx);
+        with_details_spec(cx);
+        type_line(&view, cx, &shell, 1, "tool a");
+        assert_eq!(shown(&view, cx), ["alpha", "alpine"]);
+        let details = |cx: &mut VisualTestContext| {
+            cx.debug_bounds("completion-details")
+                .expect("no description below the list")
+        };
+        let first = details(cx);
+        assert!(first.size.width > px(0.) && first.size.height > px(0.));
+        // the description below follows the selection, and the rows keep their height
+        let popup_top = cx.debug_bounds("completions").unwrap().top();
+        cx.simulate_keystrokes("down");
+        cx.run_until_parked();
+        let second = details(cx);
+        assert_eq!(
+            second.top(),
+            first.top(),
+            "the list moved under the selection"
+        );
+        let popup_top_after = cx.debug_bounds("completions").unwrap().top();
+        assert_eq!(popup_top_after, popup_top);
+    }
+
+    #[gpui::test]
+    fn descriptions_off_draws_no_details(cx: &mut TestAppContext) {
+        let json =
+            r#"{"autocomplete": {"enable": true, "trigger": "auto", "show_descriptions": false}}"#;
+        let (view, cx, shell) = with_shell("no-details", json, cx);
+        with_details_spec(cx);
+        type_line(&view, cx, &shell, 1, "tool a");
+        assert!(!shown(&view, cx).is_empty());
+        assert!(cx.debug_bounds("completion-details").is_none());
+    }
+
+    #[gpui::test]
+    fn bundled_specs_show_details_too(cx: &mut TestAppContext) {
+        let (view, cx, shell) = with_shell("bundled", AUTO, cx);
+        type_line(&view, cx, &shell, 1, "git ");
+        assert!(!shown(&view, cx).is_empty());
+        let details = cx.debug_bounds("completion-details").expect("no details");
+        let popup = cx.debug_bounds("completions").unwrap();
+        assert!(details.size.height > px(0.));
+        assert!(
+            details.bottom() <= popup.bottom(),
+            "details outside the popup"
+        );
+    }
+
+    /// a spec with descriptions, so the popup doesn't depend on the bundled ones
+    fn with_details_spec(cx: &mut VisualTestContext) {
+        let mut specs = Specs::default();
+        specs.insert(
+            "tool",
+            r#"{"name": "tool", "subcommands": [
+                {"name": "alpha", "description": "Alpha does something whose description is long enough to wrap onto another line in the popup"},
+                {"name": "alpine", "description": "A second one"},
+            ]}"#,
+        );
+        cx.update(|_, cx| cx.set_global(CompletionSpecs(Arc::new(specs))));
     }
 
     #[gpui::test]
@@ -1130,16 +1315,15 @@ mod tests {
         let (view, cx, mut shell) = with_shell("ahead", AUTO, cx);
         type_line(&view, cx, &shell, 1, "cat al");
         assert!(!shown(&view, cx).is_empty());
-        // "p" went to the shell before tab, so the shell turns the accept for "cat al" down,
-        // and it is done again on the line with the "p"
+        // "p" went to the pty before tab, an accept for "cat al" on the socket could pass it,
+        // so tab waits for the line with the "p"
         cx.simulate_keystrokes("p tab");
-        assert_eq!(shell.received(), "1 accept 1 4 6 alpine/\n");
         type_line(&view, cx, &shell, 2, "cat alp");
-        answer(&view, cx, &shell, 1, false);
         assert_eq!(shell.received(), "1 accept 2 4 7 alpine/\n");
 
-        // the selection moved to a candidate stays on it, and one the newer line has
-        // nothing for goes to the shell as the key it was
+        // keys the shell got some other way make it turn the accept down. the selection
+        // moved to a candidate stays on it, and one the newer line has nothing for goes to
+        // the shell as the key it was
         let (keys, _subscription) = sent_keys(&view, cx);
         answer(&view, cx, &shell, 2, true);
         type_line(&view, cx, &shell, 3, "cat al");
@@ -1155,6 +1339,17 @@ mod tests {
         type_line(&view, cx, &shell, 6, "cat alx");
         answer(&view, cx, &shell, 5, false);
         assert_eq!(*keys.borrow(), ["tab"]);
+    }
+
+    #[gpui::test]
+    fn tab_after_a_key_that_changed_nothing_accepts_on_the_line(cx: &mut TestAppContext) {
+        let (view, cx, mut shell) = with_shell("still", AUTO, cx);
+        type_line(&view, cx, &shell, 1, "cat al");
+        // the shell reports no new line after the key, so the accept goes on the one there is
+        cx.simulate_keystrokes("p tab");
+        cx.executor().advance_clock(KEY_WAIT);
+        cx.run_until_parked();
+        assert_eq!(shell.received(), "1 accept 1 4 6 alpine/\n");
     }
 
     #[gpui::test]
