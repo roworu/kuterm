@@ -185,7 +185,8 @@ mod tests {
     fn an_agent_waits_only_when_its_command_does_not_end_soon(cx: &mut gpui::TestAppContext) {
         use crate::{terminal::Event, ui::workspace::test_support::*};
 
-        let (ws, cx) = open(cx, 2);
+        let settings = settings_of(&[r#"{"notifications": {"agent_waiting": true}}"#]);
+        let (ws, cx) = open_with_settings(cx, 2, "{}", settings);
         let waiting = |ws: &Entity<Workspace>, cx: &mut VisualTestContext| {
             ws.update(cx, |ws, cx| {
                 let tab = &mut ws.pane_mut(ws.focused).unwrap().tabs[0];

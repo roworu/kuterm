@@ -914,7 +914,8 @@ mod tests {
 
     #[gpui::test]
     fn search_options_toggle_with_buttons(cx: &mut TestAppContext) {
-        let (ws, cx) = open(cx, 1);
+        let settings = settings_of(&[r#"{"search": {"case_sensitive": "smart"}}"#]);
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
         print_line(&ws, cx, "Mixed mixed");
         run_actions(&ws, cx, r#""search""#);
         let bar = search_bar(&ws, cx).expect("palette action opens the bar");

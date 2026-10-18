@@ -500,7 +500,8 @@ mod tests {
 
     #[gpui::test]
     fn dragging_a_tab_onto_the_pane_edge_splits_it(cx: &mut TestAppContext) {
-        let (ws, cx) = open(cx, 2);
+        let settings = settings_of(&[r#"{"drag_tabs": true}"#]);
+        let (ws, cx) = open_with_settings(cx, 2, "{}", settings);
         cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
         cx.run_until_parked();
         let start = cx.debug_bounds("tab-title-0").unwrap().center();
@@ -529,7 +530,8 @@ mod tests {
 
     #[gpui::test]
     fn dragging_a_tab_onto_the_bottom_edge_stacks_the_panes(cx: &mut TestAppContext) {
-        let (ws, cx) = open(cx, 2);
+        let settings = settings_of(&[r#"{"drag_tabs": true}"#]);
+        let (ws, cx) = open_with_settings(cx, 2, "{}", settings);
         cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
         cx.run_until_parked();
         let start = cx.debug_bounds("tab-title-0").unwrap().center();
@@ -660,7 +662,8 @@ mod tests {
 
     #[gpui::test]
     fn closing_a_nested_pane_focuses_the_sibling(cx: &mut TestAppContext) {
-        let (ws, cx) = open(cx, 2);
+        let settings = settings_of(&[r#"{"close_running_tab_warn": true}"#]);
+        let (ws, cx) = open_with_settings(cx, 2, "{}", settings);
         // left | (top / bottom)
         let top = split_pane(&ws, cx, DropSide::Right);
         let bottom = split_pane(&ws, cx, DropSide::Bottom);
@@ -837,7 +840,8 @@ mod tests {
 
     #[gpui::test]
     fn split_starts_its_shell_in_the_folder_of_the_split_tab(cx: &mut TestAppContext) {
-        let (ws, cx) = open(cx, 1);
+        let settings = settings_of(&[r#"{"panes": {"split_inherits_cwd": true}}"#]);
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
         let dir = std::env::temp_dir().canonicalize().unwrap();
         send_to(&ws, cx, 0, &format!("cd {}\r", dir.display()));
         let shell_pid = terminal(&ws, cx, 0).read_with(cx, |t, _| t.shell_pid);

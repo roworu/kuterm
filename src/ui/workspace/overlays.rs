@@ -120,7 +120,7 @@ mod tests {
     #[gpui::test]
     fn unsafe_paste_asks_and_pastes_only_when_confirmed(cx: &mut TestAppContext) {
         let settings = Settings::parse(
-            r#"{"notifications": {"timeout": 0}, "terminal": {"paste_protection": true}}"#,
+            r#"{"notifications": {"timeout": 0, "paste": true}, "terminal": {"paste_protection": true}}"#,
         )
         .unwrap();
         let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
@@ -155,7 +155,7 @@ mod tests {
     fn safe_or_unprotected_paste_does_not_ask(cx: &mut TestAppContext) {
         for (protection, text) in [(true, "echo one"), (false, "echo one\necho two\n")] {
             let settings = Settings::parse(&format!(
-                r#"{{"notifications": {{"timeout": 0}}, "terminal": {{"paste_protection": {protection}}}}}"#
+                r#"{{"notifications": {{"timeout": 0, "paste": true}}, "terminal": {{"paste_protection": {protection}}}}}"#
             ))
             .unwrap();
             let (ws, cx) = open_with_settings(cx, 1, "{}", settings);

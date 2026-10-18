@@ -924,7 +924,8 @@ class App:
         px, py = (value * self.scale for value in self._padding())
         # cell (0, 0) sits inside the padding, after a left scrollbar, snapped to whole pixels
         ox, oy = math.floor(px), top + math.floor(py)
-        if self._get("terminal", "scrollbar", "placement") == "left":
+        placement = bundled_settings()["terminal"]["scrollbar"]["placement"]
+        if self._get("terminal", "scrollbar", "placement", default=placement) == "left":
             ox = math.floor(px + self.scrollbar_width())
         return (
             ox + math.floor(col * cw),

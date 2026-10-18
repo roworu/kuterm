@@ -337,6 +337,14 @@ mod tests {
     use super::*;
     use crate::ui::workspace::test_support::*;
 
+    // what these tests are about, so they never follow a change of the bundled defaults
+    const ASKING: &str = r#"{"close_running_tab_warn": true, "confirm_quit": "running"}"#;
+
+    /// a workspace that asks before closing a running tab and before quitting with one
+    fn open(cx: &mut TestAppContext, tabs: usize) -> (Entity<Workspace>, &mut VisualTestContext) {
+        open_with_settings(cx, tabs, "{}", settings_of(&[ASKING]))
+    }
+
     #[gpui::test]
     fn running_tab_asks_before_closing(cx: &mut TestAppContext) {
         let (ws, cx) = open(cx, 2);
@@ -491,7 +499,7 @@ mod tests {
 
     #[gpui::test]
     fn disabled_warning_closes_running_tab_at_once(cx: &mut TestAppContext) {
-        let settings = Settings::parse(r#"{"close_running_tab_warn": false}"#).unwrap();
+        let settings = settings_of(&[ASKING, r#"{"close_running_tab_warn": false}"#]);
         let (ws, cx) = open_with_settings(cx, 2, "{}", settings);
         start_program(&ws, cx);
         close_active(&ws, cx);
@@ -501,7 +509,7 @@ mod tests {
 
     #[gpui::test]
     fn idle_tab_closes_without_asking(cx: &mut TestAppContext) {
-        let settings = Settings::parse(r#"{"close_running_tab_warn": true}"#).unwrap();
+        let settings = settings_of(&[ASKING, r#"{"close_running_tab_warn": true}"#]);
         let (ws, cx) = open_with_settings(cx, 2, "{}", settings);
         close_active(&ws, cx);
         assert!(cx.debug_bounds("confirm-close").is_none());
@@ -553,7 +561,7 @@ mod tests {
         assert!(dialog(&ws, cx).is_none());
         assert!(quitting(&ws, cx));
 
-        let settings = Settings::parse(r#"{"confirm_quit": "never"}"#).unwrap();
+        let settings = settings_of(&[ASKING, r#"{"confirm_quit": "never"}"#]);
         let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
         start_program(&ws, cx);
         run_actions(&ws, cx, r#""quit""#);
@@ -563,7 +571,7 @@ mod tests {
 
     #[gpui::test]
     fn confirm_quit_always_asks_when_idle(cx: &mut TestAppContext) {
-        let settings = Settings::parse(r#"{"confirm_quit": "always"}"#).unwrap();
+        let settings = settings_of(&[ASKING, r#"{"confirm_quit": "always"}"#]);
         let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
         run_actions(&ws, cx, r#""quit""#);
         let (target, message) = dialog(&ws, cx).expect("quit asked nothing");
@@ -578,9 +586,10 @@ mod tests {
 
     #[gpui::test]
     fn confirm_quit_is_separate_from_close_tab_warning(cx: &mut TestAppContext) {
-        let settings =
-            Settings::parse(r#"{"close_running_tab_warn": false, "confirm_quit": "running"}"#)
-                .unwrap();
+        let settings = settings_of(&[
+            ASKING,
+            r#"{"close_running_tab_warn": false, "confirm_quit": "running"}"#,
+        ]);
         let (ws, cx) = open_with_settings(cx, 2, "{}", settings);
         start_program(&ws, cx);
         assert!(!cx.simulate_close(), "busy window closed without asking");
@@ -635,7 +644,7 @@ mod tests {
 
     #[gpui::test]
     fn disabled_warning_closes_busy_window(cx: &mut TestAppContext) {
-        let settings = Settings::parse(r#"{"confirm_quit": "never"}"#).unwrap();
+        let settings = settings_of(&[ASKING, r#"{"confirm_quit": "never"}"#]);
         let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
         start_program(&ws, cx);
         assert!(cx.simulate_close());
@@ -765,7 +774,7 @@ mod tests {
 
     #[gpui::test]
     fn disabled_warning_closes_a_busy_side_at_once(cx: &mut TestAppContext) {
-        let settings = Settings::parse(r#"{"close_running_tab_warn": false}"#).unwrap();
+        let settings = settings_of(&[ASKING, r#"{"close_running_tab_warn": false}"#]);
         let (ws, cx) = open_with_settings(cx, 3, "{}", settings);
         let old = views(&ws, cx);
         start_program(&ws, cx);
@@ -789,7 +798,7 @@ mod tests {
 
     #[gpui::test]
     fn quit_dialog_stays_when_a_tab_left_of_the_active_one_exits(cx: &mut TestAppContext) {
-        let settings = Settings::parse(r#"{"confirm_quit": "always"}"#).unwrap();
+        let settings = settings_of(&[ASKING, r#"{"confirm_quit": "always"}"#]);
         let (ws, cx) = open_with_settings(cx, 2, "{}", settings);
         run_actions(&ws, cx, r#""quit""#);
         assert_eq!(dialog(&ws, cx).map(|d| d.0), Some(CloseTarget::Quit));
@@ -801,7 +810,7 @@ mod tests {
 
     #[gpui::test]
     fn quit_dialog_stays_when_a_tab_exits(cx: &mut TestAppContext) {
-        let settings = Settings::parse(r#"{"confirm_quit": "always"}"#).unwrap();
+        let settings = settings_of(&[ASKING, r#"{"confirm_quit": "always"}"#]);
         let (ws, cx) = open_with_settings(cx, 2, "{}", settings);
         activate(&ws, cx, 0);
         run_actions(&ws, cx, r#""quit""#);

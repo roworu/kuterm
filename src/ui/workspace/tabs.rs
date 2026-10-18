@@ -673,7 +673,8 @@ mod tests {
 
     #[gpui::test]
     fn dragging_a_tab_reorders_it(cx: &mut TestAppContext) {
-        let (ws, cx) = open(cx, 3);
+        let settings = settings_of(&[r#"{"drag_tabs": true}"#]);
+        let (ws, cx) = open_with_settings(cx, 3, "{}", settings);
         cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
         cx.run_until_parked();
         let old = views(&ws, cx);
@@ -701,7 +702,8 @@ mod tests {
 
     #[gpui::test]
     fn bell_marks_background_tabs_until_shown(cx: &mut TestAppContext) {
-        let (ws, cx) = open(cx, 3);
+        let settings = settings_of(&[r#"{"bell": {"tab_indicator": true}}"#]);
+        let (ws, cx) = open_with_settings(cx, 3, "{}", settings);
         // the last tab is active, so the bell of tab 0 rings in the background
         terminal(&ws, cx, 0).update(cx, |_, cx| cx.emit(Event::Bell));
         terminal(&ws, cx, 2).update(cx, |_, cx| cx.emit(Event::Bell));

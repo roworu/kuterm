@@ -246,7 +246,8 @@ mod tests {
 
     #[gpui::test]
     fn pinned_tabs_stay_in_front_and_survive_closing_others(cx: &mut TestAppContext) {
-        let (ws, cx) = open(cx, 4);
+        let settings = settings_of(&[r#"{"drag_tabs": true, "show_tab_close_button": true}"#]);
+        let (ws, cx) = open_with_settings(cx, 4, "{}", settings);
         let ids = views(&ws, cx);
         run_actions(&ws, cx, r#"{"activate_tab": 3}, "pin_tab""#);
         assert_eq!(views(&ws, cx), [ids[2], ids[0], ids[1], ids[3]]);

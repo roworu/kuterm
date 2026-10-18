@@ -556,9 +556,11 @@ mod tests {
 
     #[gpui::test]
     fn copy_and_paste_keys_notify(cx: &mut TestAppContext) {
-        let settings =
-            Settings::parse(r#"{"notifications": {"timeout": 0, "copy": true, "paste": true}}"#)
-                .unwrap();
+        let settings = Settings::parse(
+            r#"{"notifications": {"timeout": 0, "copy": true, "paste": true},
+                "terminal": {"select_to_copy": false}}"#,
+        )
+        .unwrap();
         let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
         print_line(&ws, cx, "pick these words");
         let position = cell_of(&ws, cx, "pick these words", 12, false);

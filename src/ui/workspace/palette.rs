@@ -410,12 +410,15 @@ mod tests {
             ws.toggle_command_palette(&ToggleCommandPalette, window, cx)
         });
         cx.run_until_parked();
-        // the empty part of the tab bar is as high as the bar
-        let tab = cx.debug_bounds("drag-area").expect("no tab bar");
+        // the terminal starts under every bar, whatever frame the window has
+        let pane = ws.update(cx, |ws, _| ws.focused);
+        let terminal = cx
+            .debug_bounds(format!("pane-terminal-{pane}").leak())
+            .expect("no terminal");
         let palette = cx.debug_bounds("command-palette").expect("no palette");
         assert!(
-            palette.top() - tab.bottom() >= tab.size.height / 2.,
-            "palette at {palette:?} touches the tab bar at {tab:?}"
+            palette.top() >= terminal.top(),
+            "palette at {palette:?} overlaps the bars above the terminal at {terminal:?}"
         );
     }
 }

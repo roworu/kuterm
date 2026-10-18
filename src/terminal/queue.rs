@@ -323,7 +323,11 @@ mod tests {
         use std::time::Instant;
 
         let bash = with_shell_integration(&profile(Shell::Program("/bin/bash".into())));
-        let mut builder = spawn_with(&TerminalSettings::default(), &bash);
+        let settings = TerminalSettings {
+            queue_stop_on_failure: true,
+            ..TerminalSettings::default()
+        };
+        let mut builder = spawn_with(&settings, &bash);
         let terminal = &mut builder.terminal;
         terminal.type_text(b"echo st_$((1+1)); sleep 1\r");
         wait_for_text(terminal, "st_2");
@@ -362,7 +366,11 @@ mod tests {
         use std::time::Instant;
 
         let bash = with_shell_integration(&profile(Shell::Program("/bin/bash".into())));
-        let mut builder = spawn_with(&TerminalSettings::default(), &bash);
+        let settings = TerminalSettings {
+            queue_stop_on_failure: true,
+            ..TerminalSettings::default()
+        };
+        let mut builder = spawn_with(&settings, &bash);
         let terminal = &mut builder.terminal;
         // queued before the shell drew anything
         terminal.update_queue(|queue| {
