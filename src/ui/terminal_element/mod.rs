@@ -507,8 +507,11 @@ impl Element for TerminalElement {
         }
 
         window.with_content_mask(Some(ContentMask { bounds }), |window| {
-            // the workspace paints the terminal background, with the window opacity. painting
-            // it again here compounds the alpha, so a window at 0.85 turns almost opaque
+            // the background of this tab's own theme, painted once: the workspace leaves the
+            // terminal area bare, painting it again there would compound the window opacity
+            let background = self.terminal.read(cx).theme(cx).terminal_background;
+            let opacity = Settings::get(cx).window.opacity;
+            window.paint_quad(fill(bounds, background.opacity(opacity)));
             let origin = layout.dimensions.bounds.origin;
             window.handle_input(
                 &self.focus,
