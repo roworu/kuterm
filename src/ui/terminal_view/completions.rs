@@ -362,7 +362,10 @@ impl TerminalView {
     fn waited_too_long(&mut self, cx: &mut Context<Self>) {
         let menu = &mut self.completions;
         if std::mem::take(&mut menu.typed_ahead)
-            && menu.accept.as_ref().is_some_and(|accept| accept.seq.is_none())
+            && menu
+                .accept
+                .as_ref()
+                .is_some_and(|accept| accept.seq.is_none())
         {
             menu.wait_timeout = None;
             self.run_popup_keys(cx);

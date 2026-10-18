@@ -660,6 +660,8 @@ def test_show_descriptions_and_a_reload_of_the_popup(app_factory, tmp_path):
     app = zsh_app(app_factory, tmp_path, keybindings=KEYS,
                   autocomplete={"show_descriptions": True, "trigger": "key"})
     app.type("git ")
+    # the complete key only opens the popup once zsh has reported a line
+    app.wait(lambda: line_cells(app) >= len("$ git"), msg="the typed line")
     app.key("ctrl+space")
     wide = app.wait(lambda: popup(app), msg="the popup with descriptions")
     app.snap("git subcommands with what each does")
@@ -723,6 +725,8 @@ def test_a_completion_keymap_entry_holds_the_key_while_the_popup_shows(app_facto
                   commands=[{"name": "macro it",
                              "actions": [{"type": "; touch $T2_TMP/macro_hit ; echo\n"}]}])
     app.type("ls file")
+    # the complete key only opens the popup once zsh has reported a line
+    app.wait(lambda: line_cells(app) >= len("$ ls file"), msg="the typed line")
     app.key("ctrl+space")
     app.wait(lambda: popup(app), msg="the popup")
     app.key("ctrl+shift+j")

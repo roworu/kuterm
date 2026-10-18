@@ -163,6 +163,8 @@ def test_trigger_key_needs_the_complete_key(app_factory, tmp_path):
     """with "trigger": "key" typing opens nothing, only the complete key does, again after escape"""
     app = zsh_app(app_factory, tmp_path, {"trigger": "key"})
     app.type("ls al")
+    # the complete key only opens the popup once zsh has reported a line
+    app.wait(lambda: line_cells(app) >= len("$ ls al"), msg="the typed line")
     app.wait_still()
     assert popup(app) is None, "the popup showed while typing"
     app.snap("typing with the key trigger, nothing shows")
