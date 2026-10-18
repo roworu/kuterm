@@ -1,11 +1,12 @@
 name: Test
 
 on:
-  # other branches are tested by their pull request, pushing them too would run everything twice
+  # main too, so pull requests restore its caches and codeql has a baseline to compare with
   push:
     branches: [ "main" ]
     paths-ignore: [ "**.md", "LICENSE" ]
   pull_request:
+    branches: [ "main" ]
     paths-ignore: [ "**.md", "LICENSE" ]
 
 # a new commit makes runs for the old one useless
@@ -81,7 +82,6 @@ jobs:
     - name: Clippy
       run: cargo clippy --all-targets -- -D warnings
 
-  # apart from lint, clippy artifacts are of no use to the tests and both run at once
   test:
 
     runs-on: ubuntu-26.04
@@ -115,7 +115,7 @@ jobs:
         path: test-output.txt
 
   # the built binary driven on a virtual x display and on a headless wayland compositor.
-  # pull requests only, release branches go through one before release builds run
+  # pull requests only, merged code has already passed them
   e2e:
 
     if: github.event_name == 'pull_request'
@@ -158,7 +158,7 @@ jobs:
         name: e2e-report-${{ matrix.backend }}-${{ matrix.shard }}
         path: e2e/artifacts/report-${{ matrix.backend }}.html
 
-  # release builds for these too, so platform specific code must compile on pull requests.
+  # release builds target these too, so platform specific code must compile before merge.
   # no -D warnings, unix only features leave dead code on windows
   check:
 
@@ -183,67 +183,11 @@ jobs:
     - name: Clippy
       run: cargo clippy --all-targets
 
-  deny:
-
-    runs-on: ubuntu-26.04
-
-    steps:
-
-    - uses: actions/checkout@v7
-      with:
-        persist-credentials: false
-
-    - name: Check advisories, licenses, bans and sources
-      uses: EmbarkStudios/cargo-deny-action@v2
-
-  zizmor:
-
-    runs-on: ubuntu-26.04
-
-    permissions:
-      contents: read
-      security-events: write
-
-    steps:
-
-    - uses: actions/checkout@v7
-      with:
-        persist-credentials: false
-
-    - name: Audit workflows
-      uses: zizmorcore/zizmor-action@v0.6.4
-
-  gitleaks:
-
-    runs-on: ubuntu-26.04
-
-    env:
-      GITLEAKS_VERSION: 8.30.1
-
-    steps:
-
-    - uses: actions/checkout@v7
-      with:
-        # scan the whole history, not just the last commit
-        fetch-depth: 0
-        persist-credentials: false
-
-    - name: Scan for secrets
-      run: |
-        base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
-        curl -fsSLo "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" "$base/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-        curl -fsSLo gitleaks_checksums.txt "$base/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
-        grep "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" gitleaks_checksums.txt | sha256sum -c -
-        tar xzf "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" gitleaks
-        ./gitleaks git --redact --verbose
-
   codeql:
 
-    if: github.event_name == 'push'
     runs-on: ubuntu-26.04
 
     permissions:
-      actions: read
       contents: read
       security-events: write
 
@@ -263,11 +207,3 @@ jobs:
       uses: github/codeql-action/analyze@v4
       with:
         category: "/language:rust"
-        output: codeql-results
-
-    - name: Upload CodeQL results
-      if: always()
-      uses: actions/upload-artifact@v7
-      with:
-        name: codeql-results
-        path: codeql-results

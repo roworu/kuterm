@@ -81,3 +81,11 @@ debug = "line-tables-only"
 [profile.dev.package."*"]
 opt-level = 2
 debug = false
+
+# gpui's upstream, zed, ships with the same profile: linking is slower, the binary runs faster.
+# release builds only happen on version merges, so their duration matters less.
+# panic stays unwinding: gpui's executor catches panics in background tasks, abort would kill the app
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

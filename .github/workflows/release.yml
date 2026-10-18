@@ -94,7 +94,7 @@ jobs:
       run: rustup target add ${{ matrix.target }}
 
     - name: Build
-      run: cargo build --release --verbose --target ${{ matrix.target }}
+      run: cargo build --release --verbose --locked --target ${{ matrix.target }}
 
     - name: Package
       run: |
@@ -104,7 +104,6 @@ jobs:
           cp target/${{ matrix.target }}/release/kuterm.exe "$name/"
           7z a "$name.zip" "$name"
         elif [ "$RUNNER_OS" = "Linux" ]; then
-          strip target/${{ matrix.target }}/release/kuterm
           cp target/${{ matrix.target }}/release/kuterm "$name/"
           tar -czf "$name.tar.gz" "$name"
         fi
@@ -116,7 +115,6 @@ jobs:
         version=${RELEASE_REF#release/v}
         app=dmg/kuterm.app
         mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-        strip target/${{ matrix.target }}/release/kuterm
         cp target/${{ matrix.target }}/release/kuterm "$app/Contents/MacOS/"
         sed "s/VERSION/$version/g" assets/macos/Info.plist > "$app/Contents/Info.plist"
 
