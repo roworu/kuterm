@@ -114,8 +114,9 @@ def test_password_prompt_shows_a_lock_and_refuses_automation(app_factory):
     send(app, SECRET)
     app.wait_title("1 ", timeout=15)
     app.snap("a lock while the program reads a password")
-    # remote and palette text never reach it, a notice says why
-    assert msg(app, "send-text", "remote\n").returncode == 0
+    # remote and palette text never reach it, both say why
+    refused = msg(app, "send-text", "remote\n")
+    assert refused.returncode != 0 and "asks for a password" in refused.stderr, refused
     time.sleep(1)
     assert not app.file("secret").exists(), app.file("secret").read_text()
     app.palette("type it")

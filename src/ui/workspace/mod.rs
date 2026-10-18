@@ -10,7 +10,6 @@ mod config_watch;
 mod editor_links;
 mod end_truncated;
 mod find_all;
-#[cfg(target_os = "linux")]
 mod groups;
 mod layout;
 mod menu_bar;
@@ -57,7 +56,6 @@ use gpui::{
 pub use app_menu::{RunLink, app_menus, dock_menu, open_urls, parse_run_link};
 use closing::*;
 pub use config_watch::watch_config;
-#[cfg(target_os = "linux")]
 use layout::*;
 use menu_bar::{MenuBar, MenuPicked};
 use notifications::Notification;
