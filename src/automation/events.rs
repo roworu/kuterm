@@ -1,5 +1,5 @@
 //! event bus: what happens in panes, sent to every subscriber as it happens. the remote
-//! socket and mcp print the events as json, one per line
+//! socket prints the events as json, one per line
 
 use std::{
     path::PathBuf,
@@ -54,12 +54,6 @@ pub enum BusEvent {
     TitleChanged {
         pane: u64,
         title: String,
-    },
-    /// output matched a watched pattern
-    OutputMatched {
-        pane: u64,
-        pattern: String,
-        text: String,
     },
     PaneOpened {
         pane: u64,
@@ -160,11 +154,6 @@ mod tests {
             BusEvent::TitleChanged {
                 pane: 1,
                 title: "x".into(),
-            },
-            BusEvent::OutputMatched {
-                pane: 1,
-                pattern: "err".into(),
-                text: "error".into(),
             },
             BusEvent::PaneOpened { pane: 1 },
             BusEvent::PtyModesChanged {

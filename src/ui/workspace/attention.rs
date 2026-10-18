@@ -1,8 +1,8 @@
 //! ai agents that stopped working without finishing, so they wait for the user
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
-use gpui::{Context, Entity, Window};
+use gpui::{Context, Entity, Task, Window};
 
 use super::{Workspace, system_notifications::system_notification};
 use crate::{settings::Settings, ui::terminal_view::TerminalView};
@@ -54,11 +54,37 @@ impl Attention {
     }
 }
 
+// a program often takes its progress down and exits in separate writes, so stopping being
+// busy is a wait only when the command did not finish within this
+pub(super) const IDLE_GRACE: Duration = Duration::from_millis(500);
+
 impl Workspace {
+    /// the program of the tab of `view` stopped being busy, a wait once `IDLE_GRACE` passed
+    /// without its command finishing
+    pub(super) fn agent_stopped_later(
+        &mut self,
+        view: &Entity<TerminalView>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let task = cx.spawn_in(window, {
+            let view = view.clone();
+            async move |this, cx| {
+                cx.background_executor().timer(IDLE_GRACE).await;
+                this.update_in(cx, |this, window, cx| this.agent_stopped(&view, window, cx))
+                    .ok();
+            }
+        });
+        if let Some(tab) = self.tab_mut(view) {
+            tab.idle_task = task;
+        }
+    }
+
     /// the program of the tab of `view` is busy again or its command finished
     pub(super) fn attention_ended(&mut self, view: &Entity<TerminalView>, cx: &mut Context<Self>) {
         if let Some(tab) = self.tab_mut(view) {
             tab.attention.clear();
+            tab.idle_task = Task::ready(());
             cx.notify();
         }
     }
@@ -154,6 +180,41 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+
+    #[gpui::test]
+    fn an_agent_waits_only_when_its_command_does_not_end_soon(cx: &mut gpui::TestAppContext) {
+        use crate::{terminal::Event, ui::workspace::test_support::*};
+
+        let settings = settings_of(&[r#"{"notifications": {"agent_waiting": true}}"#]);
+        let (ws, cx) = open_with_settings(cx, 2, "{}", settings);
+        let waiting = |ws: &Entity<Workspace>, cx: &mut VisualTestContext| {
+            ws.update(cx, |ws, cx| {
+                let tab = &mut ws.pane_mut(ws.focused).unwrap().tabs[0];
+                tab.agent = true;
+                let inputs = tab.view.read(cx).terminal().read(cx).inputs();
+                tab.attention.waiting(inputs).is_some()
+            })
+        };
+        let agent = terminal(&ws, cx, 0);
+        waiting(&ws, cx);
+        // progress taken down, then the command ends in a later read
+        agent.update(cx, |_, cx| cx.emit(Event::BusyChanged(false)));
+        cx.run_until_parked();
+        agent.update(cx, |_, cx| {
+            cx.emit(Event::CommandFinished {
+                duration: Duration::from_secs(1),
+                exit: Some(0),
+            })
+        });
+        cx.executor().advance_clock(IDLE_GRACE);
+        cx.run_until_parked();
+        assert!(!waiting(&ws, cx));
+        // no end follows, so it waits
+        agent.update(cx, |_, cx| cx.emit(Event::BusyChanged(false)));
+        cx.executor().advance_clock(IDLE_GRACE);
+        cx.run_until_parked();
+        assert!(waiting(&ws, cx));
+    }
 
     #[test]
     fn busy_then_idle_waits_until_input() {

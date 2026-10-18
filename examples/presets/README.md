@@ -34,7 +34,7 @@ a calm light terminal for docs and logs: solarized light, big text with tall lin
 
 ## showcase
 
-most features at once: tabs grouped by git project with branch and ports in their titles, tabs dragged onto each other to group them like in chrome, a full status bar (git, cpu graph, memory, network, ports, clock), the completion popup, dimmed splits, marks next to commands, profiles for a server, a sandbox and incognito, and extra palette commands and keys.
+most features at once: tabs grouped by git project with branch and ports in their titles, tabs dragged onto each other to group them like in chrome, a full status bar (git, cpu graph, memory, network, ports, clock), the completion popup, dimmed splits, profiles for a server and podman and docker containers, and extra palette commands and keys.
 
 [settings](showcase/settings.jsonc)
 

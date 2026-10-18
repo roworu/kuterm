@@ -46,33 +46,6 @@ fn prompt_lines(term: &Term<ZedListener>) -> Vec<Line> {
     lines
 }
 
-/// first and last cell of the newest marked command output
-fn last_output(term: &Term<ZedListener>) -> Option<(AlacPoint, AlacPoint)> {
-    let mut newest: Option<(usize, AlacPoint, AlacPoint)> = None;
-    for line in term.topmost_line().0..=term.bottommost_line().0 {
-        let row = &term.grid()[Line(line)];
-        for column in 0..term.columns() {
-            let Some(link) = row[Column(column)].hyperlink() else {
-                continue;
-            };
-            let Some(number) = link
-                .id()
-                .strip_prefix(OUTPUT_MARK)
-                .and_then(|n| n.parse::<usize>().ok())
-            else {
-                continue;
-            };
-            let point = AlacPoint::new(Line(line), Column(column));
-            newest = match newest {
-                Some((n, start, _)) if n == number => Some((n, start, point)),
-                Some((n, _, _)) if n > number => newest,
-                _ => Some((number, point, point)),
-            };
-        }
-    }
-    newest.map(|(_, start, end)| (start, end))
-}
-
 /// cell after the last one of `point`'s line, the first of the next line at the edge
 fn next_cell<T: EventListener>(term: &Term<T>, point: AlacPoint) -> AlacPoint {
     if point.column.0 + 1 < term.columns() {
@@ -200,6 +173,30 @@ pub(super) fn mark_cells<T: EventListener>(
     found
 }
 
+/// first and last line of the output of each mark number, from one pass over the grid
+pub(super) fn output_lines<T: EventListener>(
+    term: &Term<T>,
+) -> std::collections::HashMap<usize, (Line, Line)> {
+    let mut found = std::collections::HashMap::new();
+    for line in term.topmost_line().0..=term.bottommost_line().0 {
+        let row = &term.grid()[Line(line)];
+        for column in 0..term.columns() {
+            let Some(mark) = row[Column(column)].hyperlink().and_then(|link| {
+                link.id()
+                    .strip_prefix(OUTPUT_MARK)
+                    .and_then(|mark| mark.parse().ok())
+            }) else {
+                continue;
+            };
+            found
+                .entry(mark)
+                .and_modify(|(_, end)| *end = Line(line))
+                .or_insert((Line(line), Line(line)));
+        }
+    }
+    found
+}
+
 /// `target` with the line it names, like "src/main.rs:12" from "src/main.rs" and ":12: error",
 /// none when it names no line of a file
 fn file_line(target: &str, after: &str) -> Option<String> {
@@ -320,10 +317,17 @@ impl Terminal {
         true
     }
 
+    // first and last cell of the output of the last command started. none when it printed
+    // nothing, an older command's output is not its output
+    fn last_output(&self, term: &Term<ZedListener>) -> Option<(AlacPoint, AlacPoint)> {
+        let (_, output) = self.last_command?;
+        mark_cells(term, &format!("{OUTPUT_MARK}{output}"))
+    }
+
     /// select the whole lines of the output of the last command, false when none is marked
     pub fn select_last_output(&mut self) -> bool {
         let mut term = self.term.lock();
-        let Some((start, end)) = last_output(&term) else {
+        let Some((start, end)) = self.last_output(&term) else {
             return false;
         };
         super::selection::select_range(&mut term, SelectionType::Lines, start, end);
@@ -335,7 +339,7 @@ impl Terminal {
     /// text of the output of the last command, none when none is marked
     pub fn last_output_text(&self) -> Option<String> {
         let term = self.term.lock();
-        let (start, end) = last_output(&term)?;
+        let (start, end) = self.last_output(&term)?;
         let text = term.bounds_to_string(
             AlacPoint::new(start.line, Column(0)),
             AlacPoint::new(end.line, term.last_column()),
@@ -573,6 +577,25 @@ mod tests {
     }
 
     #[test]
+    fn a_last_command_that_printed_nothing_has_no_output() {
+        let script = concat!(
+            "printf '\\033]133;A\\007$ \\033]133;B\\007loud\\n\\033]133;C\\007out_1\\n\\033]133;D;0\\007'; ",
+            "printf '\\033]133;A\\007$ \\033]133;B\\007quiet\\n\\033]133;C\\007\\033]133;D;0\\007'; ",
+            "printf '\\033]133;A\\007$ \\033]133;B\\007'; echo; echo quiet_ready; sleep 5"
+        );
+        let profile = profile(Shell::WithArguments {
+            program: "/bin/sh".into(),
+            args: vec!["-c".into(), script.into()],
+        });
+        let mut builder = spawn_with(&TerminalSettings::default(), &profile);
+        let terminal = &mut builder.terminal;
+        wait_for_text(terminal, "quiet_ready");
+        terminal.handle_scan_events();
+        assert_eq!(terminal.last_output_text(), None);
+        assert!(!terminal.select_last_output());
+    }
+
+    #[test]
     fn command_end_after_a_start_reports_its_duration() {
         let profile = profile(Shell::WithArguments {
             program: "/bin/sh".into(),
@@ -704,17 +727,6 @@ mod tests {
             std::thread::sleep(Duration::from_millis(50));
         }
         assert_eq!(terminal.last_output_text().as_deref(), Some("integ_42"));
-    }
-
-    #[test]
-    fn incognito_bash_keeps_no_history_file() {
-        let mut bash = profile(Shell::Program("/bin/bash".into()));
-        bash.incognito = true;
-        let integrated = with_shell_integration(&bash);
-        let mut builder = spawn_with(&TerminalSettings::default(), &integrated);
-        let terminal = &mut builder.terminal;
-        terminal.type_text(b"echo hist=$HISTFILE=$KUTERM_INCOGNITO\r");
-        wait_for_text(terminal, "hist==1");
     }
 
     /// next message from a shell `matches` takes, skipping the others

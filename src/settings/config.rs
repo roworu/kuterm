@@ -213,8 +213,8 @@ fn canonical(path: &Path) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
-// "~/" is the home folder, relative paths start from the folder with settings.jsonc
-fn resolve(path: &Path) -> PathBuf {
+/// "~/" is the home folder, relative paths start from the folder with settings.jsonc
+pub(crate) fn resolve(path: &Path) -> PathBuf {
     if let Ok(rest) = path.strip_prefix("~")
         && let Some(home) = std::env::var_os("HOME")
     {

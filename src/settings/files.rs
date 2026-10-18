@@ -1,6 +1,28 @@
 //! where config and state files live, and reading and writing them
 
-use std::path::{Path, PathBuf};
+use std::{
+    io::Read,
+    path::{Path, PathBuf},
+};
+
+// themes and completion specs are far smaller, a bigger file is a wrong path
+const MAX_FILE_BYTES: u64 = 8 << 20;
+
+/// text of the file at `path`, refused when it is not a plain file or too big to be one
+/// kuterm reads, like a device or a fifo that never ends
+pub fn read_small_file(path: &Path) -> std::io::Result<String> {
+    let file = std::fs::File::open(path)?;
+    let meta = file.metadata()?;
+    if !meta.is_file() || meta.len() > MAX_FILE_BYTES {
+        return Err(std::io::Error::other(format!(
+            "not a file of at most {} MB",
+            MAX_FILE_BYTES >> 20
+        )));
+    }
+    let mut text = String::new();
+    file.take(MAX_FILE_BYTES).read_to_string(&mut text)?;
+    Ok(text)
+}
 
 /// write a default config file if it does not exist yet, so users can see what to change
 pub fn create_default_file(path: &Path, contents: &str) {
@@ -69,6 +91,23 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "first");
         create_default_file(&path, "second");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "first");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn only_small_plain_files_are_read() {
+        let dir = temp_dir("small_file");
+        std::fs::create_dir_all(&dir).unwrap();
+        let small = dir.join("small.jsonc");
+        std::fs::write(&small, "{}").unwrap();
+        assert_eq!(read_small_file(&small).unwrap(), "{}");
+        let big = dir.join("big.jsonc");
+        std::fs::File::create(&big)
+            .unwrap()
+            .set_len(MAX_FILE_BYTES + 1)
+            .unwrap();
+        assert!(read_small_file(&big).is_err());
+        assert!(read_small_file(Path::new("/dev/zero")).is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

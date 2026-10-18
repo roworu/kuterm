@@ -73,7 +73,6 @@ impl TerminalView {
         self.terminal
             .update(cx, |term, _| term.paste(InputSource::Paste, text));
         cx.emit(ViewEvent::Pasted);
-        cx.emit(TypedInput::Paste(text.to_string()));
     }
 
     /// type paths dropped from other apps, quoted for the shell

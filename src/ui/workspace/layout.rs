@@ -329,7 +329,12 @@ impl Workspace {
         if empty && src_pane == target {
             // the pane stays, so it needs a shell to show in place of the moved tab
             let profile = split_profile(Some(&tab), cx);
-            self.add_profile_tab(src_pane, &profile, false, window, cx);
+            if !self.add_profile_tab(src_pane, &profile, false, window, cx) {
+                let pane = self.pane_mut(src_pane).expect("pane from take_tab");
+                pane.tabs.push(tab);
+                pane.active = 0;
+                return;
+            }
         } else if empty {
             self.layout.remove_leaf(src_pane);
             if self.focused == src_pane {
@@ -434,14 +439,15 @@ impl Workspace {
         cx.notify();
     }
 
-    /// split `pane_id` at `side` and show a fresh shell in the new pane, focused
+    /// split `pane_id` at `side` and show a fresh shell in the new pane, focused. none when
+    /// the shell failed to spawn, then nothing is split
     pub(super) fn split_new_tab(
         &mut self,
         pane_id: usize,
         side: Side,
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) -> (usize, usize) {
+    ) -> Option<(usize, usize)> {
         let side = match side {
             Side::Left => DropSide::Left,
             Side::Right => DropSide::Right,
@@ -452,11 +458,20 @@ impl Workspace {
             .pane(pane_id)
             .and_then(|pane| pane.tabs.get(pane.active));
         let profile = split_profile(active, cx);
+        // spawned first, a pane without tabs breaks every tab action
+        let window_id = window.window_handle().window_id().as_u64();
+        let builder = match spawn_profile(&profile, TerminalBounds::default(), window_id, cx) {
+            Ok(builder) => builder,
+            Err(error) => {
+                eprintln!("failed to spawn terminal: {error:#}");
+                return None;
+            }
+        };
         self.zoomed = None;
         let id = self.split_off(pane_id, side, Vec::new());
-        self.add_profile_tab(id, &profile, true, window, cx);
+        self.add_builder_tab(id, builder, &profile, true, window, cx);
         self.focus_pane(id, window, cx);
-        (id, 0)
+        Some((id, 0))
     }
 
     /// focus a pane the mouse moved over, only while a terminal has focus, so open overlays
@@ -485,7 +500,8 @@ mod tests {
 
     #[gpui::test]
     fn dragging_a_tab_onto_the_pane_edge_splits_it(cx: &mut TestAppContext) {
-        let (ws, cx) = open(cx, 2);
+        let settings = settings_of(&[r#"{"drag_tabs": true}"#]);
+        let (ws, cx) = open_with_settings(cx, 2, "{}", settings);
         cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
         cx.run_until_parked();
         let start = cx.debug_bounds("tab-title-0").unwrap().center();
@@ -514,7 +530,8 @@ mod tests {
 
     #[gpui::test]
     fn dragging_a_tab_onto_the_bottom_edge_stacks_the_panes(cx: &mut TestAppContext) {
-        let (ws, cx) = open(cx, 2);
+        let settings = settings_of(&[r#"{"drag_tabs": true}"#]);
+        let (ws, cx) = open_with_settings(cx, 2, "{}", settings);
         cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
         cx.run_until_parked();
         let start = cx.debug_bounds("tab-title-0").unwrap().center();
@@ -645,7 +662,8 @@ mod tests {
 
     #[gpui::test]
     fn closing_a_nested_pane_focuses_the_sibling(cx: &mut TestAppContext) {
-        let (ws, cx) = open(cx, 2);
+        let settings = settings_of(&[r#"{"close_running_tab_warn": true}"#]);
+        let (ws, cx) = open_with_settings(cx, 2, "{}", settings);
         // left | (top / bottom)
         let top = split_pane(&ws, cx, DropSide::Right);
         let bottom = split_pane(&ws, cx, DropSide::Bottom);
@@ -822,7 +840,8 @@ mod tests {
 
     #[gpui::test]
     fn split_starts_its_shell_in_the_folder_of_the_split_tab(cx: &mut TestAppContext) {
-        let (ws, cx) = open(cx, 1);
+        let settings = settings_of(&[r#"{"panes": {"split_inherits_cwd": true}}"#]);
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
         let dir = std::env::temp_dir().canonicalize().unwrap();
         send_to(&ws, cx, 0, &format!("cd {}\r", dir.display()));
         let shell_pid = terminal(&ws, cx, 0).read_with(cx, |t, _| t.shell_pid);
@@ -879,6 +898,26 @@ mod tests {
         ws.update(cx, |ws, cx| ws.resize_split(&[true, true, true], 0.9, cx));
         assert_eq!(ratio_at(&ws, cx, &[]), 0.5);
         assert!((ratio_at(&ws, cx, &[true]) - 0.3).abs() < 1e-6);
+    }
+
+    #[gpui::test]
+    fn a_shell_that_fails_to_spawn_splits_nothing(cx: &mut TestAppContext) {
+        let (ws, cx) = open(cx, 1);
+        let settings = Settings::parse(
+            r#"{"profiles": [{"name": "broken", "command": {"program": "/nonexistent/kuterm-shell"}}]}"#,
+        )
+        .unwrap();
+        cx.update(|_, cx| cx.set_global(settings));
+        let split = ws.update_in(cx, |ws, window, cx| {
+            ws.split_new_tab(ws.focused, Side::Right, window, cx)
+        });
+        assert_eq!(split, None);
+        assert_eq!(ws.update(cx, |ws, _| ws.layout.panes().len()), 1);
+        // the only tab split off its own pane stays when no shell can replace it
+        run_actions(&ws, cx, r#""split_right""#);
+        assert_eq!(ws.update(cx, |ws, _| ws.layout.panes().len()), 1);
+        assert_eq!(views(&ws, cx).len(), 1);
+        run_actions(&ws, cx, r#""next_tab""#);
     }
 
     #[gpui::test]

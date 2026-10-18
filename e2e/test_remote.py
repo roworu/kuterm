@@ -57,7 +57,6 @@ def test_single_instance_opens_a_window_in_the_running_app(app_factory):
     app.wait(lambda: len(windows(app)) == 2, msg="second window")
 
 
-
 def command_line_end(app: App, row: int) -> int:
     """right edge of the ink on a row, 0 when it is blank"""
     x0, y0, _, y1 = app.cell_rect(0, row)
@@ -179,32 +178,3 @@ def notification_buttons(app: App) -> list:
     spans.append((start, columns[-1]))
     y = y0 + (rows[0] + rows[-1]) // 2
     return [(x0 + (a + b) // 2, y) for a, b in spans if b - a > 10]
-
-
-def test_mcp_run_waits_for_the_users_allow(app_factory):
-    """kuterm mcp's run tool types the command only after the allow button is clicked"""
-    app = worker(app_factory)
-    socket = Path(Session.runtime_dir) / f"kuterm-{app.proc.pid}.sock"
-    mcp = subprocess.Popen([str(BIN), "mcp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
-                           env={**app.app_env(), "KUTERM_SOCKET": str(socket)})
-    try:
-        def call(message: dict) -> None:
-            mcp.stdin.write(json.dumps(message) + "\n")
-            mcp.stdin.flush()
-
-        call({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}})
-        assert json.loads(mcp.stdout.readline())["result"]["serverInfo"]["name"] == "kuterm"
-        ran = app.file("mcp_ran")
-        call({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-              "params": {"name": "run", "arguments": {"pane": "worker", "command": f"touch {ran}"}}})
-        buttons = app.wait(lambda: len(notification_buttons(app)) == 3 and notification_buttons(app),
-                           msg="allow, allow for this tab and deny")
-        app.snap("an agent asks to run a command")
-        time.sleep(0.5)
-        assert not ran.exists()
-        app.click(*buttons[0])
-        answer = json.loads(mcp.stdout.readline())
-        assert answer["id"] == 2 and not answer["result"]["isError"], answer
-        app.wait(ran.exists, msg="the allowed command ran")
-    finally:
-        mcp.kill()

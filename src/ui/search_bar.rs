@@ -1,8 +1,10 @@
 //! search bar over the top right corner of a terminal, walks the matches in its history
 
+use std::time::Duration;
+
 use gpui::{
     App, Context, DismissEvent, Entity, EventEmitter, FocusHandle, Focusable, KeyDownEvent,
-    SharedString, Subscription, Window, div, prelude::*, rems,
+    SharedString, Subscription, Task, Window, div, prelude::*, rems,
 };
 
 use crate::{
@@ -11,6 +13,9 @@ use crate::{
     theme::Theme,
     ui::text_input::{Changed, TextInput},
 };
+
+// a long history takes a while to scan, so typing searches once it pauses
+pub(crate) const SEARCH_DELAY: Duration = Duration::from_millis(100);
 
 pub struct SearchBar {
     terminal: Entity<Terminal>,
@@ -23,6 +28,9 @@ pub struct SearchBar {
     block: Option<u64>,
     /// matches of the last search, or why the query can't be searched
     status: Result<SearchStatus, String>,
+    /// the query changed and was not searched yet
+    search_due: bool,
+    _search_task: Task<()>,
     _input_subscription: Subscription,
 }
 
@@ -34,7 +42,11 @@ impl SearchBar {
     pub fn new(terminal: Entity<Terminal>, block: Option<u64>, cx: &mut Context<Self>) -> Self {
         let input = cx.new(|cx| TextInput::new("search", cx));
         let _input_subscription = cx.subscribe(&input, |this: &mut Self, _, _: &Changed, cx| {
-            this.search(cx)
+            this.search_due = true;
+            this._search_task = cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(SEARCH_DELAY).await;
+                this.update(cx, |this, cx| this.search(cx)).ok();
+            });
         });
         let settings = Settings::get(cx).search;
         Self {
@@ -46,6 +58,8 @@ impl SearchBar {
             scope: SearchScope::All,
             block,
             status: Ok(SearchStatus::default()),
+            search_due: false,
+            _search_task: Task::ready(()),
             _input_subscription,
         }
     }
@@ -69,6 +83,7 @@ impl SearchBar {
 
     // runs again whenever the query or an option changes
     fn search(&mut self, cx: &mut Context<Self>) {
+        self.search_due = false;
         let query = self.query(cx);
         self.status = if query.text.is_empty() {
             self.terminal
@@ -84,6 +99,10 @@ impl SearchBar {
 
     /// go to the match above the current one, or below it
     pub fn step(&mut self, up: bool, cx: &mut Context<Self>) {
+        // walking right after typing walks the matches of what was typed
+        if self.search_due {
+            self.search(cx);
+        }
         if self.status.is_err() {
             return;
         }

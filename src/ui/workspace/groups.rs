@@ -628,7 +628,7 @@ impl Workspace {
         Some(self.group(id)?.hsla(Theme::get(cx)))
     }
 
-    /// group name and color of a tab kept by hand, for session restore
+    /// group name and color of a tab kept by hand, for a tab moving to another window
     pub(super) fn saved_group(&self, tab: &super::Tab) -> Option<(String, usize)> {
         let group = self.group(tab.group?)?;
         group
@@ -822,7 +822,8 @@ mod tests {
 
     #[gpui::test]
     fn an_unnamed_chip_takes_dropped_tabs_and_counts_them_when_collapsed(cx: &mut TestAppContext) {
-        let (ws, cx) = open(cx, 4);
+        let settings = settings_of(&[r#"{"drag_tabs": true}"#]);
+        let (ws, cx) = open_with_settings(cx, 4, "{}", settings);
         cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
         // the fourth tab onto the first makes an unnamed group of the two
         ws.update_in(cx, |ws, window, cx| {

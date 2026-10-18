@@ -1,6 +1,6 @@
 // showcase: most of what kuterm can do turned on at once. tabs grouped by git project with
 // the branch, ports and progress in their titles, a full status bar, dimmed split panes,
-// marks next to commands, profiles for a server, a sandbox and incognito, extra
+// profiles for a server and podman and docker containers, extra
 // palette commands and keys for splits, groups and the queue
 {
   "ui_font_size": 16,
@@ -21,8 +21,7 @@
   },
   "tab_groups": { "by_project": true },
   "notifications": { "from_programs": "always", "timeout": 8 },
-  "restore_session": "ask",
-  "shell_integration": { "notify_after": 5, "mark_sources": "all" },
+  "shell_integration": { "notify_after": 5 },
   "autocomplete": { "max_items": 10 },
   "panes": { "divider_width": 2, "dim_inactive": 0.25 },
   "bell": { "visual": { "target": "terminal" } },
@@ -55,13 +54,24 @@
       "theme": { "mode": "dark", "dark": "dracula" },
       "icon": "",
     },
+    // offline docker shell that sees only the folder it opened in
     {
       "name": "untrusted",
-      "command": "system",
       "working_directory": "~/Downloads",
-      "sandbox": { "network": false, "write": ["cwd"], "tmp": "private" },
+      "command": {
+        "with_arguments": {
+          "program": "sh",
+          "args": ["-c", "exec docker run --rm -it --network none -v \"$PWD:/work\" -w /work ubuntu bash"],
+        },
+      },
     },
-    { "name": "private", "command": "system", "incognito": true },
+    // a throwaway shell in a container, gone with everything it did once the tab closes
+    {
+      "name": "throwaway",
+      "command": {
+        "with_arguments": { "program": "podman", "args": ["run", "--rm", "-it", "fedora", "bash"] },
+      },
+    },
   ],
   "keybindings": {
     "split_right": "ctrl-shift-r",

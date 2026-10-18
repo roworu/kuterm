@@ -205,7 +205,7 @@ fn build_tab(
     let icon = if secret {
         waiting::LOCK_ICON.to_string()
     } else {
-        inputs.icon_override.clone().unwrap_or(icon)
+        icon
     };
     // the window title and status bar are plain text, so their icons go in as glyphs
     let window_title =
@@ -297,7 +297,6 @@ impl Workspace {
                             .iter()
                             .map(|job| job.name.clone())
                             .collect(),
-                        icon_override: private_tabs::private_icon(terminal),
                     },
                     cwd: by_project.then(|| terminal.reported_cwd().map(Path::to_path_buf)),
                     visible: ix == pane.active,

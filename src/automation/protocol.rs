@@ -89,9 +89,6 @@ pub enum Request {
         #[serde(default)]
         pane: Option<String>,
         command: String,
-        /// "mcp" when an ai agent asks through `kuterm mcp`, so its commands are marked
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        client: Option<String>,
     },
     /// type a command into a pane once its prompt comes back, after the ones queued before.
     /// "@18:00 cmd" waits for that time too
@@ -219,7 +216,6 @@ mod tests {
         let json = serde_json_lenient::to_string(&Request::Run {
             pane: Some("2".into()),
             command: "ls".into(),
-            client: None,
         })
         .unwrap();
         assert_eq!(json, r#"{"cmd":"run","pane":"2","command":"ls"}"#);

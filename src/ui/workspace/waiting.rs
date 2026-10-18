@@ -195,7 +195,7 @@ impl Workspace {
                             terminal.update(cx, |terminal, _| {
                                 // only the shell knows `fg`, a running program would get it
                                 if terminal.at_prompt() || !terminal.command_running() {
-                                    let fg = format!("fg %{}\r", job.job);
+                                    let fg = format!("{}\r", format!("fg {}", job.job).trim_end());
                                     terminal.input(InputSource::Keyboard, fg.into_bytes());
                                 }
                             });
@@ -216,7 +216,7 @@ mod tests {
         let vim = StoppedJob {
             pid: 1,
             name: "vim".into(),
-            job: 1,
+            job: String::new(),
         };
         assert_eq!(banner_text(false, &[]), None);
         assert_eq!(

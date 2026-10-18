@@ -375,25 +375,6 @@ def test_a_step_naming_no_pane_says_so_and_runs_nothing(app_factory):
     assert app.alive()
 
 
-def test_a_step_can_write_into_every_pane_of_the_window(app_factory):
-    """all_panes_in_tab types the filled step into every pane, and refuses other kinds of step"""
-    app = app_with(app_factory, [
-        {"name": "everywhere", "inputs": {"v": {"text": "value"}},
-         "actions": [{"target": "all_panes_in_tab", "action": {"type": "touch $T2_TMP/typed-$$-{v}\n"}}]},
-        {"name": "notice everywhere", "inputs": {"v": {"text": "value"}},
-         "actions": [{"target": "all_panes_in_tab", "action": {"notify": "{v}"}}]},
-    ])
-    assert msg(app, "split", "right").returncode == 0
-    app.wait(lambda: len({tab["pane"] for tab in tabs(app)}) == 2, msg="two panes in the tab")
-    run(app, "everywhere", "here")
-    app.wait(lambda: len(list(app.tmp.glob("typed-*-here"))) == 2, msg="both panes typed the step")
-    app.snap("the step ran in both panes of the window")
-    run(app, "notice everywhere", "hoi")
-    app.wait(lambda: notification_box(app, C), msg="the notice that this kind of step is refused")
-    assert len(list(app.tmp.glob("typed-*"))) == 2
-    assert app.alive()
-
-
 def test_a_step_can_work_in_a_new_window(app_factory):
     """{"target": "new_window"} opens a window of its own and runs the step in it"""
     app = app_with(app_factory, [{"name": "open there", "inputs": {"v": {"text": "value"}},
@@ -484,22 +465,6 @@ def test_inputs_with_a_queued_command(app_factory):
     nothing_for(1, lambda: app.file("queued").exists())
     app.wait(lambda: app.file("queued").exists(), msg="the queued line ran at the prompt", timeout=20)
     app.wait(lambda: "⧗" not in app.title(), msg="the queue is empty again")
-
-
-def test_inputs_work_in_an_incognito_tab(app_factory):
-    """a command with inputs types its value into the incognito tab it was run in"""
-    app = app_with(app_factory, [{"name": "private", "actions": ["new_incognito_tab"]},
-                                 touch("make it")])
-    app.palette("private")
-    app.wait_title(lambda title: title.startswith("2"))
-    private = next(tab for tab in tabs(app) if tab["active"])
-    run(app, "make it", "secret")
-    app.wait(lambda: app.file("secret").exists(), msg="the value ran in the incognito tab")
-    # the other tab never saw it, and the incognito one still can not be read
-    first = next(tab for tab in tabs(app) if tab["id"] != private["id"])
-    assert "secret" not in text(app, str(first["id"]))
-    done = msg(app, "get-text", "--pane", str(private["id"]))
-    assert done.returncode != 0 and "incognito" in done.stderr + done.stdout
 
 
 def test_a_pinned_command_with_inputs_comes_first_in_the_palette(app_factory):

@@ -180,6 +180,7 @@ impl Terminal {
                     self.write_to_pty(format!("{}\r", entry.command).into_bytes());
                     // the prompt is gone once the shell reads the line
                     self.at_prompt = false;
+                    self.queue_typed = true;
                     true
                 }
                 None => false,
@@ -322,7 +323,11 @@ mod tests {
         use std::time::Instant;
 
         let bash = with_shell_integration(&profile(Shell::Program("/bin/bash".into())));
-        let mut builder = spawn_with(&TerminalSettings::default(), &bash);
+        let settings = TerminalSettings {
+            queue_stop_on_failure: true,
+            ..TerminalSettings::default()
+        };
+        let mut builder = spawn_with(&settings, &bash);
         let terminal = &mut builder.terminal;
         terminal.type_text(b"echo st_$((1+1)); sleep 1\r");
         wait_for_text(terminal, "st_2");
@@ -347,5 +352,42 @@ mod tests {
         assert!(terminal.hint_line().is_some());
         terminal.update_queue(|queue| queue.resume());
         wait_for_text(terminal, "never_2");
+    }
+
+    #[test]
+    fn the_first_prompt_types_one_entry() {
+        use crate::{
+            settings::{Shell, TerminalSettings},
+            terminal::{
+                tests::{profile, spawn_with},
+                with_shell_integration,
+            },
+        };
+        use std::time::Instant;
+
+        let bash = with_shell_integration(&profile(Shell::Program("/bin/bash".into())));
+        let settings = TerminalSettings {
+            queue_stop_on_failure: true,
+            ..TerminalSettings::default()
+        };
+        let mut builder = spawn_with(&settings, &bash);
+        let terminal = &mut builder.terminal;
+        // queued before the shell drew anything
+        terminal.update_queue(|queue| {
+            queue.push("false".into(), None);
+            queue.push("echo never_$((1+1))".into(), None);
+        });
+        let deadline = Instant::now() + Duration::from_secs(15);
+        let mut paused = false;
+        while !paused {
+            terminal.sync();
+            paused = terminal
+                .handle_scan_events()
+                .iter()
+                .any(|event| matches!(event, crate::terminal::Event::QueuePaused { .. }));
+            assert!(Instant::now() < deadline, "queue never paused");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert_eq!(commands(terminal.queue()), ["echo never_$((1+1))"]);
     }
 }

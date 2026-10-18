@@ -656,63 +656,6 @@ def test_a_group_tab_moved_out_of_the_window_leaves_the_group_whole(app_factory)
     app.snap("the moved tab in its own window, the group whole in the first one")
 
 
-def test_group_and_incognito_tab_with_session_restore(app_factory):
-    """restore_session: a renamed hand made group comes back with its tabs and its color, and an
-    incognito tab of the group is not restored"""
-    app = group_app(app_factory, restore_session="always", confirm_quit="never",
-                    window_title=["number", {"text": " "}, "folder"])
-    app.wait_title("1 ~")
-    # one more tab, moved into a folder of its own
-    app.key("ctrl+shift+t")
-    app.run("cd $T2_TMP; mkdir -p alpha; cd alpha")
-    app.wait_title(f"{len(edges(app))} alpha")
-    app.snap("two tabs, the second in a folder of its own")
-    group_of(app, 1, [2])
-    app.wait(lambda: underlines(app) and span(underlines(app)[0]) > 380, msg="two tabs grouped")
-    # an incognito tab joins the group of the tab before it
-    app.palette("new incognito tab")
-    app.wait(lambda: len(edges(app)) == 3, msg="three tabs")
-    app.key("ctrl+shift+d")
-    app.wait(lambda: span(underlines(app)[0]) > 580, msg="three tabs in one line of the group")
-    app.snap("two tabs and an incognito one in one group")
-    app.click(*chip_menu(app, chips(app)[0])[0])
-    app.type("the group to keep")
-    app.key("Return")
-    box = app.wait(lambda: chips(app) and chips(app)[0] if chip_label(app, chips(app)[0]) > 100 else None,
-                   msg="the renamed group chip")
-    colour = chip_colour(app, box)
-    app.palette("quit")
-    app.wait(lambda: not app.alive(), msg="app quit")
-    app.start()
-    back = app.wait(lambda: chips(app) and chips(app)[0], msg="the group came back")
-    assert chip_colour(app, back) == colour
-    assert abs(chip_width(back) - chip_width(box)) <= 3, (back, box)
-    assert len(edges(app)) == 2, "the incognito tab is not restored"
-    assert span(underlines(app)[0]) > 380, "the group kept its two tabs"
-    app.snap("the group restored with its name, without the incognito tab")
-
-
-def test_project_groups_come_back_with_the_session(app_factory):
-    """with by_project and restore_session, the restored shell starts in its project folder and
-    its project group is made again"""
-    app = group_app(app_factory, tab_groups={"by_project": True}, restore_session="always",
-                    confirm_quit="never", window_title=["number", {"text": " "}, "folder"])
-    repo(app, "restored-project")
-    app.wait_title("1 ~")
-    app.run("cd $T2_TMP/restored-project")
-    app.wait_title("1 restored-project")
-    box = app.wait(lambda: chips(app) and chips(app)[0], msg="the project chip")
-    app.snap("the shell moved into the project, chipped")
-    app.palette("quit")
-    app.wait(lambda: not app.alive(), msg="app quit")
-    app.start()
-    app.wait_title("1 restored-project")
-    back = app.wait(lambda: chips(app) and chips(app)[0], msg="the project group made again")
-    assert chip_colour(app, back) == chip_colour(app, box)
-    assert span(underlines(app)[0]) <= 205
-    app.snap("the shell restored in its project, the project group back")
-
-
 def test_expanded_tabs_share_the_bar_with_a_group_chip(app_factory):
     """expand_tabs splits the width next to the chip between the tabs; the chip keeps its size
     and its color"""
@@ -762,4 +705,3 @@ def test_group_with_a_hidden_bar_and_narrow_tabs(app_factory):
     assert abs(edges(app)[0] - (box[2] + 4 + 119)) <= 2, (edges(app), box)
     assert chip_colour(app, box) == 1
     app.snap("a chip wider than the tabs beside it")
-

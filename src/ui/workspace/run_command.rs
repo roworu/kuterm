@@ -8,8 +8,6 @@ use super::*;
 pub(super) enum StepTarget {
     /// one tab of one pane
     Tab(usize, usize),
-    /// the active tab of every pane of the window
-    AllPanes,
     /// a window of its own
     NewWindow,
 }
@@ -50,12 +48,7 @@ impl Workspace {
             };
             let (pane, ix) = match at {
                 StepTarget::Tab(pane, ix) => (pane, ix),
-                // these two do not act on one tab, the step runs on its own
-                StepTarget::AllPanes => {
-                    self.run_in_every_pane(&step.action, values, cx);
-                    target = current;
-                    continue;
-                }
+                // it does not act on one tab, the step runs on its own
                 StepTarget::NewWindow => {
                     self.run_in_new_window(&step.action, values, cx);
                     target = current;
@@ -70,12 +63,6 @@ impl Workspace {
                 CommandAction::ReloadConfig => self.reload_config(window, cx),
                 CommandAction::NewTab => {
                     self.add_tab(window, cx);
-                    target = None;
-                }
-                CommandAction::NewIncognitoTab => {
-                    let mut profile = Settings::get(cx).default_profile().clone();
-                    profile.incognito = true;
-                    self.add_profile_tab(self.focused, &profile, true, window, cx);
                     target = None;
                 }
                 CommandAction::NewTabWithProfile(name) => {
@@ -206,9 +193,6 @@ impl Workspace {
                 | CommandAction::AddTabToGroup
                 | CommandAction::RemoveTabFromGroup
                 | CommandAction::CloseGroup => self.run_group_action(action, window, cx),
-                CommandAction::ToggleBroadcastAll => self.toggle_broadcast_all(cx),
-                CommandAction::ToggleBroadcastPane => self.toggle_broadcast_pane(cx),
-                CommandAction::ToggleScrollSync => self.toggle_scroll_sync(cx),
                 CommandAction::QueueCommand => self.open_queue_input(None, None, window, cx),
                 CommandAction::EditQueue => self.open_queue_editor(window, cx),
                 CommandAction::ResumeQueue => self.resume_queue(cx),
@@ -279,8 +263,6 @@ impl Workspace {
                     };
                     self.terminal_at(pane, ix, cx)
                         .update(cx, |terminal, _| terminal.scroll(lines));
-                    let view = self.view_at(pane, ix);
-                    self.sync_scroll(&view, lines, cx);
                 }
                 CommandAction::ScrollTop => {
                     self.terminal_at(pane, ix, cx).update(cx, |terminal, _| {
@@ -302,7 +284,7 @@ impl Workspace {
                 CommandAction::ResetFontSize => self.change_font_size(pane, ix, None, cx),
                 CommandAction::OpenSettings => self.open_settings(cx),
                 CommandAction::Type(text) => {
-                    self.input_to(pane, ix, InputSource::Macro, text.clone().into_bytes(), cx)
+                    self.input_to(pane, ix, InputSource::Macro, text.clone().into_bytes(), cx);
                 }
                 CommandAction::SendText(text) => {
                     let bytes = text.clone().into_bytes();
@@ -346,10 +328,9 @@ impl Workspace {
                 });
                 Some(StepTarget::Tab(pane, ix))
             }
-            Some(Target::AllPanes) => Some(StepTarget::AllPanes),
             Some(Target::NewWindow) => Some(StepTarget::NewWindow),
             Some(Target::NewSplit(side)) => {
-                let (pane, tab) = self.split_new_tab(self.focused, *side, window, cx);
+                let (pane, tab) = self.split_new_tab(self.focused, *side, window, cx)?;
                 Some(StepTarget::Tab(pane, tab))
             }
             Some(Target::Pane(spec)) => {
@@ -363,48 +344,6 @@ impl Workspace {
                         self.show_notification(format!("no pane {spec:?}"), None, cx);
                         None
                     }
-                }
-            }
-        }
-    }
-
-    /// write a text step into the active tab of every pane, like broadcast input does
-    pub(super) fn run_in_every_pane(
-        &mut self,
-        action: &CommandAction,
-        values: &Values,
-        cx: &mut Context<Self>,
-    ) {
-        let typed = match action {
-            CommandAction::Type(_) => true,
-            CommandAction::SendText(_) => false,
-            _ => {
-                self.show_notification(
-                    "\"all_panes_in_tab\" only writes \"type\" and \"send_text\" steps",
-                    None,
-                    cx,
-                );
-                return;
-            }
-        };
-        for pane in self.layout.pane_ids() {
-            let Some(ix) = self.pane(pane).map(|pane| pane.active) else {
-                continue;
-            };
-            let text = match self.fill_step(action, values, pane, ix, cx) {
-                CommandAction::Type(text) | CommandAction::SendText(text) => text,
-                _ => unreachable!("checked above"),
-            };
-            if typed {
-                self.input_to(pane, ix, InputSource::Macro, text.into_bytes(), cx);
-            } else {
-                let bytes = text.into_bytes();
-                let source = InputSource::Macro;
-                if !self
-                    .terminal_at(pane, ix, cx)
-                    .update(cx, |terminal, _| terminal.input(source, bytes))
-                {
-                    self.input_refused(source, cx);
                 }
             }
         }
@@ -813,55 +752,5 @@ mod tests {
             ws.run_named_command(&RunNamedCommand("gone".into()), window, cx)
         });
         assert_eq!(error_texts(&ws, cx), [r#"no command named "gone""#]);
-    }
-
-    #[gpui::test]
-    fn raw_text_steps_reach_every_pane_but_never_a_password_prompt(cx: &mut TestAppContext) {
-        let (ws, cx) = open(cx, 2);
-        run_actions(&ws, cx, r#""split_right""#);
-        let right = terminal(&ws, cx, 0);
-        // the left pane asks for a password
-        let left = ws.update(cx, |ws, cx| {
-            let pane = ws.layout.pane_ids()[0];
-            ws.terminal_at(pane, 0, cx)
-        });
-        left.update(cx, |t, _| {
-            t.input(
-                InputSource::Keyboard,
-                b"python3 -c \"import getpass; getpass.getpass('P' 'w: ')\"\r".as_slice(),
-            )
-        });
-        // getpass turns echo off before it prints its prompt. the prompt is split in the
-        // command so its echo doesn't match
-        wait_until(cx, "the password prompt never showed", |cx| {
-            left.update(cx, |t, _| t.visible_screen_text(false).0.contains("Pw:"))
-        });
-        run_actions(
-            &ws,
-            cx,
-            r#"{"target": "all_panes_in_tab", "action": {"send_text": "echo raw_$((5*5))\r"}}"#,
-        );
-        let refused = "macro input was not typed: a program asks for a password";
-        // the tab also tells it waits for a password, only the refusals count here
-        let refusals = |ws: &Entity<Workspace>, cx: &mut VisualTestContext| {
-            notifications(ws, cx)
-                .iter()
-                .filter(|n| *n == refused)
-                .count()
-        };
-        assert_eq!(refusals(&ws, cx), 1);
-        wait_until(cx, "the raw text never ran", |cx| {
-            right.update(cx, |t, _| t.visible_screen_text(false).0.contains("raw_25"))
-        });
-        // a step aimed at the prompt's own tab is refused the same way
-        ws.update_in(cx, |ws, window, cx| {
-            let pane = ws.layout.pane_ids()[0];
-            ws.focus_pane(pane, window, cx)
-        });
-        run_actions(&ws, cx, r#"{"send_text": "x"}"#);
-        assert_eq!(refusals(&ws, cx), 2);
-        left.update(cx, |t, _| {
-            t.input(InputSource::Keyboard, b"\x03".as_slice())
-        });
     }
 }

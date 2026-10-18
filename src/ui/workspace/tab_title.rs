@@ -42,8 +42,6 @@ pub(super) struct TitleInputs {
     pub xoff: bool,
     /// names of programs stopped with ctrl+z
     pub stopped: Vec<String>,
-    /// icon shown whatever runs, like the one of an incognito tab
-    pub icon_override: Option<String>,
 }
 
 /// byte range in a title and the port written there

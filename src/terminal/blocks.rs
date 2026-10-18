@@ -19,7 +19,7 @@ use alacritty_terminal::{
 
 use super::{
     Terminal,
-    integration::{command_after_prompt, mark_cells},
+    integration::{command_after_prompt, mark_cells, output_lines},
     scanner::{OUTPUT_MARK, PROMPT_MARK},
     selection::select_range,
 };
@@ -94,8 +94,13 @@ pub(crate) fn visible_text<T: EventListener>(
             hidden |= cell.zerowidth().is_some_and(|chars| !chars.is_empty());
             row_text.push(cell.c);
         }
-        text.push_str(row_text.trim_end());
         let wraps = row[term.last_column()].flags.contains(Flags::WRAPLINE);
+        // a space in the last column of a row that wraps is part of the text going on
+        text.push_str(if wraps {
+            &row_text
+        } else {
+            row_text.trim_end()
+        });
         if line != end.line.0 && !wraps {
             text.push('\n');
         }
@@ -225,9 +230,11 @@ impl Terminal {
 
     /// block whose output covers grid line `line`
     pub fn block_at(&self, line: Line) -> Option<u64> {
+        // one look at the grid for all blocks, not one per block
+        let lines = output_lines(&self.term.lock_unfair());
         self.blocks.list.iter().rev().find_map(|block| {
-            let (start, end) = self.output_range(block.id)?;
-            (start.line <= line && line <= end.line).then_some(block.id)
+            let (start, end) = lines.get(&block.mark)?;
+            (*start <= line && line <= *end).then_some(block.id)
         })
     }
 
@@ -314,6 +321,14 @@ mod tests {
         let (text, hidden) = all(&term_with("rm -rf /\r\x1b[Kls"));
         assert_eq!(text.trim_end(), "ls");
         assert!(!hidden);
+    }
+
+    #[test]
+    fn a_space_at_a_soft_wrap_stays() {
+        // 29 letters, then the space lands in the last of the 30 columns
+        let line = format!("{} tail", "a".repeat(29));
+        let (text, _) = all(&term_with(&line));
+        assert_eq!(text.trim_end(), line);
     }
 
     #[test]

@@ -11,24 +11,18 @@ pub enum InputSource {
     Paste,
     /// a command palette command or keymap entry typing text
     Macro,
-    /// typed into another pane joined to the broadcast
-    Broadcast,
     /// `kuterm msg send-text` or an allowed `run`
     Remote,
     /// kuterm on its own, like a run link or the command queue
     Automation,
-    /// an ai agent through `kuterm mcp`
-    Mcp,
 }
 
-const ALL: [InputSource; 7] = [
+const ALL: [InputSource; 5] = [
     InputSource::Keyboard,
     InputSource::Paste,
     InputSource::Macro,
-    InputSource::Broadcast,
     InputSource::Remote,
     InputSource::Automation,
-    InputSource::Mcp,
 ];
 
 impl InputSource {
@@ -44,10 +38,8 @@ impl InputSource {
             InputSource::Keyboard => "typed",
             InputSource::Paste => "pasted",
             InputSource::Macro => "macro",
-            InputSource::Broadcast => "broadcast",
             InputSource::Remote => "remote",
             InputSource::Automation => "automation",
-            InputSource::Mcp => "mcp",
         }
     }
 
@@ -69,24 +61,11 @@ impl Sources {
         self.0 & source.bit() != 0
     }
 
-    pub fn is_empty(self) -> bool {
-        self.0 == 0
-    }
-
     /// every source in it, keyboard first
     pub fn list(self) -> Vec<InputSource> {
         ALL.into_iter()
             .filter(|source| self.contains(*source))
             .collect()
-    }
-
-    /// the mix like "typed + pasted", empty when nothing wrote
-    pub fn label(self) -> String {
-        self.list()
-            .into_iter()
-            .map(InputSource::label)
-            .collect::<Vec<_>>()
-            .join(" + ")
     }
 }
 
@@ -107,25 +86,25 @@ mod tests {
     #[test]
     fn sources_mix_and_name_themselves() {
         let mut sources = Sources::default();
-        assert!(sources.is_empty());
-        assert_eq!(sources.label(), "");
+        assert!(sources.list().is_empty());
         sources.insert(InputSource::Paste);
         sources.insert(InputSource::Keyboard);
         sources.insert(InputSource::Paste);
-        assert_eq!(sources.label(), "typed + pasted");
-        assert!(!sources.contains(InputSource::Mcp));
-        let remote: Sources = [InputSource::Mcp, InputSource::Remote]
+        assert_eq!(sources.list(), [InputSource::Keyboard, InputSource::Paste]);
+        assert!(!sources.contains(InputSource::Remote));
+        let remote: Sources = [InputSource::Automation, InputSource::Remote]
             .into_iter()
             .collect();
-        assert_eq!(remote.list(), [InputSource::Remote, InputSource::Mcp]);
+        assert_eq!(
+            remote.list(),
+            [InputSource::Remote, InputSource::Automation]
+        );
         assert!(InputSource::Keyboard.may_answer_secret());
         assert!(InputSource::Paste.may_answer_secret());
         for source in [
             InputSource::Macro,
-            InputSource::Broadcast,
             InputSource::Remote,
             InputSource::Automation,
-            InputSource::Mcp,
         ] {
             assert!(!source.may_answer_secret(), "{source:?}");
         }

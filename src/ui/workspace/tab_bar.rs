@@ -452,7 +452,11 @@ impl Workspace {
             } else {
                 theme.text_muted
             })
+            // tabs may have closed or moved since this was drawn, so the tab is found again
             .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+                let Some((pane, ix)) = this.find_id(id) else {
+                    return;
+                };
                 this.activate_tab(pane, ix, window, cx);
                 if event.click_count() == 2 {
                     this.start_rename(pane, ix, window, cx);
@@ -471,7 +475,9 @@ impl Workspace {
                 tab.on_mouse_down(
                     MouseButton::Middle,
                     cx.listener(move |this, _, window, cx| {
-                        this.request_close_tab(pane, ix, window, cx)
+                        if let Some((pane, ix)) = this.find_id(id) {
+                            this.request_close_tab(pane, ix, window, cx)
+                        }
                     }),
                 )
             })
@@ -573,7 +579,9 @@ impl Workspace {
                         .child("×")
                         .on_click(cx.listener(move |this, _, window, cx| {
                             cx.stop_propagation();
-                            this.request_close_tab(pane, ix, window, cx);
+                            if let Some((pane, ix)) = this.find_id(id) {
+                                this.request_close_tab(pane, ix, window, cx);
+                            }
                         })),
                 )
             })

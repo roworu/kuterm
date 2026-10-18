@@ -1,15 +1,10 @@
-"""what only shows in pixels: box drawing chars stroked as paths, and kitty images sized in
-cells or deleted by the program"""
-
-import base64
-import io
+"""what only shows in pixels: box drawing chars stroked as paths"""
 
 import numpy as np
-from PIL import Image
 
-from harness import bundled_theme, mask_bbox, near
+from harness import bundled_theme
 
-FEATURE = "box drawing strokes and images in cells"
+FEATURE = "box drawing strokes"
 
 DARK = bundled_theme(True)
 RED = DARK["ansi"][1]
@@ -43,33 +38,3 @@ def test_builtin_diagonals_are_stroked_corner_to_corner(app_factory):
     assert red_corners(img, app.cell_rect(1, 0)) == {
         "top left": True, "top right": False, "bottom left": False, "bottom right": True}
     app.snap("builtin box drawing strokes the diagonals ╱╲")
-
-
-def kitty_png(width: int, height: int, keys: str = "") -> bytes:
-    """a red png as one kitty graphics command with extra `keys`"""
-    png = io.BytesIO()
-    Image.new("RGB", (width, height), (255, 0, 0)).save(png, format="PNG")
-    data = base64.b64encode(png.getvalue())
-    return b"\x1b_Ga=T,f=100" + keys.encode() + b";" + data + b"\x1b\\"
-
-
-def red_image(app):
-    return mask_bbox(near(app.shot(), (255, 0, 0), 10))
-
-
-def test_image_sized_in_cells_is_stretched_over_them(app_factory):
-    """an image placed with c= and r= covers that many cells, whatever its own pixel size"""
-    app = app_factory({"theme": {"mode": "dark"}},
-                      script='step 1; printf "above\\n"; cat "$T2_TMP/image.kitty"; printf "\\nbelow\\n"; '
-                             'step 2; printf "\\033_Ga=d,d=A\\033\\\\"; printf "deleted\\n"')
-    app.file("image.kitty").write_bytes(kitty_png(10, 10, ",c=6,r=3"))
-    app.step(1)
-    box = app.wait(lambda: red_image(app), msg="red image")
-    app.snap("10x10 png stretched over 6 by 3 cells")
-    cells = app.cell_rect(0, 1, 6, 3)
-    # stretching blurs the edges into the background, so a few pixels of slack
-    assert all(abs(got - want) <= 5 for got, want in zip(box, cells)), (box, cells)
-    # deleting the image with its data takes it off the screen
-    app.step(2)
-    app.wait(lambda: red_image(app) is None, msg="deleted image still drawn")
-    app.snap("image deleted by the program")

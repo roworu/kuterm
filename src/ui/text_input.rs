@@ -74,6 +74,8 @@ pub struct TextInput {
     /// selected range in bytes, empty means just a caret
     selected_range: Range<usize>,
     selection_reversed: bool,
+    /// ime text still being composed, in bytes
+    marked_range: Option<Range<usize>>,
     last_layout: Option<ShapedLine>,
     last_bounds: Option<Bounds<Pixels>>,
     is_selecting: bool,
@@ -90,6 +92,7 @@ impl TextInput {
             placeholder: placeholder.into(),
             selected_range: 0..0,
             selection_reversed: false,
+            marked_range: None,
             last_layout: None,
             last_bounds: None,
             is_selecting: false,
@@ -106,6 +109,7 @@ impl TextInput {
         self.content = text.into();
         self.selected_range = 0..self.content.len();
         self.selection_reversed = false;
+        self.marked_range = None;
         cx.notify();
     }
 
@@ -331,6 +335,15 @@ impl TextInput {
         boundary
     }
 
+    // what an edit from the platform replaces: the range it names, else the composed text,
+    // else the selection
+    fn edit_range(&self, range_utf16: Option<&Range<usize>>) -> Range<usize> {
+        range_utf16
+            .map(|range_utf16| self.range_from_utf16(range_utf16))
+            .or(self.marked_range.clone())
+            .unwrap_or(self.selected_range.clone())
+    }
+
     fn next_word_boundary(&self, offset: usize) -> usize {
         let offset = offset.min(self.content.len());
         let mut seen_word = false;
@@ -377,10 +390,14 @@ impl EntityInputHandler for TextInput {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<Range<usize>> {
-        None
+        self.marked_range
+            .as_ref()
+            .map(|range| self.range_to_utf16(range))
     }
 
-    fn unmark_text(&mut self, _window: &mut Window, _cx: &mut Context<Self>) {}
+    fn unmark_text(&mut self, _window: &mut Window, _cx: &mut Context<Self>) {
+        self.marked_range = None;
+    }
 
     fn replace_text_in_range(
         &mut self,
@@ -391,29 +408,36 @@ impl EntityInputHandler for TextInput {
     ) {
         // the field is one line, so control characters like enter never land in it
         let new_text: String = new_text.chars().filter(|ch| !ch.is_control()).collect();
-        let range = range_utf16
-            .as_ref()
-            .map(|range_utf16| self.range_from_utf16(range_utf16))
-            .unwrap_or(self.selected_range.clone());
+        let range = self.edit_range(range_utf16.as_ref());
 
         self.content =
             (self.content[0..range.start].to_owned() + &new_text + &self.content[range.end..])
                 .into();
         self.selected_range = range.start + new_text.len()..range.start + new_text.len();
+        self.marked_range = None;
         cx.emit(Changed);
         cx.notify();
     }
 
-    // marked text is not tracked, so ime composition text is inserted like typed text
+    // each ime update replaces the text composed so far, not the selection
     fn replace_and_mark_text_in_range(
         &mut self,
         range_utf16: Option<Range<usize>>,
         new_text: &str,
-        _new_selected_range_utf16: Option<Range<usize>>,
+        new_selected_range_utf16: Option<Range<usize>>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let start = self.edit_range(range_utf16.as_ref()).start;
         self.replace_text_in_range(range_utf16, new_text, window, cx);
+        let end = self.selected_range.end;
+        self.marked_range = (start < end).then_some(start..end);
+        // the selection inside the composed text is counted from its start
+        if let Some(selected) = new_selected_range_utf16 {
+            let start = self.offset_to_utf16(start);
+            self.selected_range =
+                self.range_from_utf16(&(start + selected.start..start + selected.end));
+        }
     }
 
     fn bounds_for_range(
@@ -445,7 +469,7 @@ impl EntityInputHandler for TextInput {
     ) -> Option<usize> {
         let line_point = self.last_bounds?.localize(&point)?;
         let last_layout = self.last_layout.as_ref()?;
-        let utf8_index = last_layout.index_for_x(point.x - line_point.x)?;
+        let utf8_index = last_layout.index_for_x(line_point.x)?;
         Some(self.offset_to_utf16(utf8_index))
     }
 }
@@ -1138,6 +1162,63 @@ mod tests {
             input.on_mouse_down(&below, window, cx)
         });
         assert_eq!(cursor(&input, cx), 11);
+    }
+
+    #[gpui::test]
+    fn ime_composition_replaces_itself_and_commits_once(cx: &mut TestAppContext) {
+        let (input, cx) = open(cx);
+        set(&input, cx, "a", 1..1);
+        // linux sends every update of the composed text without a range
+        for composed in ["に", "にほ", "にほん"] {
+            act(&input, cx, |input, window, cx| {
+                input.replace_and_mark_text_in_range(None, composed, None, window, cx)
+            });
+        }
+        assert_eq!(text(&input, cx), "aにほん");
+        let marked = act(&input, cx, |input, window, cx| {
+            input.marked_text_range(window, cx)
+        });
+        assert_eq!(marked, Some(1..4));
+        act(&input, cx, |input, window, cx| {
+            input.replace_text_in_range(None, "日本", window, cx)
+        });
+        assert_eq!(text(&input, cx), "a日本");
+        assert_eq!(cursor(&input, cx), "a日本".len());
+        let marked = act(&input, cx, |input, window, cx| {
+            input.marked_text_range(window, cx)
+        });
+        assert_eq!(marked, None);
+
+        // a selection inside the composed text counts from where it starts
+        act(&input, cx, |input, window, cx| {
+            input.replace_and_mark_text_in_range(None, "ab", Some(1..1), window, cx)
+        });
+        assert_eq!(
+            selection(&input, cx),
+            ("a日本a".len().."a日本a".len(), false)
+        );
+        act(&input, cx, |input, window, cx| {
+            input.unmark_text(window, cx)
+        });
+        assert_eq!(text(&input, cx), "a日本ab");
+    }
+
+    #[gpui::test]
+    fn ime_caret_index_is_measured_from_the_text(cx: &mut TestAppContext) {
+        let (input, cx) = open(cx);
+        set(&input, cx, "hello world", 0..0);
+        let bounds = input.read_with(cx, |input, _| *input.last_bounds.as_ref().unwrap());
+        let x = input.read_with(cx, |input, _| {
+            input.last_layout.as_ref().unwrap().x_for_index(5)
+        });
+        let index = act(&input, cx, |input, window, cx| {
+            input.character_index_for_point(
+                point(bounds.left() + x + px(1.), bounds.center().y),
+                window,
+                cx,
+            )
+        });
+        assert_eq!(index, Some(5));
     }
 
     #[gpui::test]

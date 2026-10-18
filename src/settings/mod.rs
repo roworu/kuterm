@@ -29,17 +29,20 @@ pub(crate) use config::DEFAULT_SETTINGS;
 pub(crate) use config::combine as config_combine;
 pub(crate) use config::defaults as bundled_settings;
 pub(crate) use config::merge;
+pub(crate) use config::resolve as resolve_path;
 pub use config::{Config, ConfigFiles};
-pub use files::{config_dir, create_default_file, load_json, save_json, state_dir};
+pub use files::{
+    config_dir, create_default_file, load_json, read_small_file, save_json, state_dir,
+};
 pub use fonts::parse_font_feature;
 pub use keybindings::Keybindings;
 pub use limits::MAX_HISTORY_LENGTH;
 pub use options::{
     BellTarget, ClipboardAccess, CompletionTrigger, ConfirmQuit, CursorBlink, CursorShape,
-    CursorUnfocused, Decorations, FontSlant, LineHeight, LinkModifier, MarkSources, MemoryUnit,
-    MenuBarMode, NewTabButton, PatternAction, ProgramNotifications, RemoteControl, RestoreSession,
-    ScrollEasing, ScrollbarEnable, ScrollbarPlacement, SearchCase, Shell, StartupMode,
-    TabTitleAlign, TabTitleBlock, ThemeMode,
+    CursorUnfocused, Decorations, FontSlant, LineHeight, LinkModifier, MemoryUnit, MenuBarMode,
+    NewTabButton, PatternAction, ProgramNotifications, RemoteControl, ScrollEasing,
+    ScrollbarEnable, ScrollbarPlacement, SearchCase, Shell, StartupMode, TabTitleAlign,
+    TabTitleBlock, ThemeMode,
 };
 pub use pins::Pins;
 pub use status_bar_state::StatusBarState;
@@ -84,9 +87,7 @@ pub struct Settings {
     pub autocomplete: AutocompleteSettings,
     /// program and arguments the history is opened with, the file goes last
     pub scrollback_pager: Vec<String>,
-    pub restore_session: RestoreSession,
     pub remote_control: RemoteControl,
-    pub graphics: GraphicsSettings,
     pub status_bar: StatusBarSettings,
 }
 
@@ -102,14 +103,6 @@ pub struct StatusBarSettings {
     pub clock_format: String,
 }
 
-/// images programs show with kitty's graphics protocol
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
-pub struct GraphicsSettings {
-    pub enable: bool,
-    /// megabytes of decoded images each tab keeps, the oldest go first
-    pub max_memory_mb: usize,
-}
-
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 pub struct ShellIntegrationSettings {
     /// load kuterm's integration scripts into bash, zsh and fish
@@ -119,8 +112,6 @@ pub struct ShellIntegrationSettings {
     pub notify_after: f32,
     /// a click on the command line being typed moves the shell's cursor there
     pub click_moves_cursor: bool,
-    /// commands that get a gutter mark telling what typed them
-    pub mark_sources: MarkSources,
 }
 
 /// popup of completions for the command line, fed by shell integration
@@ -298,8 +289,6 @@ pub struct WindowSettings {
     pub blur: bool,
     pub decorations: Decorations,
     pub menu_bar: MenuBarMode,
-    /// export the menus over dbus for global menu applets, linux only
-    pub global_menu: bool,
     /// grid size the window opens with
     pub columns: u32,
     pub rows: u32,
@@ -485,31 +474,6 @@ pub struct Profile {
     /// extra environment variables for the command
     #[serde(default)]
     pub env: HashMap<String, String>,
-    /// no shell history, no session restore and no remote reading of the tab
-    #[serde(default)]
-    pub incognito: bool,
-    /// run the shell with no network and writes only where allowed
-    #[serde(default)]
-    pub sandbox: Option<Sandbox>,
-}
-
-/// what a sandboxed profile's shell may do
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-pub struct Sandbox {
-    pub network: bool,
-    /// folders it may write, "cwd" for the one it starts in
-    pub write: Vec<String>,
-    pub tmp: SandboxTmp,
-}
-
-/// the /tmp a sandbox sees
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum SandboxTmp {
-    /// an empty one of its own
-    Private,
-    /// the system's, read only
-    Shared,
 }
 
 impl Global for Settings {}
@@ -1250,10 +1214,10 @@ mod window_settings {
         let w = window(
             r#"{"padding": {"x": 12, "y": 0}, "padding_balance": true, "opacity": 0.5,
                 "blur": true, "decorations": "client", "columns": 120, "rows": 40,
-                "startup": "maximized", "remember_size": true, "global_menu": false}"#,
+                "startup": "maximized", "remember_size": true}"#,
         );
         assert_eq!(w.padding, WindowPadding { x: 12., y: 0. });
-        assert!(w.padding_balance && w.blur && w.remember_size && !w.global_menu);
+        assert!(w.padding_balance && w.blur && w.remember_size);
         assert_eq!(w.opacity, 0.5);
         assert_eq!(w.decorations, Decorations::Client);
         assert_eq!((w.columns, w.rows), (120, 40));

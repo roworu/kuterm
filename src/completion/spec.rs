@@ -374,7 +374,7 @@ impl Specs {
             ) else {
                 continue;
             };
-            match std::fs::read_to_string(&path) {
+            match crate::settings::read_small_file(&path) {
                 Ok(json) => {
                     let entry = Entry::new(json, path.display().to_string());
                     specs.entries.insert(name.to_string(), entry);

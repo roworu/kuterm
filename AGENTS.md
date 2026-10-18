@@ -42,7 +42,7 @@ E2E_WORKERS=0 sh e2e/run.sh -k palette
 - tests talk to the display only through `App` in `e2e/harness.py` (keys, mouse, screenshots, titles, clipboard), which picks xdotool/xwininfo or swaymsg/grim/wl-clipboard by backend.
 - wayland input comes from `e2e/fake_input.py`, one virtual keyboard and pointer for the whole session; headless sway has no devices of its own.
 - `@pytest.mark.x11_only` / `@pytest.mark.wayland_only` skip tests on the other backend.
-- the e2e container (`e2e/Containerfile`) also has cjk, emoji and ligature (fira code) fonts, xkb tools for layout tests, wmctrl, sway, grim, wl-clipboard, less, git, vim-tiny, neovim and bubblewrap.
+- the e2e container (`e2e/Containerfile`) also has cjk, emoji and ligature (fira code) fonts, xkb tools for layout tests, wmctrl, sway, grim, wl-clipboard, less, git, vim-tiny and neovim.
 
 CI also runs `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings`. container output goes to `target/podman/`. gpui and alacritty are pinned to same git revision in `Cargo.toml`; bump them together. gpui comes from a fork of zed with kuterm commits on top, bump it as in `docs/UPDATE_DEPS.md`.
 
@@ -66,7 +66,7 @@ CI also runs `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings`
 
 - `src/completion/`: autocomplete engine, no ui. `complete` turns a command line and cursor into candidates from fig-style json specs (`assets/completions/`), PATH and the filesystem, it never runs anything. `Bridge` is the private unix socket of one tab that kuterm's zsh script (`assets/shell/zsh/.zshenv`) reports its line on and gets picked completions back from (`protocol.rs`). the popup lives in `src/ui/terminal_view/completions.rs`. bundled specs are generated from the real programs inside podman, never on the host: follow `docs/COMPLETIONS.md` to add or refresh one.
 
-- `src/automation/`: other programs driving a running kuterm. `socket.rs` is the unix socket (json request in, json reply out, or an event stream), `protocol.rs` its requests and replies, `msg.rs` the `kuterm msg` client, `mcp.rs` the `kuterm mcp` server for ai agents, `events.rs` the bus of pane events both stream. requests about panes are answered in `src/ui/windows.rs` and `src/ui/workspace/remote_verbs.rs`.
+- `src/automation/`: other programs driving a running kuterm. `socket.rs` is the unix socket (json request in, json reply out, or an event stream), `protocol.rs` its requests and replies, `msg.rs` the `kuterm msg` client, `events.rs` the bus of pane events it streams. there is no mcp server, `docs/MCP.md` shows how one is built on the socket. requests about panes are answered in `src/ui/windows.rs` and `src/ui/workspace/remote_verbs.rs`.
 
 - `src/ui/`: `Workspace` (root view, tabs) -> `TerminalView` (focus, keys, scroll, paste) -> `TerminalElement`, a custom gpui `Element` that sizes terminal in `prepaint`, builds background rects and batched text runs (`grid.rs`), and paints cursor (`cursor.rs`).
   - `workspace/` is split by responsibility, each file an `impl Workspace` block: `layout.rs` (split tree), `tabs.rs`, `closing.rs`, `tab_bar.rs`, `status_bar.rs`, `panes_view.rs`, `render.rs`, `title_refresh.rs` (titles, context and pty state built off the main thread), `tab_title.rs` (blocks to text), `title_sources.rs` (user, host, git, clock, exec), `notifications.rs` (in window) and `system_notifications.rs` (desktop). test helpers live in `workspace/test_support.rs`.

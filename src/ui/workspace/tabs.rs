@@ -94,7 +94,8 @@ impl Workspace {
         }
     }
 
-    /// open a tab with `profile` in pane `pane_id`, switching to it when `activate`
+    /// open a tab with `profile` in pane `pane_id`, switching to it when `activate`. false
+    /// when the shell failed to spawn
     pub(super) fn add_profile_tab(
         &mut self,
         pane_id: usize,
@@ -102,16 +103,17 @@ impl Workspace {
         activate: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) {
+    ) -> bool {
         let window_id = window.window_handle().window_id().as_u64();
         let builder = match spawn_profile(profile, TerminalBounds::default(), window_id, cx) {
             Ok(builder) => builder,
             Err(error) => {
                 eprintln!("failed to spawn terminal: {error:#}");
-                return;
+                return false;
             }
         };
         self.add_builder_tab(pane_id, builder, profile, activate, window, cx);
+        true
     }
 
     /// show the shell of `builder`, spawned from `profile`, in a new tab of pane `pane_id`,
@@ -130,7 +132,6 @@ impl Workspace {
             let mut terminal = builder.subscribe(cx);
             let settings = Settings::get(cx);
             terminal.apply_theme(appearance, &settings.theme);
-            terminal.configure_graphics(settings.graphics.enable, settings.graphics.max_memory_mb);
             terminal
         });
         self.attach_terminal(pane_id, terminal, profile, activate, window, cx);
@@ -192,21 +193,10 @@ impl Workspace {
                     this.command_finished(&view, *duration, *exit, window, cx)
                 }
                 Event::CommandStarted { block } => {
-                    let mode = Settings::get(cx).shell_integration.mark_sources;
-                    let theme = Theme::get(cx).clone();
                     let command = terminal.update(cx, |terminal, _| {
                         let blocks = terminal.blocks();
                         let found = blocks.iter().find(|found| found.id == *block);
-                        let (command, sources) = found
-                            .map(|found| (found.command.clone(), found.source))
-                            .unwrap_or_default();
-                        if let Some(mark) =
-                            source_marks::source_mark(sources, &command, mode, &theme)
-                        {
-                            terminal
-                                .decorate(|decorations| decorations.gutter.insert(*block, mark));
-                        }
-                        command
+                        found.map(|found| found.command.clone()).unwrap_or_default()
                     });
                     EventBus::publish(BusEvent::CommandStarted {
                         pane,
@@ -223,7 +213,7 @@ impl Workspace {
                     if *busy {
                         this.attention_ended(&view, cx)
                     } else {
-                        this.agent_stopped(&view, window, cx)
+                        this.agent_stopped_later(&view, window, cx)
                     }
                 }
                 Event::Notify { title, body } => {
@@ -248,9 +238,6 @@ impl Workspace {
                 }
             }
         });
-        let input_subscription = cx.subscribe(&view, |this, view, input: &TypedInput, cx| {
-            this.broadcast_input(&view, input, cx)
-        });
         let clipboard_subscription = cx.subscribe_in(
             &view,
             window,
@@ -261,7 +248,6 @@ impl Workspace {
                     this.open_confirm_paste(view.clone(), text.clone(), window, cx)
                 }
                 ViewEvent::HintPicked(text) => this.hint_picked(view, text.clone(), window, cx),
-                ViewEvent::Scrolled(delta) => this.sync_scroll(view, *delta, cx),
                 ViewEvent::OpenFileLine(link) => this.open_file_line(view, link, window, cx),
             },
         );
@@ -307,7 +293,9 @@ impl Workspace {
             name: None,
             color: None,
             remote_allowed: false,
-            _subscriptions: [subscription, clipboard_subscription, input_subscription],
+            moved: false,
+            idle_task: Task::ready(()),
+            _subscriptions: [subscription, clipboard_subscription],
         });
         let ix = pane.tabs.len() - 1;
         if activate {
@@ -382,7 +370,8 @@ impl Workspace {
         terminal.update(cx, |terminal, _| terminal.input(source, input));
     }
 
-    /// write input to the tab at `ix` in pane `pane_id`, holding it back until a fresh shell is ready
+    /// write input to the tab at `ix` in pane `pane_id`, holding it back until a fresh shell is
+    /// ready. false when it was refused
     pub(super) fn input_to(
         &mut self,
         pane_id: usize,
@@ -390,18 +379,20 @@ impl Workspace {
         source: InputSource,
         input: Vec<u8>,
         cx: &mut Context<Self>,
-    ) {
+    ) -> bool {
         let tab = &mut self.pane_mut(pane_id).expect("pane from caller").tabs[ix];
         if tab.ready {
             let terminal = tab.view.read(cx).terminal().clone();
             if !terminal.update(cx, |terminal, _| terminal.input(source, input)) {
                 self.input_refused(source, cx);
+                return false;
             }
         } else {
             // a shell still starting echoes raw input from the tty, so wait for its first output
             tab.pending_input.extend_from_slice(&input);
             tab.pending_source = source;
         }
+        true
     }
 
     /// say why input from `source` went nowhere
@@ -573,7 +564,10 @@ impl Workspace {
                 .chain([path.to_string_lossy().into_owned()])
                 .collect(),
         };
-        self.add_profile_tab(self.focused, &profile, true, window, cx);
+        if !self.add_profile_tab(self.focused, &profile, true, window, cx) {
+            std::fs::remove_file(&path).ok();
+            return;
+        }
         // removed with its tab
         if let Some(tab) = self
             .pane_mut(self.focused)
@@ -679,7 +673,8 @@ mod tests {
 
     #[gpui::test]
     fn dragging_a_tab_reorders_it(cx: &mut TestAppContext) {
-        let (ws, cx) = open(cx, 3);
+        let settings = settings_of(&[r#"{"drag_tabs": true}"#]);
+        let (ws, cx) = open_with_settings(cx, 3, "{}", settings);
         cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
         cx.run_until_parked();
         let old = views(&ws, cx);
@@ -707,7 +702,8 @@ mod tests {
 
     #[gpui::test]
     fn bell_marks_background_tabs_until_shown(cx: &mut TestAppContext) {
-        let (ws, cx) = open(cx, 3);
+        let settings = settings_of(&[r#"{"bell": {"tab_indicator": true}}"#]);
+        let (ws, cx) = open_with_settings(cx, 3, "{}", settings);
         // the last tab is active, so the bell of tab 0 rings in the background
         terminal(&ws, cx, 0).update(cx, |_, cx| cx.emit(Event::Bell));
         terminal(&ws, cx, 2).update(cx, |_, cx| cx.emit(Event::Bell));
@@ -941,6 +937,18 @@ mod tests {
         let text = std::fs::read_to_string(&copy).unwrap();
         assert!(text.contains("remember this line"), "{text:?}");
         std::fs::remove_file(&copy).ok();
+    }
+
+    #[gpui::test]
+    fn a_pager_that_fails_to_start_leaves_no_file(cx: &mut TestAppContext) {
+        let settings =
+            Settings::parse(r#"{"scrollback_pager": ["/nonexistent/kuterm-pager"]}"#).unwrap();
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
+        run_actions(&ws, cx, r#""open_scrollback""#);
+        assert_eq!(views(&ws, cx).len(), 1);
+        // the tab that was there does not take the file over
+        let taken = ws.update(cx, |ws, _| ws.focused_pane().tabs[0].temp_file.clone());
+        assert_eq!(taken, None);
     }
 
     #[gpui::test]

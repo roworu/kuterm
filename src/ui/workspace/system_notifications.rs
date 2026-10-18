@@ -100,6 +100,7 @@ pub(super) fn desktop_notification(
             // listening before the notification shows, so a quick click is not missed
             let rule = zbus::MatchRule::builder()
                 .msg_type(zbus::message::Type::Signal)
+                .sender(NAME)?
                 .interface(NAME)?
                 .build();
             let signals = zbus::blocking::MessageIterator::for_match_rule(rule, &connection, None)?;
@@ -125,6 +126,8 @@ pub(super) fn desktop_notification(
                 ),
             )?;
             let id: u32 = reply.body().deserialize()?;
+            // any process may send us signals, only the daemon that showed it may click it
+            let daemon = reply.header().sender().map(|sender| sender.to_owned());
             // nothing to click, nothing to wait for
             if buttons.is_empty() {
                 return Ok(None);
@@ -132,6 +135,9 @@ pub(super) fn desktop_notification(
             for message in signals {
                 let message = message?;
                 let header = message.header();
+                if daemon.is_none() || header.sender() != daemon.as_ref() {
+                    continue;
+                }
                 match header.member().map(|member| member.as_str()) {
                     Some("ActionInvoked") => {
                         let (from, key): (u32, String) = message.body().deserialize()?;

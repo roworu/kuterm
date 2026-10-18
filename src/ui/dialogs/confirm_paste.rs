@@ -39,7 +39,8 @@ impl ConfirmPaste {
         let (preview, more_lines) = paste_preview(text);
         Self {
             focus_handle: cx.focus_handle(),
-            flagged: preview.iter().flatten().any(|piece| piece.marked),
+            // the whole text, what is past the preview is pasted too
+            flagged: !paste_check::flagged(text).is_empty(),
             preview,
             more_lines,
             // enter right after the paste key must not paste by habit
@@ -293,6 +294,13 @@ mod tests {
         let (cut, _) = drawn(&format!("{six}\n7\n8"), "", cx);
         // one more row under the preview for the lines left out
         assert!(cut > fits, "{cut:?} is not taller than {fits:?}");
+    }
+
+    #[gpui::test]
+    fn hidden_characters_past_the_preview_still_warn(cx: &mut gpui::TestAppContext) {
+        let text = "1\n2\n3\n4\n5\n6\n7\nrm\u{200b} -rf";
+        let dialog = cx.new(|cx| ConfirmPaste::new(text, cx));
+        assert!(dialog.read_with(cx, |dialog, _| dialog.flagged));
     }
 
     #[gpui::test]

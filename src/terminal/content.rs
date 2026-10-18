@@ -3,7 +3,7 @@
 use alacritty_terminal::{
     Term,
     grid::Dimensions,
-    index::{Column, Line, Point as AlacPoint},
+    index::Point as AlacPoint,
     selection::SelectionRange,
     term::{RenderableCursor, TermMode, cell::Cell, search::Match},
 };
@@ -11,7 +11,6 @@ use alacritty_terminal::{
 use super::{
     TerminalBounds,
     builder::ZedListener,
-    graphics::{Graphics, IMAGE_MARK, VisibleImage},
     search::{SearchState, active_match, visible_matches},
 };
 
@@ -37,8 +36,6 @@ pub struct Content {
     pub search_matches: Vec<Match>,
     /// the match search is on
     pub active_match: Option<Match>,
-    /// images reaching into the view, with the cell each one starts at
-    pub images: Vec<(AlacPoint, VisibleImage)>,
 }
 
 impl Default for Content {
@@ -58,19 +55,13 @@ impl Default for Content {
             terminal_bounds: TerminalBounds::default(),
             search_matches: Vec::new(),
             active_match: None,
-            images: Vec::new(),
         }
     }
 }
 
 impl Content {
     /// copy visible grid from `term`, reusing the cell buffer so steady redraws don't allocate
-    pub(super) fn refresh(
-        &mut self,
-        term: &Term<ZedListener>,
-        search: Option<&mut SearchState>,
-        graphics: &Graphics,
-    ) {
+    pub(super) fn refresh(&mut self, term: &Term<ZedListener>, search: Option<&mut SearchState>) {
         let content = term.renderable_content();
         self.cells.clear();
         self.cells
@@ -89,76 +80,5 @@ impl Content {
             Some(search) => (visible_matches(term, search), active_match(term, search)),
             None => (Vec::new(), None),
         };
-        self.images.clear();
-        if !graphics.is_empty() {
-            self.find_images(term, graphics);
-        }
-    }
-
-    // an image starting above the view still shows its lower part, so the lines it can reach
-    // down from are looked at too
-    fn find_images(&mut self, term: &Term<ZedListener>, graphics: &Graphics) {
-        let top = -(term.grid().display_offset() as i32);
-        let first = (top - graphics.tallest() as i32 + 1).max(term.topmost_line().0);
-        let last = top + term.screen_lines() as i32 - 1;
-        for line in first..=last {
-            let row = &term.grid()[Line(line)];
-            for column in 0..term.columns() {
-                let Some(link) = row[Column(column)].hyperlink() else {
-                    continue;
-                };
-                let Some(mark) = link
-                    .id()
-                    .strip_prefix(IMAGE_MARK)
-                    .and_then(|mark| mark.parse().ok())
-                else {
-                    continue;
-                };
-                if let Some(image) = graphics.placement(mark) {
-                    let point = AlacPoint::new(Line(line), Column(column));
-                    // shown rows of an image above the view
-                    if line + image.rows as i32 > top {
-                        self.images.push((point, image));
-                    }
-                }
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use base64::Engine;
-
-    use crate::{
-        settings::{Shell, TerminalSettings},
-        terminal::tests::{profile, spawn_with, wait_for_text},
-    };
-
-    #[test]
-    fn only_marks_of_placed_images_are_shown() {
-        // 10 by 20 pixels is one cell of the test grid
-        let data = base64::engine::general_purpose::STANDARD.encode(vec![200u8; 10 * 20 * 4]);
-        let image = |id: u32| format!("\\033_Ga=T,q=2,f=32,s=10,v=20,i={id};{data}\\033\\\\");
-        // a link of the program's own is a hyperlink too, but no image mark. image 9 loses its
-        // placement, the mark it left in the grid then shows nothing
-        let script = format!(
-            "printf '{}a {}b \\033]8;;http://x\\033\\\\link\\033]8;;\\033\\\\ \\033_Ga=d,d=i,q=2,i=9\\033\\\\done\\n'; sleep 5",
-            image(9),
-            image(10),
-        );
-        let profile = profile(Shell::WithArguments {
-            program: "/bin/sh".into(),
-            args: vec!["-c".into(), script],
-        });
-        let mut builder = spawn_with(&TerminalSettings::default(), &profile);
-        let terminal = &mut builder.terminal;
-        wait_for_text(terminal, "done");
-        terminal.sync();
-        let images = &terminal.last_content.images;
-        assert_eq!(images.len(), 1);
-        // the second image, after "a "
-        let (point, _) = &images[0];
-        assert_eq!((point.line.0, point.column.0), (0, 3));
     }
 }

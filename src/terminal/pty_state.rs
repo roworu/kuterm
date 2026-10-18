@@ -236,10 +236,8 @@ mod tests {
         });
         for source in [
             InputSource::Macro,
-            InputSource::Broadcast,
             InputSource::Remote,
             InputSource::Automation,
-            InputSource::Mcp,
         ] {
             assert!(!terminal.input(source, b"x".to_vec()), "{source:?}");
         }
@@ -251,7 +249,11 @@ mod tests {
 
     #[test]
     fn ctrl_s_pauses_until_ctrl_q_or_is_dropped() {
-        let mut builder = spawn(&TerminalSettings::default());
+        let settings = TerminalSettings {
+            send_xoff: true,
+            ..TerminalSettings::default()
+        };
+        let mut builder = spawn(&settings);
         let terminal = &mut builder.terminal;
         let ixon = PtyState {
             modes: Some(PtyModes {

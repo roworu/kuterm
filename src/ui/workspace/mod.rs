@@ -3,7 +3,6 @@
 mod actions;
 mod app_menu;
 mod attention;
-mod broadcast;
 mod closing;
 mod command_inputs;
 mod command_queue;
@@ -11,8 +10,6 @@ mod config_watch;
 mod editor_links;
 mod end_truncated;
 mod find_all;
-#[cfg(target_os = "linux")]
-mod global_menu;
 mod groups;
 mod layout;
 mod menu_bar;
@@ -20,13 +17,9 @@ mod notifications;
 mod overlays;
 mod palette;
 mod panes_view;
-mod private_tabs;
 mod remote_verbs;
 mod render;
 mod run_command;
-mod scroll_sync;
-mod session;
-mod source_marks;
 mod status_bar;
 mod system_notifications;
 mod tab_bar;
@@ -63,8 +56,6 @@ use gpui::{
 pub use app_menu::{RunLink, app_menus, dock_menu, open_urls, parse_run_link};
 use closing::*;
 pub use config_watch::watch_config;
-#[cfg(target_os = "linux")]
-pub use global_menu::start as start_global_menu;
 use layout::*;
 use menu_bar::{MenuBar, MenuPicked};
 use notifications::Notification;
@@ -80,22 +71,22 @@ use crate::{
     cli::Cli,
     settings::{
         Command, CommandAction, CommandStep, Commands, Config, ConfigFiles, ConfirmQuit, Profile,
-        RestoreSession, Settings, Shell, Side, StatusBarState, TabIconSettings, TabIcons,
-        TabTitleBlock, Target, Values,
+        Settings, Shell, Side, StatusBarState, TabIconSettings, TabIcons, TabTitleBlock, Target,
+        Values,
     },
     terminal::{
         Event, InputSource, PaneContext, ProcessSampler, PtyState, Terminal, TerminalBounds,
         TerminalBuilder, TreeSample, foreground_process, pty_modes, stopped_jobs,
         with_shell_integration,
     },
-    theme::{self, Theme},
+    theme,
     ui::{
         dialogs::{
             About, CloseConfirmed, CloseTarget, CommandPalette, ConfirmClose, ConfirmPaste,
             InputPrompt, PasteConfirmed,
         },
         terminal_element::ShowHidden,
-        terminal_view::{TerminalView, TypedInput, ViewEvent, copied_text},
+        terminal_view::{TerminalView, ViewEvent, copied_text},
         text_input::TextInput,
     },
 };
@@ -184,7 +175,11 @@ struct Tab {
     color: Option<gpui::Hsla>,
     /// remote runs need no asking in this tab, the user allowed them all
     remote_allowed: bool,
-    _subscriptions: [Subscription; 3],
+    /// it went to another window, where its pane lives on
+    moved: bool,
+    /// marks the agent waiting unless its command finishes first
+    idle_task: Task<()>,
+    _subscriptions: [Subscription; 2],
 }
 
 impl Drop for Tab {
@@ -192,7 +187,9 @@ impl Drop for Tab {
         if let Some(path) = &self.temp_file {
             std::fs::remove_file(path).ok();
         }
-        EventBus::publish(BusEvent::PaneClosed { pane: self.pane_id });
+        if !self.moved {
+            EventBus::publish(BusEvent::PaneClosed { pane: self.pane_id });
+        }
     }
 }
 
@@ -358,10 +355,6 @@ pub struct Workspace {
     menu_bar: Entity<MenuBar>,
     _menu_bar_subscriptions: [Subscription; 2],
     _overlay_subscriptions: Vec<Subscription>,
-    /// panes typed into together, none while input goes to the focused pane alone
-    broadcast: Option<std::collections::BTreeSet<usize>>,
-    /// panes scrolled together, the active tab of each follows the others
-    scroll_sync: std::collections::BTreeSet<usize>,
     /// patterns of questions programs wait on, compiled when they change
     question_patterns: waiting::QuestionPatterns,
     /// tab groups of the window
@@ -401,12 +394,9 @@ impl Workspace {
     }
 
     /// spawn the shell of a new window's first tab before the window exists, so it starts
-    /// while gpu setup runs. none when the window brings the last session back instead
+    /// while gpu setup runs
     pub fn spawn_first_tab(window_size: Size<Pixels>, cx: &App) -> Option<TerminalBuilder> {
         let settings = Settings::get(cx);
-        if cx.windows().is_empty() && settings.restore_session == RestoreSession::Always {
-            return None;
-        }
         let bounds = window::startup_grid(window_size, cx);
         // the window id is not known yet. it only fills WINDOWID, and gpui's id is no x11 id
         spawn_profile(settings.default_profile(), bounds, 0, cx)
@@ -414,8 +404,8 @@ impl Workspace {
             .ok()
     }
 
-    /// create a workspace, its first tab in `folder` when given, else last session or a new
-    /// tab, running the `first` shell when one was spawned already
+    /// create a workspace, its first tab in `folder` when given, else a new tab, running the
+    /// `first` shell when one was spawned already
     pub fn with_start(
         folder: Option<PathBuf>,
         first: Option<TerminalBuilder>,
@@ -427,17 +417,12 @@ impl Workspace {
         if let Some(folder) = folder {
             this.open_folder(folder, window, cx);
         } else {
-            // only the first window brings the last session back, a window being built
-            // is not listed yet
-            let alone = cx.windows().is_empty();
-            if !(alone && this.open_session(window, cx)) {
-                match first {
-                    Some(builder) => {
-                        let profile = Settings::get(cx).default_profile().clone();
-                        this.add_builder_tab(this.focused, builder, &profile, true, window, cx);
-                    }
-                    None => this.add_tab(window, cx),
+            match first {
+                Some(builder) => {
+                    let profile = Settings::get(cx).default_profile().clone();
+                    this.add_builder_tab(this.focused, builder, &profile, true, window, cx);
                 }
+                None => this.add_tab(window, cx),
             }
         }
         // config problems from launch, printed before any window could show them
@@ -510,8 +495,6 @@ impl Workspace {
             menu_bar,
             _menu_bar_subscriptions,
             _overlay_subscriptions: Vec::new(),
-            broadcast: None,
-            scroll_sync: Default::default(),
             question_patterns: Default::default(),
             groups: Vec::new(),
             next_group_id: 0,
@@ -548,8 +531,6 @@ impl Workspace {
             this.window_resized(window, cx);
         })
         .detach();
-        #[cfg(target_os = "linux")]
-        global_menu::export_window(window, cx);
         this
     }
 
@@ -615,27 +596,6 @@ impl Workspace {
     fn active_terminal_of(&self, pane_id: usize, cx: &App) -> Option<Entity<Terminal>> {
         let pane = self.pane(pane_id)?;
         Some(pane.tabs.get(pane.active)?.view.read(cx).terminal().clone())
-    }
-
-    /// active terminals of the other panes in `joined`, when `view` is the active tab of one
-    /// of them, for broadcast input and synced scroll
-    fn joined_terminals(
-        &self,
-        joined: &std::collections::BTreeSet<usize>,
-        view: &Entity<TerminalView>,
-        cx: &App,
-    ) -> Vec<Entity<Terminal>> {
-        let Some((source, ix)) = self.find_view(view) else {
-            return Vec::new();
-        };
-        if !joined.contains(&source) || self.pane(source).is_none_or(|pane| pane.active != ix) {
-            return Vec::new();
-        }
-        joined
-            .iter()
-            .filter(|&&pane| pane != source)
-            .filter_map(|&pane| self.active_terminal_of(pane, cx))
-            .collect()
     }
 
     /// terminal of the tab at `ix` in pane `pane_id`
@@ -911,6 +871,8 @@ mod tests {
         let bar = search_bar(&ws, cx).expect("search bar opened");
         assert!(cx.debug_bounds("search-bar").is_some());
         cx.simulate_input("find_me");
+        cx.executor()
+            .advance_clock(crate::ui::search_bar::SEARCH_DELAY);
         cx.run_until_parked();
         let status = bar.read_with(cx, |bar, _| bar.status().clone()).unwrap();
         assert_eq!((status.count, status.active), (1, Some(0)));
@@ -929,12 +891,35 @@ mod tests {
     }
 
     #[gpui::test]
-    fn search_options_toggle_with_buttons(cx: &mut TestAppContext) {
+    fn search_waits_for_typing_to_pause(cx: &mut TestAppContext) {
         let (ws, cx) = open(cx, 1);
+        print_line(&ws, cx, "pause_here");
+        run_actions(&ws, cx, r#""search""#);
+        let bar = search_bar(&ws, cx).expect("palette action opens the bar");
+        let count = |cx: &mut VisualTestContext| {
+            bar.read_with(cx, |bar, _| bar.status().clone())
+                .unwrap()
+                .count
+        };
+        cx.simulate_input("pause_");
+        cx.run_until_parked();
+        assert_eq!(count(cx), 0);
+        // walking right away searches what was typed first
+        cx.simulate_keystrokes("enter");
+        cx.run_until_parked();
+        assert!(count(cx) > 0);
+    }
+
+    #[gpui::test]
+    fn search_options_toggle_with_buttons(cx: &mut TestAppContext) {
+        let settings = settings_of(&[r#"{"search": {"case_sensitive": "smart"}}"#]);
+        let (ws, cx) = open_with_settings(cx, 1, "{}", settings);
         print_line(&ws, cx, "Mixed mixed");
         run_actions(&ws, cx, r#""search""#);
         let bar = search_bar(&ws, cx).expect("palette action opens the bar");
         cx.simulate_input("mixed");
+        cx.executor()
+            .advance_clock(crate::ui::search_bar::SEARCH_DELAY);
         cx.run_until_parked();
         let count = |cx: &mut VisualTestContext| {
             bar.read_with(cx, |bar, _| bar.status().clone())
@@ -951,6 +936,8 @@ mod tests {
         click(cx, center, 1);
         release(cx, center);
         cx.simulate_input("(");
+        cx.executor()
+            .advance_clock(crate::ui::search_bar::SEARCH_DELAY);
         cx.run_until_parked();
         assert!(count(cx).is_err());
     }
@@ -962,6 +949,8 @@ mod tests {
         run_actions(&ws, cx, r#""search""#);
         let bar = search_bar(&ws, cx).expect("palette action opens the bar");
         cx.simulate_input("hit_");
+        cx.executor()
+            .advance_clock(crate::ui::search_bar::SEARCH_DELAY);
         cx.run_until_parked();
         let active = |cx: &mut VisualTestContext| {
             bar.read_with(cx, |bar, _| bar.status().clone())

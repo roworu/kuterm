@@ -518,7 +518,7 @@ impl TerminalView {
         let candidates = &result.candidates;
         let shown = &candidates[menu.top.min(candidates.len())..];
         let shown = &shown[..shown.len().min(rows)];
-        let cells = |text: &str, max: usize| text.chars().count().min(max);
+        let cells = |text: &str, max: usize| unicode_width::UnicodeWidthStr::width(text).min(max);
         let label_cells = shown
             .iter()
             .map(|c| cells(&c.label, MAX_LABEL_CELLS))
@@ -1073,7 +1073,6 @@ mod tests {
                     crate::ui::terminal_view::TypedInput::Text(text) => {
                         seen.borrow_mut().push(text.clone())
                     }
-                    _ => {}
                 },
             )
         });

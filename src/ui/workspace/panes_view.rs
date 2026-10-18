@@ -138,47 +138,8 @@ impl Workspace {
             .when_some(zone, |terminal, side| {
                 terminal.child(drop_overlay(side, theme))
             })
-            // joined panes say so loudly, typing here reaches the others too
-            .when(self.broadcasts(pane_id), |terminal| {
-                terminal.child(
-                    div()
-                        .debug_selector(move || format!("pane-broadcast-{pane_id}"))
-                        .absolute()
-                        .inset_0()
-                        .border_2()
-                        .border_color(theme.danger_button)
-                        .child(
-                            div()
-                                .absolute()
-                                .top_0()
-                                .right_0()
-                                .px_2()
-                                .rounded_bl_md()
-                                .bg(theme.danger_button)
-                                .text_color(theme.danger_button_text)
-                                .text_sm()
-                                .child("⇶ broadcast"),
-                        ),
-                )
-            })
             .children(self.render_queue_list(pane, cx))
             .children(self.render_pty_banner(pane, cx))
-            .children(self.render_profile_frame(pane, cx))
-            .when(self.scroll_synced(pane_id), |terminal| {
-                terminal.child(
-                    div()
-                        .debug_selector(move || format!("pane-scroll-sync-{pane_id}"))
-                        .absolute()
-                        .bottom_0()
-                        .right_0()
-                        .px_2()
-                        .rounded_tl_md()
-                        .bg(theme.tab_active_background)
-                        .text_color(theme.text_muted)
-                        .text_sm()
-                        .child("⇅ synced"),
-                )
-            })
             .when(dim > 0., |terminal| {
                 // deferred, since the cached terminal view would otherwise paint over it
                 terminal.child(

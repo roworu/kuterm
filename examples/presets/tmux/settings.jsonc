@@ -43,7 +43,6 @@
     { "keys": "ctrl-a [", "action": "vi_mode" },
     { "keys": "ctrl-a /", "action": "search" },
     { "keys": "ctrl-a ,", "action": "rename_tab" },
-    { "keys": "ctrl-a b", "action": "toggle_broadcast_all" },
     // ctrl-a ctrl-a still reaches the shell, to go to the start of the line
     { "keys": "ctrl-a ctrl-a", "action": { "send_text": "\u0001" } },
   ],

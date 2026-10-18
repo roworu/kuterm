@@ -17,8 +17,10 @@ pub struct CloseConfirmed;
 pub enum CloseTarget {
     /// these tabs, closed together, like the tabs on one side of the active one
     Tabs(Vec<EntityId>),
-    /// the whole window, quitting the app
+    /// this window, quitting the app when it is the last one
     Window,
+    /// every window, quitting the app
+    Quit,
 }
 
 impl CloseTarget {
@@ -26,7 +28,7 @@ impl CloseTarget {
     pub fn contains(&self, id: EntityId) -> bool {
         match self {
             Self::Tabs(tabs) => tabs.contains(&id),
-            Self::Window => false,
+            Self::Window | Self::Quit => false,
         }
     }
 }
@@ -108,7 +110,7 @@ impl Render for ConfirmClose {
                     .text_color(theme.text_muted)
                     .child(match &self.target {
                         CloseTarget::Tabs(_) => "close anyway?",
-                        CloseTarget::Window => "quit anyway?",
+                        CloseTarget::Window | CloseTarget::Quit => "quit anyway?",
                     }),
             )
             .child(
@@ -129,7 +131,7 @@ impl Render for ConfirmClose {
                             "confirm-close-ok",
                             match &self.target {
                                 CloseTarget::Tabs(_) => "close",
-                                CloseTarget::Window => "quit",
+                                CloseTarget::Window | CloseTarget::Quit => "quit",
                             },
                             self.close_selected,
                         )

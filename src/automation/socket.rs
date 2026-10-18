@@ -21,7 +21,7 @@ pub fn socket_path() -> PathBuf {
 #[cfg(unix)]
 mod unix {
     use std::{
-        io::{BufRead, BufReader, Write},
+        io::{BufRead, BufReader, Read, Write},
         os::unix::{
             fs::PermissionsExt,
             net::{UnixListener, UnixStream},
@@ -191,6 +191,10 @@ mod unix {
             return;
         }
         for event in futures::executor::block_on_stream(events) {
+            // only a write tells a client went away, and filtered events write nothing
+            if client_gone(&writer) {
+                return;
+            }
             if !names.is_empty() && !names.contains(&event.name()) {
                 continue;
             }
@@ -202,6 +206,21 @@ mod unix {
                 return;
             }
         }
+    }
+
+    // true when the client closed its end, it sends nothing after its request
+    fn client_gone(stream: &UnixStream) -> bool {
+        if stream.set_nonblocking(true).is_err() {
+            return true;
+        }
+        let gone = match (&*stream).read(&mut [0u8; 1]) {
+            Ok(read) => read == 0,
+            Err(error) => !matches!(
+                error.kind(),
+                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+            ),
+        };
+        stream.set_nonblocking(false).is_err() || gone
     }
 }
 

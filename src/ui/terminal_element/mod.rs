@@ -10,14 +10,13 @@ mod scrollbar;
 use alacritty_terminal::{
     index::Point as AlacPoint, term::TermMode, term::search::Match, vte::ansi::CursorShape,
 };
-use std::sync::Arc;
 
 use gpui::{
-    App, Bounds, ContentMask, Corners, CursorStyle, DispatchPhase, Element, ElementId, Entity,
-    FocusHandle, Font, FontFallbacks, FontFeatures, FontWeight, GlobalElementId, Hitbox,
-    HitboxBehavior, Hsla, InspectorElementId, IntoElement, LayoutId, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, Pixels, Point, RenderImage, ShapedLine, Size, Style, TextRun,
-    Window, fill, point, px, relative, size,
+    App, Bounds, ContentMask, CursorStyle, DispatchPhase, Element, ElementId, Entity, FocusHandle,
+    Font, FontFallbacks, FontFeatures, FontWeight, GlobalElementId, Hitbox, HitboxBehavior, Hsla,
+    InspectorElementId, IntoElement, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent,
+    MouseUpEvent, Pixels, Point, ShapedLine, Size, Style, TextRun, Window, fill, point, px,
+    relative, size,
 };
 
 use crate::{
@@ -104,12 +103,10 @@ pub struct LayoutState {
     link_color: Hsla,
     /// hint labels with their boxes, relative to the grid origin
     hint_labels: Vec<(Bounds<Pixels>, ShapedLine)>,
-    /// images with where they go, relative to the grid origin
-    images: Vec<(Bounds<Pixels>, Arc<RenderImage>)>,
     hint_background: Hsla,
     /// hint line under the prompt, relative to the grid origin, never part of the grid
     hint_line: Option<(Point<Pixels>, ShapedLine)>,
-    /// gutter marks and popovers, relative to the window
+    /// popovers, relative to the window
     decorations: decorations::DecorationsLayout,
 }
 
@@ -285,19 +282,13 @@ impl Element for TerminalElement {
         );
 
         let padding = window_settings.padding;
-        // a gutter only while some mark is set, so the grid never moves for those using none
-        let gutter = if self.terminal.read(cx).decorations().gutter.is_empty() {
-            px(0.)
-        } else {
-            cell_width * decorations::GUTTER_CELLS
-        };
-        let (pad_x, pad_y) = (px(padding.x) + gutter, px(padding.y));
+        let (pad_x, pad_y) = (px(padding.x), px(padding.y));
         let mut origin = point(bounds.origin.x + pad_x, bounds.origin.y + pad_y);
         if bar_settings.placement == ScrollbarPlacement::Left {
             origin.x += bar_width;
         }
         let mut grid_size = bounds.size;
-        grid_size.width = (grid_size.width - pad_x * 2. + gutter - bar_width).max(cell_width * 2.);
+        grid_size.width = (grid_size.width - pad_x * 2. - bar_width).max(cell_width * 2.);
         // alacritty panics on a grid without rows
         grid_size.height = (grid_size.height - pad_y * 2.).max(line_height);
         if window_settings.padding_balance {
@@ -409,7 +400,6 @@ impl Element for TerminalElement {
             terminal,
             &dimensions,
             bounds,
-            window.mouse_position(),
             &fonts.regular,
             font_size,
             theme,
@@ -438,24 +428,6 @@ impl Element for TerminalElement {
             .flat_map(|link| link_underlines(link, content.display_offset, &dimensions))
             .collect();
         let link_color = theme.terminal_foreground;
-        let images = content
-            .images
-            .iter()
-            .map(|(start, image)| {
-                let row = start.line.0 + content.display_offset as i32;
-                let bounds = Bounds::new(
-                    point(cell_width * start.column.0 as f32, line_height * row as f32),
-                    match image.pixels {
-                        Some((width, height)) => size(px(width as f32), px(height as f32)),
-                        None => size(
-                            cell_width * image.cols as f32,
-                            line_height * image.rows as f32,
-                        ),
-                    },
-                );
-                (bounds, image.image.clone())
-            })
-            .collect();
         let hint_labels = self
             .hints
             .iter()
@@ -507,7 +479,6 @@ impl Element for TerminalElement {
             link_color,
             hint_labels,
             hint_background,
-            images,
             hint_line,
             decorations,
         }
@@ -560,19 +531,6 @@ impl Element for TerminalElement {
             let edges = alt_screen.then_some(bounds);
             for rect in &layout.rects {
                 rect.paint(origin, &layout.dimensions, edges, window);
-            }
-            // over cell backgrounds, under the text
-            for (image_bounds, image) in &layout.images {
-                window
-                    .paint_image(
-                        bounds,
-                        *image_bounds + origin,
-                        Corners::default(),
-                        image.clone(),
-                        0,
-                        false,
-                    )
-                    .ok();
             }
             for run in &mut layout.batched_text_runs {
                 run.paint(
@@ -627,10 +585,6 @@ impl Element for TerminalElement {
                 cursor.paint(origin, window, cx);
             }
             let line_height = layout.dimensions.line_height;
-            for (at, icon) in &layout.decorations.gutter {
-                icon.paint(*at, line_height, gpui::TextAlign::Left, None, window, cx)
-                    .ok();
-            }
             if let Some((scrollbar, _)) = &layout.scrollbar {
                 scrollbar.paint(window);
             }

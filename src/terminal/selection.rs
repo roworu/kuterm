@@ -112,11 +112,17 @@ impl Terminal {
     pub fn select_all(&mut self) {
         let mut term = self.term.lock();
         let start = AlacPoint::new(term.topmost_line(), Column(0));
-        // lines below a shell's cursor are empty, so they would only add blank lines
+        // blank lines at the bottom are left out, a program may have moved the cursor above
+        // text it printed
         let last_line = if term.mode().contains(TermMode::ALT_SCREEN) {
             term.bottommost_line()
         } else {
-            term.grid().cursor.point.line
+            let cursor = term.grid().cursor.point.line;
+            (cursor.0..=term.bottommost_line().0)
+                .rev()
+                .map(Line)
+                .find(|line| !term.grid()[*line].is_clear())
+                .unwrap_or(cursor)
         };
         let mut selection = Selection::new(SelectionType::Simple, start, Side::Left);
         selection.update(AlacPoint::new(last_line, term.last_column()), Side::Right);
@@ -331,5 +337,22 @@ mod tests {
         let text = terminal.selection_text().unwrap();
         assert!(text.starts_with("top"), "{text:?}");
         assert!(text.trim_end().ends_with("low"), "{text:?}");
+    }
+
+    #[test]
+    fn select_all_keeps_text_below_a_cursor_moved_up() {
+        let profile = profile(Shell::WithArguments {
+            program: "/bin/sh".into(),
+            args: vec![
+                "-c".into(),
+                "printf 'above\\nmiddle\\nbelow_it\\033[2A\\r'; sleep 5".into(),
+            ],
+        });
+        let mut builder = spawn_with(&TerminalSettings::default(), &profile);
+        let terminal = &mut builder.terminal;
+        wait_for_text(terminal, "below_it");
+        terminal.select_all();
+        let text = terminal.selection_text().unwrap();
+        assert!(text.trim_end().ends_with("below_it"), "{text:?}");
     }
 }

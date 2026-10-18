@@ -1,7 +1,5 @@
 # kuterm shell integration for fish, found in XDG_DATA_DIRS as a vendor config
 status is-interactive; or exit
-# an incognito tab keeps no history
-set -q KUTERM_INCOGNITO; and set -g fish_private_mode 1
 
 function __kuterm_prompt --on-event fish_prompt
     printf '\e]7;file://%s%s\a\e]133;A\a' (hostname) "$PWD"

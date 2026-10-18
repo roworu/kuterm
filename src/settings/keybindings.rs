@@ -160,9 +160,6 @@ fn binding(action: &str, keys: &str, when: Option<&str>) -> Option<KeyBinding> {
         "rename_tab" => KeyBinding::new(keys, RunAction(CommandAction::RenameTab), when),
         "pin_tab" => KeyBinding::new(keys, RunAction(CommandAction::PinTab), when),
         "duplicate_tab" => KeyBinding::new(keys, RunAction(CommandAction::DuplicateTab), when),
-        "new_incognito_tab" => {
-            KeyBinding::new(keys, RunAction(CommandAction::NewIncognitoTab), when)
-        }
         "next_attention_tab" => {
             KeyBinding::new(keys, RunAction(CommandAction::NextAttentionTab), when)
         }
@@ -177,18 +174,9 @@ fn binding(action: &str, keys: &str, when: Option<&str>) -> Option<KeyBinding> {
         "close_group" => KeyBinding::new(keys, RunAction(CommandAction::CloseGroup), when),
         "pick_theme" => KeyBinding::new(keys, RunAction(CommandAction::PickTheme), when),
         "find_in_all_tabs" => KeyBinding::new(keys, RunAction(CommandAction::FindInAllTabs), when),
-        "toggle_broadcast_all" => {
-            KeyBinding::new(keys, RunAction(CommandAction::ToggleBroadcastAll), when)
-        }
-        "toggle_broadcast_pane" => {
-            KeyBinding::new(keys, RunAction(CommandAction::ToggleBroadcastPane), when)
-        }
         "queue_command" => KeyBinding::new(keys, RunAction(CommandAction::QueueCommand), when),
         "edit_queue" => KeyBinding::new(keys, RunAction(CommandAction::EditQueue), when),
         "resume_queue" => KeyBinding::new(keys, RunAction(CommandAction::ResumeQueue), when),
-        "toggle_scroll_sync" => {
-            KeyBinding::new(keys, RunAction(CommandAction::ToggleScrollSync), when)
-        }
         "move_tab_to_new_window" => {
             KeyBinding::new(keys, RunAction(CommandAction::MoveTabToNewWindow), when)
         }
@@ -552,7 +540,7 @@ mod tests {
     fn actions_unbound_by_default_bind_when_given_keys() {
         // these have no default keys, so only a user's binding reaches them
         let keys = Keybindings::parse(
-            r#"{"select_last_output": "ctrl-alt-o", "new_incognito_tab": "ctrl-alt-i"}"#,
+            r#"{"select_last_output": "ctrl-alt-o", "duplicate_tab": "ctrl-alt-i"}"#,
         )
         .unwrap();
         let actions: Vec<CommandAction> = keys
@@ -566,7 +554,7 @@ mod tests {
             "{actions:?}"
         );
         assert!(
-            actions.contains(&CommandAction::NewIncognitoTab),
+            actions.contains(&CommandAction::DuplicateTab),
             "{actions:?}"
         );
     }

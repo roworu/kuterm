@@ -1,7 +1,7 @@
 //! looks at pty output before alacritty parses it, for escape sequences alacritty skips:
 //! shell integration marks (osc 133), the folder of the shell (osc 7) and notifications
-//! (osc 9, osc 777), progress (osc 9;4), and images of kitty's graphics protocol (apc G). prompts, command output
-//! and images get marked cells, so they can be found again wherever they scroll
+//! (osc 9, osc 777) and progress (osc 9;4). prompts and command output get marked cells, so
+//! they can be found again wherever they scroll
 
 use std::{
     fs::File,
@@ -17,12 +17,10 @@ use alacritty_terminal::{
     tty::{ChildEvent, EventedPty, EventedReadWrite, Pty},
 };
 
-use super::{graphics::GraphicsParser, links::MARKER_PREFIX};
+use super::links::MARKER_PREFIX;
 
 // longest osc payload looked at, longer ones pass through untouched
 const MAX_PAYLOAD: usize = 4096;
-// longest graphics command, base64 of the biggest image sent in one piece
-const MAX_APC: usize = 96 << 20;
 
 /// something the program told the terminal through an escape sequence alacritty skips
 #[derive(Clone, Debug, PartialEq)]
@@ -50,8 +48,6 @@ pub enum ScanEvent {
     },
     /// progress the program reported, none when it took it down
     Progress(Option<Progress>),
-    /// bytes to answer the program with, like the result of a graphics command
-    Reply(Vec<u8>),
 }
 
 /// how far the running program got, reported with osc 9;4
@@ -66,17 +62,17 @@ pub enum Progress {
 pub(crate) const PROMPT_MARK: &str = "kuterm-prompt-";
 pub(crate) const OUTPUT_MARK: &str = "kuterm-output-";
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 enum State {
+    #[default]
     Ground,
     Escape,
     Osc,
     OscEscape,
-    Apc,
-    ApcEscape,
 }
 
 /// state between reads, a sequence may be split over several
+#[derive(Default)]
 pub struct Scanner {
     state: State,
     payload: Vec<u8>,
@@ -87,38 +83,14 @@ pub struct Scanner {
     next_mark: usize,
     /// number of the last prompt mark
     last_prompt: Option<usize>,
-    /// graphics command being read, none while it is too long to keep
-    apc: Option<Vec<u8>>,
-    graphics: Option<GraphicsParser>,
-}
-
-impl Default for Scanner {
-    fn default() -> Self {
-        Self::new(None)
-    }
 }
 
 const CLOSE_MARK: &[u8] = b"\x1b]8;;\x1b\\";
 
 impl Scanner {
-    /// scanner that runs graphics commands with `graphics`, or leaves them to alacritty,
-    /// which skips them
-    pub fn new(graphics: Option<GraphicsParser>) -> Self {
-        Self {
-            state: State::Ground,
-            payload: Vec::new(),
-            overflow: false,
-            open_mark: false,
-            next_mark: 0,
-            last_prompt: None,
-            apc: None,
-            graphics,
-        }
-    }
-
-    /// copy `input` to `out`, adding marks after the sequences they belong to and taking out
-    /// graphics commands, and collect what the program told. an escape at the very end is
-    /// held back until the next read tells what it starts
+    /// copy `input` to `out`, adding marks after the sequences they belong to, and collect
+    /// what the program told. an escape at the very end is held back until the next read
+    /// tells what it starts
     pub fn feed(&mut self, input: &[u8], out: &mut Vec<u8>, events: &mut Vec<ScanEvent>) {
         let mut ix = 0;
         while ix < input.len() {
@@ -133,12 +105,6 @@ impl Scanner {
                     out.extend_from_slice(&input[ix..end]);
                     ix = end;
                     State::Ground
-                }
-                (State::Escape, b'_')
-                    if self.graphics.as_ref().is_some_and(GraphicsParser::enabled) =>
-                {
-                    self.apc = Some(Vec::new());
-                    State::Apc
                 }
                 (State::Escape, b']') => {
                     out.extend_from_slice(b"\x1b]");
@@ -193,30 +159,6 @@ impl Scanner {
                     out.push(byte);
                     State::Ground
                 }
-                (State::Apc, 0x1b) => State::ApcEscape,
-                (State::Apc, 0x07) => {
-                    self.finish_apc(out, events);
-                    State::Ground
-                }
-                (State::Apc, 0x18 | 0x1a) => State::Ground,
-                (State::Apc, _) => {
-                    if let Some(apc) = &mut self.apc {
-                        apc.push(byte);
-                        if apc.len() > MAX_APC {
-                            self.apc = None;
-                        }
-                    }
-                    State::Apc
-                }
-                (State::ApcEscape, b'\\') => {
-                    self.finish_apc(out, events);
-                    State::Ground
-                }
-                // an escape that ends nothing starts something new, the command is dropped
-                (State::ApcEscape, _) => {
-                    ix -= 1;
-                    State::Escape
-                }
             };
         }
     }
@@ -226,28 +168,12 @@ impl Scanner {
         if self.state != State::Ground {
             return false;
         }
-        let apc = self.graphics.as_ref().is_some_and(GraphicsParser::enabled);
         // an escape at the end is held back, so it can't pass either
         memchr::memchr_iter(0x1b, input).all(|at| match input.get(at + 1) {
             Some(b']') => false,
-            Some(b'_') => !apc,
             Some(_) => true,
             None => false,
         })
-    }
-
-    fn finish_apc(&mut self, out: &mut Vec<u8>, events: &mut Vec<ScanEvent>) {
-        let (Some(apc), Some(graphics)) = (self.apc.take(), &mut self.graphics) else {
-            return;
-        };
-        let Some(body) = apc.strip_prefix(b"G") else {
-            return;
-        };
-        let outcome = graphics.command(body);
-        out.extend_from_slice(&outcome.output);
-        if let Some(reply) = outcome.reply {
-            events.push(ScanEvent::Reply(reply));
-        }
     }
 
     fn finish(&mut self, out: &mut Vec<u8>, events: &mut Vec<ScanEvent>) {
@@ -453,15 +379,15 @@ pub struct ScannedPty {
 
 #[cfg(unix)]
 impl ScannedPty {
-    /// wrap `pty`, events go to `events`, images to `graphics`
-    pub fn new(pty: Pty, events: ScanEvents, graphics: GraphicsParser) -> io::Result<Self> {
+    /// wrap `pty`, events go to `events`
+    pub fn new(pty: Pty, events: ScanEvents) -> io::Result<Self> {
         // a second handle on the same pty, polling still watches the original
         let file = pty.file().try_clone()?;
         Ok(Self {
             pty,
             reader: ScanReader {
                 file,
-                scanner: Scanner::new(Some(graphics)),
+                scanner: Scanner::default(),
                 pending: Vec::new(),
                 events,
             },
@@ -616,41 +542,6 @@ mod tests {
             out.len(),
             long.len() + "\x1b]9;gone\x18\x1b]133;D\x07".len()
         );
-    }
-
-    #[test]
-    fn graphics_commands_are_taken_out_and_answered() {
-        use std::sync::{Arc, Mutex};
-
-        use crate::terminal::graphics::{CellSize, Graphics, GraphicsParser};
-
-        let shared = Arc::new(Mutex::new(Graphics::new(true, 10)));
-        let parser = GraphicsParser::new(shared.clone(), Arc::new(CellSize::default()));
-        let mut scanner = Scanner::new(Some(parser));
-        let (mut out, mut events) = (Vec::new(), Vec::new());
-        // split over reads, even between the escape and its underscore
-        for chunk in [
-            &b"a\x1b"[..],
-            b"_Ga=q,i=4,s=1,v=1,f=24;AAA",
-            b"A\x1b",
-            b"\\b",
-        ] {
-            scanner.feed(chunk, &mut out, &mut events);
-        }
-        assert_eq!(out, b"ab");
-        assert_eq!(events, [ScanEvent::Reply(b"\x1b_Gi=4;OK\x1b\\".to_vec())]);
-
-        // other apc sequences are dropped, an escape that ends nothing starts a sequence
-        let (mut out, mut events) = (Vec::new(), Vec::new());
-        scanner.feed(b"\x1b_Xjunk\x1b\\c\x1b_Gq\x1b[1m", &mut out, &mut events);
-        assert_eq!(out, b"c\x1b[1m");
-
-        // turned off, they go on to alacritty
-        shared.lock().unwrap().configure(false, 10);
-        let (mut out, mut events) = (Vec::new(), Vec::new());
-        scanner.feed(b"\x1b_Ga=q\x1b\\", &mut out, &mut events);
-        assert_eq!(out, b"\x1b_Ga=q\x1b\\");
-        assert!(events.is_empty());
     }
 
     #[test]

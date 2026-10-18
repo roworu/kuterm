@@ -106,14 +106,24 @@ mod tests {
 
     #[gpui::test]
     fn the_quit_action_asks_while_a_program_runs(cx: &mut TestAppContext) {
-        let (ws, cx) = open(cx, 1);
+        let (ws, cx) = open_with_settings(
+            cx,
+            1,
+            "{}",
+            settings_of(&[r#"{"confirm_quit": "running"}"#]),
+        );
         start_program(&ws, cx);
         cx.dispatch_action(Quit);
         cx.run_until_parked();
         assert!(dialog(&ws, cx).is_some(), "quit without asking");
         assert!(!quitting(&ws, cx));
 
-        let (ws, cx) = open(cx, 1);
+        let (ws, cx) = open_with_settings(
+            cx,
+            1,
+            "{}",
+            settings_of(&[r#"{"confirm_quit": "running"}"#]),
+        );
         cx.dispatch_action(Quit);
         cx.run_until_parked();
         assert!(quitting(&ws, cx));

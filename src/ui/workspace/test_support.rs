@@ -13,6 +13,7 @@ pub(crate) use super::*;
 pub(crate) use crate::{
     settings::{Keybindings, MemoryUnit, Pins},
     terminal::{Terminal, TerminalBounds},
+    theme::Theme,
 };
 
 /// open a workspace with `tabs` tabs and user keybindings `keys`, the last tab is active
@@ -688,12 +689,23 @@ pub(crate) fn quitting(ws: &Entity<Workspace>, cx: &mut VisualTestContext) -> bo
     ws.update(cx, |ws, _| ws.quitting)
 }
 
+/// settings from `layers` of json over the bundled ones, later layers win. a test names every
+/// setting it depends on here, so changing a bundled default never changes what it checks
+pub(crate) fn settings_of(layers: &[&str]) -> Settings {
+    let mut merged = serde_json_lenient::Value::Object(Default::default());
+    for layer in layers {
+        crate::settings::merge(&mut merged, serde_json_lenient::from_str(layer).unwrap());
+    }
+    Settings::parse(&merged.to_string()).unwrap()
+}
+
 pub(crate) fn window_settings(json: &str) -> Settings {
-    Settings::parse(&format!(
-        r#"{{"hide_bar_for_one_tab": true, "terminal": {{"scrollbar": {{"enable": "off"}}}},
-            "window": {json}}}"#
-    ))
-    .unwrap()
+    // no menu bar unless the test asks for one, it would take a row above the grid
+    settings_of(&[
+        r#"{"hide_bar_for_one_tab": true, "terminal": {"scrollbar": {"enable": "off"}},
+            "window": {"menu_bar": "never"}}"#,
+        &format!(r#"{{"window": {json}}}"#),
+    ])
 }
 
 pub(crate) fn grid_bounds(ws: &Entity<Workspace>, cx: &mut VisualTestContext) -> TerminalBounds {

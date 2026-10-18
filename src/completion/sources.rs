@@ -86,6 +86,8 @@ pub struct Entry {
 /// start at `cwd`, `~` is the home folder. hidden files only when the name starts with a dot.
 /// only names containing the typed one, in any case, are kept
 pub fn entries(typed: &str, cwd: &Path, home: Option<&Path>) -> Vec<Entry> {
+    // a lone `~` is the home folder, not a name in this one
+    let typed = if typed == "~" { "~/" } else { typed };
     let (dir_part, name_part) = match typed.rfind('/') {
         Some(ix) => typed.split_at(ix + 1),
         None => ("", typed),
@@ -220,6 +222,9 @@ mod tests {
         );
         let home = entries("~/sub dir/in", Path::new("/"), Some(&dir));
         assert!(home.iter().any(|e| e.path == "~/sub dir/inner" && e.dir));
+        // a lone tilde lists the home folder
+        let home = entries("~", Path::new("/"), Some(&dir));
+        assert!(home.iter().any(|e| e.path == "~/top"));
         assert!(entries("missing/", &dir, None).is_empty());
         // a link is what it points at
         #[cfg(unix)]

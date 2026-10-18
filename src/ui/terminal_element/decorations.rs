@@ -1,17 +1,14 @@
-//! drawing block decorations next to the grid: gutter marks with their tooltip and the
-//! popover. laid out in prepaint from plain data the terminal keeps
+//! drawing the popover over the grid, laid out in prepaint from plain data the terminal keeps
 
 use gpui::{
     App, Bounds, Font, Hsla, Pixels, Point, ShapedLine, TextRun, Window, fill, point, px, size,
 };
 
 use crate::{
-    terminal::{GutterMark, Popover, Terminal, TerminalBounds},
+    terminal::{Popover, Terminal, TerminalBounds},
     theme::Theme,
 };
 
-// cells the gutter takes left of the grid while some mark is set
-pub const GUTTER_CELLS: f32 = 2.;
 // longest popover line, longer ones are cut
 const POPOVER_MAX_CHARS: usize = 120;
 
@@ -45,7 +42,6 @@ impl TextBox {
 /// everything decorations draw, relative to the window
 #[derive(Default)]
 pub struct DecorationsLayout {
-    pub gutter: Vec<(Point<Pixels>, ShapedLine)>,
     pub boxes: Vec<TextBox>,
 }
 
@@ -104,55 +100,18 @@ fn text_box(
 }
 
 /// lay out the decorations of `terminal` around the grid at `dims`, `area` is the whole
-/// element. `mouse` picks the tooltip shown
+/// element
 #[allow(clippy::too_many_arguments)]
 pub fn layout_decorations(
     terminal: &Terminal,
     dims: &TerminalBounds,
     area: Bounds<Pixels>,
-    mouse: Point<Pixels>,
     font: &Font,
     font_size: Pixels,
     theme: &Theme,
     window: &mut Window,
 ) -> DecorationsLayout {
     let mut layout = DecorationsLayout::default();
-    let origin = dims.bounds.origin;
-    let line_height = dims.line_height;
-    let gutter_x = origin.x - dims.cell_width * GUTTER_CELLS;
-    let mut tooltip = None;
-    for (row, mark) in terminal.visible_gutter() {
-        let top = origin.y + line_height * row as f32;
-        let GutterMark {
-            icon,
-            color,
-            tooltip: text,
-        } = mark;
-        let cell = Bounds::new(
-            point(gutter_x, top),
-            size(dims.cell_width * GUTTER_CELLS, line_height),
-        );
-        if cell.contains(&mouse) && !text.is_empty() {
-            tooltip = Some((text, point(origin.x, top + line_height)));
-        }
-        layout.gutter.push((
-            point(gutter_x, top),
-            shape(&icon, font, color, font_size, window),
-        ));
-    }
-    if let Some((text, at)) = tooltip {
-        let tooltip = text_box(
-            &[(text, theme.text)],
-            at,
-            area,
-            font,
-            font_size,
-            line_height,
-            theme,
-            window,
-        );
-        layout.boxes.push(tooltip);
-    }
     if let Some(popover) = &terminal.decorations().popover {
         layout.boxes.extend(popover_box(
             popover,

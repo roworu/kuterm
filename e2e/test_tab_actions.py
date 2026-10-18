@@ -612,34 +612,6 @@ def test_a_pinned_tab_still_answers_for_a_running_program(app_factory):
     app.wait(lambda: not app.alive(), msg="the pinned tab closed on y and took the window")
 
 
-def test_a_pinned_titled_tab_comes_back_pinned(app_factory):
-    """with restore_session, a pinned tab with a title of its own comes back the same: in
-    front, drawn as wide as its title and not as wide as the other tab"""
-    app = tab_app(app_factory, restore_session="always", confirm_quit="never")
-    new_tabs(app, 2)
-    # the palette command renames and pins the active tab, the second one
-    app.palette("tabs: rename")
-    app.wait(lambda: renaming(app), msg="the rename field")
-    app.type("keeper")
-    app.key("Return")
-    app.wait(lambda: titles_of(app) == ["title", "keeper"], msg="renamed")
-    app.palette("tabs: pin or unpin")
-    app.wait(lambda: tab_edges(app)[0] < WIDTH - 40, msg="pinned in front")
-    app.wait_still()
-    width = tab_edges(app)[0]
-    app.snap("the pinned tab with a title of its own before the restart")
-    app.palette("quit")
-    app.wait(lambda: not app.alive(), msg="app quit")
-    app.start()
-    ready(app)
-    app.mouse(450, 300)
-    app.wait(lambda: titles_of(app) == ["keeper", "title"], msg="both tabs restored")
-    app.wait_still()
-    app.snap("after the restart: the pinned tab back in front, as small as before")
-    assert abs(tab_edges(app)[0] - width) <= 4, (tab_edges(app), width)
-    assert tab_edges(app)[1] - tab_edges(app)[0] == WIDTH, tab_edges(app)
-
-
 def test_duplicate_entry_opens_the_same_profile_and_folder_next_to_it(app_factory):
     """duplicating a tab opens one with the same profile and the folder its shell is in, right
     after it, and nothing the original ran shows up in it"""
@@ -776,25 +748,6 @@ def test_a_named_tab_keeps_its_name_when_it_moves(app_factory):
     app.snap("the named tab in the window of its own")
     assert moved["name"] == "mover", moved
     assert "NAMED_TAB" in text(app, "mover"), "the name no longer finds the moved tab"
-
-
-def test_moving_an_incognito_tab_keeps_it_incognito(app_factory):
-    """an incognito tab moved to a window of its own is the same tab: it still refuses to be
-    read from outside"""
-    app = tab_app(app_factory)
-    new_tabs(app, 2)
-    app.palette("tabs: new incognito tab")
-    app.wait(lambda: len(window_tabs(app)) == 3, msg="the incognito tab")
-    private = ids_of(app)[-1]
-    first = one_window(app)
-    app.palette("tabs: move to new window")
-    app.wait(lambda: len(windows_of(app)) == 2, msg="a window of its own")
-    by_window = windows_of(app)
-    elsewhere = [window for window in by_window if window != first]
-    assert ids_of(app, elsewhere[0]) == [private], by_window
-    done = msg(app, "get-text", "--pane", private)
-    app.snap("the incognito tab in the window of its own")
-    assert done.returncode != 0 and "incognito" in done.stderr + done.stdout, done
 
 
 def test_the_group_entries_group_and_ungroup_a_tab(app_factory):

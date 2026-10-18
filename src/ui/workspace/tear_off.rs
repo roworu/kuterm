@@ -1,12 +1,14 @@
 //! moving a tab with its running shell to another window: dragged out of the window, or with
 //! "move_tab_to_new_window". the terminal entity is app wide, so only its view is made anew
 
-use gpui::{AnyWindowHandle, App, Context, Entity, Pixels, Point, Window, WindowHandle, px};
+use std::path::PathBuf;
+
+use gpui::{AnyWindowHandle, App, Context, Entity, Hsla, Pixels, Point, Window, WindowHandle, px};
 
 use super::Workspace;
 use crate::{
     settings::{Profile, Settings},
-    terminal::Terminal,
+    terminal::{InputSource, Terminal},
 };
 
 // where the pointer sits on a torn off tab in its new window, so the tab lands under it
@@ -24,6 +26,13 @@ pub struct MovedTab {
     /// name and color of the hand made group it was in
     pub(super) group: Option<(String, usize)>,
     pub(super) pinned: bool,
+    pub(super) font_size: Option<f32>,
+    pub(super) color: Option<Hsla>,
+    pub(super) remote_allowed: bool,
+    /// input held back while its shell started, typed once it is in the new window
+    pub(super) pending_input: Vec<u8>,
+    pub(super) pending_source: InputSource,
+    pub(super) temp_file: Option<PathBuf>,
 }
 
 impl Workspace {
@@ -37,6 +46,12 @@ impl Workspace {
             name: tab.name.clone(),
             group: self.saved_group(tab),
             pinned: tab.pinned,
+            font_size: tab.view.read(cx).custom_font_size(),
+            color: tab.color,
+            remote_allowed: tab.remote_allowed,
+            pending_input: tab.pending_input.clone(),
+            pending_source: tab.pending_source,
+            temp_file: tab.temp_file.clone(),
         })
     }
 
@@ -54,18 +69,25 @@ impl Workspace {
         };
         let ix = pane.tabs.len() - 1;
         let tab = &mut pane.tabs[ix];
-        // its shell started long ago, input needs no waiting
-        tab.ready = true;
         tab.custom_title = moved.custom_title;
         tab.name = moved.name;
         tab.pinned = moved.pinned;
-        let id = tab.view.entity_id();
+        tab.color = moved.color;
+        tab.remote_allowed = moved.remote_allowed;
+        tab.pending_input = moved.pending_input;
+        tab.pending_source = moved.pending_source;
+        tab.temp_file = moved.temp_file;
+        let view = tab.view.clone();
+        let id = view.entity_id();
         // a pinned tab goes after the pinned ones already there
         let to = if moved.pinned {
             pane.tabs.iter().filter(|tab| tab.pinned).count() - 1
         } else {
             ix
         };
+        view.update(cx, |view, cx| view.set_font_size(moved.font_size, cx));
+        // its shell started long ago, input it held back goes now
+        self.mark_ready(&view, cx);
         self.move_tab(pane_id, ix, to, cx);
         if let Some((name, color)) = moved.group {
             self.restore_group(pane_id, to, &name, color);
@@ -84,9 +106,13 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some((_, empty)) = self.take_tab(pane_id, ix) else {
+        let Some((mut tab, empty)) = self.take_tab(pane_id, ix) else {
             return;
         };
+        // the new window's tab owns its file and pane now
+        tab.temp_file = None;
+        tab.moved = true;
+        drop(tab);
         if empty {
             self.layout.remove_leaf(pane_id);
             if self.layout.first_pane_id().is_none() {
@@ -269,6 +295,43 @@ mod x11 {
 mod tests {
 
     use crate::ui::workspace::test_support::*;
+
+    #[gpui::test]
+    fn a_moved_tab_keeps_its_state_and_its_pane_stays_open(cx: &mut TestAppContext) {
+        use crate::automation::events::{BusEvent, EventBus};
+
+        let (ws, cx) = open(cx, 2);
+        let moved = terminal(&ws, cx, 1);
+        let pane = moved.read_with(cx, |t, _| t.pane_id);
+        let color = gpui::hsla(0.5, 0.5, 0.5, 1.);
+        ws.update(cx, |ws, cx| {
+            let tab = &mut ws.pane_mut(ws.focused).unwrap().tabs[1];
+            tab.remote_allowed = true;
+            tab.color = Some(color);
+            tab.view
+                .update(cx, |view, cx| view.set_font_size(Some(20.), cx));
+        });
+        let mut events = EventBus::subscribe();
+        run_actions(&ws, cx, r#"{"activate_tab": 2}, "move_tab_to_new_window""#);
+        let own = cx.update(|window, _| window.window_handle().window_id());
+        let second = workspaces(cx)
+            .into_iter()
+            .find(|w| w.window_id() != own)
+            .expect("no second window");
+        let kept = cx.cx.update(|cx| {
+            second
+                .read_with(cx, |ws, cx| {
+                    let tab = &ws.focused_pane().tabs[0];
+                    let size = tab.view.read(cx).custom_font_size();
+                    (tab.remote_allowed, tab.color, size)
+                })
+                .unwrap()
+        });
+        assert_eq!(kept, (true, Some(color), Some(20.)));
+        while let Ok(event) = events.try_recv() {
+            assert_ne!(event, BusEvent::PaneClosed { pane });
+        }
+    }
 
     #[gpui::test]
     fn tabs_move_between_windows_with_their_shells(cx: &mut TestAppContext) {

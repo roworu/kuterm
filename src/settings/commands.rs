@@ -74,16 +74,13 @@ impl Input {
     }
 }
 
-/// where a step acts, written as "new_split_right", "pane:tests", "all_panes_in_tab" or
-/// "new_window"
+/// where a step acts, written as "new_split_right", "pane:tests" or "new_window"
 #[derive(Clone, Debug, PartialEq)]
 pub enum Target {
     /// split the focused pane and act in the new tab
     NewSplit(Side),
     /// the pane named, titled or numbered like this
     Pane(String),
-    /// every pane of the window, like broadcast input
-    AllPanes,
     /// a window of its own
     NewWindow,
 }
@@ -105,7 +102,6 @@ impl Target {
             "new_split_right" => Some(Self::NewSplit(Side::Right)),
             "new_split_up" => Some(Self::NewSplit(Side::Up)),
             "new_split_down" => Some(Self::NewSplit(Side::Down)),
-            "all_panes_in_tab" => Some(Self::AllPanes),
             "new_window" => Some(Self::NewWindow),
             _ => text
                 .strip_prefix("pane:")
@@ -151,8 +147,8 @@ impl<'de> Deserialize<'de> for CommandStep {
                     .ok_or_else(|| Error::custom("a target is text like \"pane:tests\""))?;
                 Some(Target::parse(target).ok_or_else(|| {
                     Error::custom(format!(
-                        "unknown target {target:?}, use \"new_split_right\", \"pane:<name>\", \
-                         \"all_panes_in_tab\" or \"new_window\""
+                        "unknown target {target:?}, use \"new_split_right\", \"pane:<name>\" \
+                         or \"new_window\""
                     ))
                 })?)
             }
@@ -196,8 +192,6 @@ pub enum CommandAction {
     PinTab,
     /// open a tab with the active tab's profile and folder right next to it
     DuplicateTab,
-    /// open the default profile incognito
-    NewIncognitoTab,
     /// copy the active tab's folder to the clipboard
     CopyFolder,
     /// move the active tab with its running programs into a window of its own
@@ -251,12 +245,6 @@ pub enum CommandAction {
     ShowHiddenText,
     /// type the name `kuterm msg --pane` finds the active tab by
     RenamePane,
-    /// type into every pane of the window at once, or stop
-    ToggleBroadcastAll,
-    /// join the focused pane to the panes typed into together, or take it out
-    ToggleBroadcastPane,
-    /// scroll the focused pane together with the other joined panes, or take it out
-    ToggleScrollSync,
     /// ask for a command typed into the active tab once its prompt is back
     QueueCommand,
     /// list the active tab's queued commands to edit, reorder or drop them
@@ -656,7 +644,6 @@ mod tests {
             r#"{"commands": [{"name": "x", "actions": [
                 "new_tab",
                 {"target": "pane:tests", "action": {"type": "cargo test\n"}},
-                {"target": "all_panes_in_tab", "action": {"type": "uptime\n"}},
                 {"target": "new_split_down", "action": {"type": "clear\n"}},
                 {"target": "new_window", "action": "about"},
             ]}]}"#,
@@ -666,9 +653,8 @@ mod tests {
         assert_eq!(steps[0].target, None);
         assert_eq!(steps[1].target, Some(Target::Pane("tests".into())));
         assert_eq!(steps[1].action, CommandAction::Type("cargo test\n".into()));
-        assert_eq!(steps[2].target, Some(Target::AllPanes));
-        assert_eq!(steps[3].target, Some(Target::NewSplit(Side::Down)));
-        assert_eq!(steps[4].target, Some(Target::NewWindow));
+        assert_eq!(steps[2].target, Some(Target::NewSplit(Side::Down)));
+        assert_eq!(steps[3].target, Some(Target::NewWindow));
 
         for json in [
             r#"{"commands": [{"name": "x", "actions": [{"target": "sideways", "action": "about"}]}]}"#,

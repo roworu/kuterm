@@ -139,18 +139,13 @@ impl Workspace {
             return;
         };
         let terminal = self.terminal_at(pane, ix, cx);
-        let reads = matches!(request, Request::GetText { .. } | Request::Query { .. });
-        // nothing outside may read what an incognito tab shows
-        if reads && terminal.read(cx).incognito {
-            reply
-                .send(Reply::failed("the pane is incognito, it can't be read"))
-                .ok();
-            return;
-        }
         let answer = match request {
             Request::SendText { text, .. } => {
-                self.input_to(pane, ix, InputSource::Remote, text.into_bytes(), cx);
-                Reply::done()
+                if self.input_to(pane, ix, InputSource::Remote, text.into_bytes(), cx) {
+                    Reply::done()
+                } else {
+                    Reply::failed("input was refused, a program asks for a password")
+                }
             }
             Request::GetText { scrollback, .. } => {
                 let (text, hidden) = terminal.read(cx).visible_screen_text(scrollback);
@@ -222,14 +217,8 @@ impl Workspace {
                     }
                 }
             }
-            Request::Run {
-                command, client, ..
-            } => {
-                let source = match client.as_deref() {
-                    Some("mcp") => InputSource::Mcp,
-                    _ => InputSource::Remote,
-                };
-                self.ask_to_run(pane, ix, command, source, reply, cx);
+            Request::Run { command, .. } => {
+                self.ask_to_run(pane, ix, command, InputSource::Remote, reply, cx);
                 return;
             }
             Request::Queue { command, .. } => {
@@ -348,8 +337,11 @@ fn run_in(
 ) -> Reply {
     match this.find_view(view) {
         Some((pane, ix)) => {
-            this.input_to(pane, ix, source, format!("{command}\r").into_bytes(), cx);
-            Reply::done()
+            if this.input_to(pane, ix, source, format!("{command}\r").into_bytes(), cx) {
+                Reply::done()
+            } else {
+                Reply::failed("input was refused, a program asks for a password")
+            }
         }
         None => Reply::failed("the pane is gone"),
     }
@@ -359,6 +351,33 @@ fn run_in(
 mod tests {
 
     use crate::ui::workspace::test_support::*;
+
+    #[gpui::test]
+    fn remote_input_refused_at_a_password_prompt_is_no_success(cx: &mut TestAppContext) {
+        use crate::automation::Request;
+        use crate::ui::windows::handle_request;
+
+        let (ws, cx) = open(cx, 1);
+        cx.update(|window, _| window.activate_window());
+        let shell = terminal(&ws, cx, 0);
+        shell.update(cx, |t, _| {
+            t.input(
+                InputSource::Keyboard,
+                b"python3 -c \"import getpass; getpass.getpass('P' 'w: ')\"\r".as_slice(),
+            )
+        });
+        wait_until(cx, "the password prompt never showed", |cx| {
+            shell.update(cx, |t, _| t.visible_screen_text(false).0.contains("Pw:"))
+        });
+        let (tx, mut rx) = futures::channel::oneshot::channel();
+        let request = Request::SendText {
+            text: "secret\r".into(),
+            pane: None,
+        };
+        cx.cx.update(|cx| handle_request(request, tx, cx));
+        let reply = rx.try_recv().unwrap().expect("no reply yet");
+        assert!(!reply.ok, "{reply:?}");
+    }
 
     #[gpui::test]
     fn remote_requests_open_tabs_type_and_list(cx: &mut TestAppContext) {
@@ -554,7 +573,6 @@ mod tests {
         let run = |command: &str| Request::Run {
             pane: None,
             command: command.into(),
-            client: None,
         };
         let terminal = terminal(&ws, cx, 0);
         let shows = |cx: &mut VisualTestContext, text: &str| {
